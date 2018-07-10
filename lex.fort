@@ -1,0 +1,185 @@
+;; types
+Int = Signed 64
+Bool = Unsigned 1
+Char = Unsigned 8 ;; BAL:
+String = Array Char ;; contents includes one for null character
+Array = \a => /record
+  length: Int
+  contents: Array_ a
+Stack = \a => /record
+  top: Int
+  array: Array a
+Token = /record
+  offset: Int
+  len: Int
+Maybe = \a => Int ;; BAL:
+
+;; primitives
+== = equal
+equal: Int -> Int -> Bool
+
+!= = not-equal
+not-equal: Int -> Int -> Bool
+
+> = greater-than
+greater-than: Int -> Int -> Bool
+
+>= = greater-than-or-equal
+greater-than-or-equal: Int -> Int -> Bool
+
+< = less-than
+less-than: Int -> Int -> Bool
+
+<= = less-than-or-equal
+less-than-or-equal: Int -> Int -> Bool
+
+- = sub
+sub: Int -> Int -> Int
+
+* = mul
+mul: Int -> Int -> Int
+
+/ = div
+div: Int -> Int -> Int
+
+& = bit-and
+bit-and: Int -> Int -> Int
+
+:= = store
+store: a -> a -> () ;; BAL:
+
+array-index: Array_ a -> Int -> a
+with-array_: Int -> (Array_ a -> b) -> b
+min-bound-int: Int
+
+;; code
+with-stack: Int -> (Stack a -> b) -> b =
+  \n => \f => with-array n (\a => f {;top = 0 ;array = a })
+
+with-array: Int -> (Array a -> b) -> b =
+  \n => \f => with-array_ n (\a => f {;length = n ;contents = a })
+
+! = not
+not: Bool -> Bool = `== false
+
+|| = or
+or: Bool -> Bool -> Bool = \x => \y => /if
+  x => x
+  _ => y
+
+&& = and
+and = \x:Bool => \y:Bool => /if
+  x => y
+  _ => x
+
+^ = pow
+pow: Int -> Int -> Int = go 1 ;; exponent must be non-negative
+  /where
+    go = \r => \a => \b => /if
+      b == 0 => r
+      b & 1  => go (r * a) a (b - 1)
+      _      => go r (a * a) (b / 2)
+
+is-space = `== " "
+is-dbl-quote = `== "\""
+is-digit = inclusive "0" "9"
+is-lower = \c => inclusive "a" "z" c || c == "_"
+is-upper = inclusive "A" "Z"
+is-oper = \c =>
+  inclusive "#" "'" c ||
+  inclusive "-" "/" c ||
+  inclusive "<" "@" c ||
+  elem c "*+!:\\^`|~" ;; BAL: expand this
+
+;; single char tokens: `(){}[],
+is-illegal = \c => (c < " " && c != eol) || c > "~"
+
+# = index
+index: Array a -> Int -> a = \arr => array-index (contents arr)
+
+nothing = min-bound-int
+
+push: Stack a -> a -> () = \stack => \a => /if
+  top stack >= length (array stack) => error "stack overflow"
+  _ => /do
+    stack # top stack := a
+    inc (top stack)
+
+inc: Int -> () = \i => i := i + 1
+is-semi = `== ";"
+is-string = is-dbl-quote
+is-nothing = `== nothing
+is-backslash = `== "\\"
+is-eol = `== eol
+eol = "\n"
+
+maybe: b -> (a -> b) -> Maybe a -> b = \b => \f => \ma => /case ma /of
+  is-nothing => b
+  _ => f ma
+
+next-is = maybe false
+
+is-ident = \n => \c => is-lower c || is-upper c || c == "/" && next-is is-lower n
+is-comment = \n => \c => is-semi c && next-is is-semi n
+is-num = \n => \c => is-digit c || c == "-" && next-is is-digit n
+
+#? = safe-index
+safe-index: Array a -> Int -> Maybe a = \a => \i => /if
+  i >= length a => nothing
+  _ => contents a # i
+
+lex: Array Char -> (Stack Token -> b) -> b = \file => \done => go 0 0
+  /where
+    go = \cursor => \mark => with-stack n (\tokens => start)
+      /where
+        advance = inc cursor
+        current = file #? cursor
+        previous = file # (cursor - 1)
+        accept = /do
+          push tokens {;offset = mark ;len = 1 + cursor - mark }
+          drop
+        drop = /do
+          mark := cursor
+          start
+
+        many-cont = \g => \f => go
+          /where
+            go = /case current /of
+              is-nothing => g
+              f => /do
+                advance
+                go
+              _ => g
+
+        many = many-cont accept
+
+        start = /case current /of
+          is-nothing => done tokens
+          _ => /do
+            advance
+            /case previous /of
+              is-space           => drop
+              is-ident current   =>
+                  many (\c => is-lower c || is-upper c || is-digit c || is-oper c)
+              is-num current     => many is-digit
+              is-comment current => many-cont drop (`!= eol)
+              is-oper    => many is-oper
+              is-string  => string
+              is-illegal => drop
+              _          => accept
+          /where
+            string = /case current /of
+              is-nothing => error "unterminated string (EOF)"
+              _ => /do
+                advance
+                /case previous /of
+                  is-dbl-quote => accept
+                  is-backslash => esc-char
+                  _            => string
+              /where
+                esc-char = /case current /of
+                  is-nothing => error "incomplete escape character (EOF)"
+                  is-eol     => error "incomplete escape character (EOL)"
+                  _          => /do
+                    advance
+                    string

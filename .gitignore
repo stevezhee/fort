@@ -1,0 +1,10 @@
+.stack-work/
+fort.cabal
+*~
+*.o
+*.s
+*.out
+*.gz
+*.keep
+*.ll
+*.fort.hs
