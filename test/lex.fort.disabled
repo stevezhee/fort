@@ -1,7 +1,7 @@
 ;; types
-Int = Signed 64
-Bool = Unsigned 1
-Char = Unsigned 8 ;; BAL:
+Int = /signed 64
+Bool = /unsigned 1
+Char = /unsigned 8 ;; BAL:
 String = Array Char ;; contents includes one for null character
 Array = \a => /record
   length: Int
@@ -72,8 +72,8 @@ and = \x:Bool => \y:Bool => /if
   x => y
   _ => x
 
-^ = pow
-pow: Int -> Int -> Int = go 1 ;; exponent must be non-negative
+^ = powi
+powi: Int -> Int -> Int = go 1 ;; exponent must be non-negative
   /where
     go = \r => \a => \b => /if
       b == 0 => r

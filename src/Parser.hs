@@ -13,7 +13,10 @@
 -- {-# OPTIONS_GHC -fno-warn-type-defaults #-}
 -- {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
-module Parser where
+module Parser
+  ( parseAndCodeGen
+  )
+where
 
 import Control.Applicative
 import Control.Monad.State
@@ -27,16 +30,17 @@ import Text.Earley hiding (satisfy)
 import Text.Regex.Applicative
 import qualified Language.Lexer.Applicative as L
 import qualified Text.Earley as E
+import System.Exit
 
 pCon = satisfy (startsWith upper)
-pUnsigned :: P r (L Int)
-pUnsigned = fmap read <$> satisfy (startsWith digit)
+pSize :: P r (L Int)
+pSize = fmap read <$> satisfy (startsWith digit)
 pVar = satisfy (startsWith lower)
 pOp = satisfy (\s -> startsWith oper s && not (s `elem` reservedWords))
 pBind :: P r a -> P r a
 pBind p = p <* reserved "="
 
-reservedWords = ["\\", "=", "=>", "->", ":", "/where", "/if", "/case", "/of", "/do", "/record", ",", ";", "{", "}", "[", "]", "(", ")"]
+reservedWords = ["\\", "=", "=>", "->", ":", "/where", "/if", "/case", "/of", "/do", "/record", "/signed", "/unsigned", "/address", "/array", ",", ";", "{", "}", "[", "]", "(", ")"]
 
 pTuple :: ([a] -> b) -> P r a -> P r b
 pTuple f p = f <$> parens (sepMany (reserved ",") p)
@@ -64,12 +68,16 @@ grammar = mdo
     (TyFun <$> pTy1 <*> (reserved "->" *> pTy2) <?> "function type") <|>
     pTy1
   pTy1  <- rule $
-    (TyApp <$> pTy0 <*> pTy1 <?> "type constructor") <|> pTy0
+    (TyApp <$> pTy0 <*> pTy1 <?> "type application") <|> pTy0
   pTy0 <- rule $
+    (pure TyUnsigned <* reserved "/unsigned") <|>
+    (pure TySigned <* reserved "/signed") <|>
+    (pure TyAddress <* reserved "/address") <|>
+    (pure TyArray <* reserved "/array") <|>
     (TyCon <$> pCon <?> "type constructor") <|>
     (TyVar <$> pVar <?> "type variable") <|>
     (TyRecord <$> (reserved "/record" *> blockList (pTypedVar (,))) <?> "record type") <|>
-    (TySize <$> pUnsigned <?> "sized type") <|>
+    (TySize <$> pSize <?> "sized type") <|>
     pTuple TyTuple pType <?> "tuple type"
   pAscription <- rule $ reserved ":" *> pType <?> "type ascription"
   pOptionalAscription <- rule $ pAscription <|> pure TyNone
@@ -82,12 +90,17 @@ grammar = mdo
     (Lam <$> pLam pPat <*> pLamE <?> "lambda expression") <|>
     pAppE
   pAppE <- rule $
-    (mkApp <$> pAppE <*> pE0 <?> "application") <|>
-    pE0
-  pE0 <- rule $
+    (mkApp <$> pAppE <*> pKeywordE <?> "application") <|>
+    pKeywordE
+  pKeywordE <- rule $
     (Sequence <$> (reserved "/do" *> blockList pExpr) <?> "do block") <|>
     (mkCase <$> (reserved "/case" *> pExpr <* reserved "/of") <*> blockList alt <?> "case expression") <|>
     (mkIf <$> (reserved "/if" *> blockList alt) <?> "if expression") <|>
+    pAscriptionE
+  pAscriptionE <- rule $
+    (Ascription <$> pE0 <*> pAscription) <|>
+    pE0
+  pE0 <- rule $
     (Record <$> blockList pExprDecl <?> "record") <|>
     (Tuple <$> parens (sepMany (reserved ",") (optional pExpr)) <?> "tuple") <|>
     (Prim <$> pPrim)
@@ -96,6 +109,7 @@ grammar = mdo
     (pTuple TupleP pPat <*> pOptionalAscription <?> "tuple pattern")
   return (blockItems pDecl)
   where
+
     blockList = braces . blockItems
     blockItems p = many (reserved ";" *> p) -- BAL:
     braces p = reserved "{" *> p <* reserved "}"
@@ -151,7 +165,7 @@ pPrim =
   where
     f :: Token -> Prim
     f (L a b) = case b of
-      [c] -> Char $ L a c
+      ['"', c, '"'] -> Char $ L a c
       _ -> String $ L a b
     g :: Token -> Prim
     g (L a b) = Int $ L a $ read b
@@ -183,8 +197,8 @@ oper c =
 inclusive :: Ord a => a -> a -> a -> Bool
 inclusive a b c = c >= a && c <= b
 
-tt = do
-  let fn = "pow.fort"
+parseAndCodeGen fn = do
+  putStrLn ("compiling " ++ fn)
   s <- readFile fn
   let eab = streamToEitherList $ runLexer (mconcat
         [ L.token (longest tok)
@@ -198,7 +212,8 @@ tt = do
       case (asts, unconsumed rpt) of
         ([ast], []) -> do
           putStrLn "; it parsed!"
-          writeFile (fn ++ ".hs") $ show $ ppDecls fn ast
+          let oFile = "generated/" ++ fn ++ ".hs"
+          writeFile oFile $ show $ ppDecls fn ast
           -- return (Just ast)
           -- print $ pp $ mkModule fn ast
         (_, []) -> do
@@ -206,6 +221,7 @@ tt = do
           -- print toks
           mapM_ (\z -> putStrLn "" >> mapM_ print z) asts
           -- return Nothing
+          exitFailure
         _ -> do
           let errtok@(L errloc _) = toks !! (position rpt - 1)
           print "errors :("
@@ -215,6 +231,7 @@ tt = do
           print errtok
           print errloc
           print ()
+          exitFailure
           -- return Nothing
 
 column x = case locOf x of

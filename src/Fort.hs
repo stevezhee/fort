@@ -19,7 +19,7 @@ data Decl
   | ExprDecl ExprDecl
   deriving Show
 
-data ExprDecl = ED (Var, Type) Expr deriving Show
+data ExprDecl = ED{ edLHS :: (Var, Type), edRHS :: Expr } deriving Show
 
 data Type
   = TyApp Type Type
@@ -30,7 +30,11 @@ data Type
   | TyVar Var
   | TyCon Con
   | TySize (L Int)
-  | TyNone
+  | TyNone -- BAL: remove
+  | TyAddress
+  | TyArray
+  | TySigned
+  | TyUnsigned
   deriving (Show)
 
 data Expr
@@ -43,11 +47,23 @@ data Expr
   | If Expr Expr Expr
     -- expr or terminator
   | Sequence [Expr] -- BAL: remove
-  | Store Expr Expr -- BAL: remove
   | Record [ExprDecl]
   | Tuple [Maybe Expr]
   | Ascription Expr Type
   -- BAL: ? | Terminator Terminator -- BAL: break this apart from expr
+  deriving Show
+
+data Pat
+  = VarP Var Type
+  | TupleP [Pat] Type
+  deriving Show
+
+data Prim
+  = Var Var
+  | String (L String)
+  | Int (L Int)
+  | Char (L Char)
+  | Op Op
   deriving Show
 
 ppLoc :: Pretty a => L a -> Doc x
@@ -75,10 +91,10 @@ ppDecls fn xs = vcat $
   , "import qualified LLVM as Prim"
   , "import Data.String (fromString)"
   , "import Control.Monad.Fix (mfix)"
-  , "import Prelude (fromInteger, (>>=), return, fail, ($), IO)"
+  , "import Prelude (fromInteger, (>>=), return, fail, ($), IO, (.))"
   , ""
-  , "codegen :: IO ()"
-  , "codegen" <+> "=" <+> "Prim.codegen" <+> pretty (show fn) <+>
+  , "main :: IO ()"
+  , "main" <+> "=" <+> "Prim.codegen" <+> pretty (show fn) <+>
     brackets (commaSep [ "Prim.unTFunc" <+> ppFuncVar v | Just v <- map mFuncVar xs ])
   , ""
   ] ++ map ppDecl xs
@@ -89,9 +105,9 @@ ppDecl x = case x of
   OpDecl a b -> parens (ppOp a) <+> "=" <+> "Prim.operator" <+> ppVar b
   PrimDecl a b -> vcat
     [ ppAscription (ppVar a) b
-    , ppVar a <+> "=" <+> "Prim." <> ppVar a
+    , ppVar a <+> "=" <+> "Prim." <> pretty (show (ppVar a))
     ]
-  ExprDecl a -> ppExprDecl True a
+  ExprDecl a -> ppExprDecl True [] a
 
 ppAscription :: Doc x -> Type -> Doc x
 ppAscription d x = case x of
@@ -108,19 +124,31 @@ mFuncVar x = case x of
     _ -> Just v
   _ -> Nothing
 
-ppExprDecl :: Bool -> ExprDecl -> Doc x
-ppExprDecl isTopLevel (ED (v,t) e) = case e of
-  Prim a -> lhs <+> "=" <+> ppPrim a
+ppExprDecl :: Bool -> [String] -> ExprDecl -> Doc x
+ppExprDecl isTopLevel labels (ED (v,t) e) = case e of
+  Prim a | isTopLevel -> lhs <+> "=" <+> ppPrim a
+  Prim a -> "let" <+> lhs <+> "=" <+> ppPrim a
   _ | isTopLevel -> vcat
         [ lhs <+> "=" <+> "Prim.call" <+> ppFuncVar v
-        , ppFuncVar v <+> "=" <+> "Prim.func" <+> stringifyVar v <+> ppTerm e
+        , ppFuncVar v <+> "=" <+> "Prim.func" <+> stringifyVar v <+> ppTerm labels e
         ]
-  _ -> vcat
-    [ "let" <+> lhs <+> "=" <+> "Prim.jump" <+> ppLabelVar v
-    , ppLabelVar v <+> "<-" <+> "Prim.label" <+> stringifyVar v <+> ppTerm e
-    ]
+  _ -> ppLabelAscription (ppVar v) t <+> "<-" <+> "Prim.label" <+> stringifyVar v <+> ppTerm (unLoc v : labels) e
   where
     lhs = ppAscription (ppVar v) t
+
+ppLabelAscription :: Doc x -> Type -> Doc x
+ppLabelAscription d x = case x of
+  TyNone -> d
+  _ -> d <+> "::" <+> ppLabelType x
+
+ppLabelType :: Type -> Doc x
+ppLabelType x = case x of
+  TyFun a b -> "Prim.TLabel" <> ppType a <+> ppType b
+  _ -> ppType x
+
+
+edLabel :: ExprDecl -> String
+edLabel = unLoc . fst . edLHS
 
 ppFuncVar :: Var -> Doc x
 ppFuncVar v = "func_" <> ppVar v
@@ -131,30 +159,51 @@ ppLabelVar v = "label_" <> ppVar v
 ppType :: Type -> Doc x
 ppType x = case x of
   TyApp a b -> ppType a <+> ppType b
-  TyCon a | unLoc a == "Signed" -> "Prim.I Prim.Signed"
-  TyCon a | unLoc a == "Unsigned" -> "Prim.I Prim.Unsigned"
+  TySigned -> "Prim.I Prim.Signed"
+  TyUnsigned -> "Prim.I Prim.Unsigned"
+  TyAddress -> "Prim.Address"
+  TyArray -> error $ "ppType:" ++ show x
   TyCon a -> ppCon a
   TySize a -> "Prim.Size" <> ppInt a
   TyFun a b -> ppType a <+> "->" <+> ppType b
+  TyTuple [] -> "Prim.Void"
+  TyTuple [a] -> ppType a
   TyTuple bs -> ppTuple $ map ppType bs
   TyNone -> mempty
-  _ -> error $ show x
+  TyLam _ _ -> error $ "ppType:" ++ show x
+  TyRecord _ -> error $ "ppType:" ++ show x
+  TyVar a -> parens ("Prim.I" <+> ppVar a <+> "_" <> ppVar a) -- BAL: need to ensure no conflicts with 2nd variable and user variables
 
 ppExpr :: Expr -> Doc x
 ppExpr x = case x of
   Prim a -> ppPrim a
   App a b -> parens (ppExpr a <+> ppExpr b)
   Tuple bs -> ppTuple $ map (maybe mempty ppExpr) bs
-  _ -> error $ show x
+  Lam{} -> error "ppExpr:" -- BAL: ppTerm?
+  Where{} -> error "ppExpr:" -- BAL: ppTerm?
+  If{} -> error "ppExpr:" -- BAL: ppTerm?
+  Sequence{} -> error "ppExpr:" -- BAL: ppTerm?
+  Record{} -> error "ppExpr:"
+  Ascription a b -> parens (ppAscription (ppExpr a) b)
 
-ppTerm :: Expr -> Doc x
-ppTerm x = case x of
-  Where a bs -> (vcat $ map (ppExprDecl False) bs ++ [ppTerm a])
-  Lam a b -> stringifyPat a <+> "$" <+> "\\" <> ppPat a <+> "->" <+> "mdo" <> line <> indent 2 (ppTerm b)
-  If a b c -> "Prim.if_" <+> parens (ppExpr a) <> line <> indent 2 (vcat [parens (ppTerm b), parens (ppTerm c)])
-  Prim{} -> "Prim.ret" <+> parens (ppExpr x)
-  App a b -> parens (ppExpr a) <+> parens (ppExpr b)
-  _ -> undefined
+ppTerm :: [String] -> Expr -> Doc x
+ppTerm labels = go
+  where
+    go :: Expr -> Doc x
+    go x = case x of
+      Where a bs -> (vcat $ map (ppExprDecl False lbls) bs ++ [ppTerm lbls a])
+        where
+          lbls = map edLabel bs
+      Lam a b -> stringifyPat a <+> "$" <+> "\\" <> ppPat a <+> "->" <+> "mdo" <> line <> indent 2 (go b)
+      If a b c -> "Prim.if_" <+> parens (ppExpr a) <> line <> indent 2 (vcat [parens (go b), parens (go c)])
+      Prim a -> "Prim.ret" <+> ppPrim a
+      App (Prim (Var a)) b
+        | isLabel a -> "Prim.jump" <+> ppVar a <+> parens (ppExpr b)
+        | otherwise -> "Prim.ret" <+> parens (ppVar a <+> parens (ppExpr b))
+      Sequence bs -> "Prim.ret" <+> parens ("Prim.sequence" <+> brackets (commaSep $ map ppExpr bs))
+      _ -> error $ "ppTerm:" ++ show x
+      where
+        isLabel a = unLoc a `elem` labels
 
 stringifyPat :: Pat -> Doc x
 stringifyPat = pretty . show . go
@@ -176,22 +225,14 @@ ppPat x = case x of
 
 ppInt :: L Int -> Doc x
 ppInt = ppLoc
+
 ppPrim :: Prim -> Doc x
 ppPrim x = case x of
   Var a -> ppVar a
   Int a -> ppInt a
   Op a -> ppOp a
-  _ -> undefined
+  String _ -> error $ "ppPrim:" ++ show x
+  Char a -> ppChar a
 
-data Pat
-  = VarP Var Type
-  | TupleP [Pat] Type
-  deriving Show
-
-data Prim
-  = Var Var
-  | String (L String)
-  | Int (L Int)
-  | Char (L Char)
-  | Op Op
-  deriving Show
+ppChar :: L Char -> Doc x
+ppChar c = parens ("Prim.char" <+> pretty (show (unLoc c)))

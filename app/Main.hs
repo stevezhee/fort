@@ -1,9 +1,9 @@
 module Main where
 
-import Fort
-import Eval
 import Parser
-import LLVM
+import System.Environment
 
 main :: IO ()
-main = putStrLn "hello, world."
+main = do
+  xs <- getArgs
+  mapM_ parseAndCodeGen xs

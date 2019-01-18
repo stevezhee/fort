@@ -62,7 +62,7 @@ app x y = case x of
   IfV a b c -> IfV a (app b y) (app c y)
   _ -> AppV x y
 
-tt = execState pow (St [])
+tt = execState powi (St [])
 
 data St = St
   { environment :: [(Var, Expr)]
@@ -79,13 +79,13 @@ etaExpand :: (MT a, MT b) => Type -> Val (a -> b) -> Val (a -> b)
 etaExpand (TyFun _ t) x = lam $ \a -> AppV (etaExpand t x) a
 etaExpand _ x = x
 
-pow :: (MonadFix m, MonadState St m) => m (Val (Int -> Int -> Int))
-pow = mdo
+powi :: (MonadFix m, MonadState St m) => m (Val (Int -> Int -> Int))
+powi = mdo
   go <- where_ "go" $ lam $ \r -> lam $ \a -> lam $ \b -> if_
     [(eq b (int 0), r)
     ,(bitAnd b (int 1), app3 go (mul r a) a (sub b (int 1)))
     ] (app3 go r (mul a a) (div_ b (int 2)))
-  where_ "pow" $ app go (int 1)
+  where_ "powi" $ app go (int 1)
 
 class MT a where monoType :: Proxy a -> Type
 

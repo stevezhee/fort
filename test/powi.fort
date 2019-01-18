@@ -1,10 +1,10 @@
 ;; types
-Int  = Signed 32
-Bool = Unsigned 1
+Int  = /signed 32
+Bool = /unsigned 1
 
 ;; primitives
-== = equal
-equal: (Int, Int) -> Bool
+== = equals
+equals: (Int, Int) -> Bool
 
 - = subtract
 subtract: (Int, Int) -> Int
@@ -15,19 +15,20 @@ multiply: (Int, Int) -> Int
 / = divide
 divide: (Int, Int) -> Int
 
-& = bitwise-and
-bitwise-and: (Int, Int) -> Int
+;; & = bitwise-and
+;; bitwise-and: (Int, Int) -> Int
 
 truncate: Int -> Bool
 
 ;; code
 is-odd: Int -> Bool = truncate
 
-^ = pow
-;; pow: (Int, Int) -> Int = go (1,,)
-pow: (Int, Int) -> Int = \(x,y) => go (1,x,y)
+^ = powi
+powi: (Int, Int) -> Int = go (1,,)
   /where
-    go = \(r,a,b) => /if
+    go: (Int, Int, Int) -> Int = \(r,a,b) => /if
       b == 0   => r
       is-odd b => go (r * a, a, b - 1)
       _        => go (r, a * a, b / 2)
+
+squared: Int -> Int = powi (,2)

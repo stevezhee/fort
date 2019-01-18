@@ -2,36 +2,31 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecursiveDo #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TupleSections #-}
-{-# LANGUAGE RebindableSyntax #-}
+{-# LANGUAGE UndecidableInstances #-}
 
-{-# OPTIONS_GHC -fno-warn-incomplete-patterns #-}
 {-# OPTIONS_GHC -fno-warn-missing-methods #-}
-{-# OPTIONS_GHC -fno-warn-missing-signatures #-}
-{-# OPTIONS_GHC -fno-warn-type-defaults #-}
-{-# OPTIONS_GHC -fno-warn-unused-do-bind #-}
-{-# OPTIONS_GHC -fno-warn-unused-imports #-}
-{-# OPTIONS_GHC -fno-warn-unused-matches #-}
 
 module LLVM where
 
 import Control.Monad.Fix
 import Control.Monad.Identity
 import Control.Monad.State
+import qualified Control.Monad as Monad
 import Data.ByteString.Short (ShortByteString)
 import Data.List
 import Data.Proxy
 import Data.Word
-import Prelude hiding (until, subtract, truncate)
+import Prelude hiding (until, subtract, truncate, sequence)
 import qualified Data.Map.Strict as M
 import qualified LLVM.AST as AST
 import qualified LLVM.AST.Typed as AST
+import qualified LLVM.AST.Type as AST
 import qualified LLVM.AST.Global as AST
-import qualified LLVM.AST.Constant as C
-import qualified LLVM.AST.IntegerPredicate as IR
+import qualified LLVM.AST.Constant as AST
+import qualified LLVM.AST.IntegerPredicate as AST
 import qualified LLVM.IRBuilder as IR
 import LLVM.IRBuilder.Internal.SnocList
 import LLVM.Pretty
@@ -57,12 +52,17 @@ subBlock s = do
 type M a = IR.IRBuilderT (State St) a
 
 instance Size sz => Num (I a sz) where
-  fromInteger i = I $ pure $ AST.ConstantOperand $ C.Int (size (Proxy :: Proxy sz)) i
+  fromInteger i = I $ pure $ AST.ConstantOperand $ AST.Int (size (Proxy :: Proxy sz)) i
+
+char :: Char -> UInt8
+char = fromInteger . toInteger . fromEnum
 
 data Signed
 data Unsigned
 data Size1
 data Size32
+data Size64
+data Size8
 data T a = T
 
 if_ :: IBool -> M a -> M a -> M a
@@ -102,11 +102,12 @@ mkFun x = fun{ AST.basicBlocks = patchPhis st bs0 }
 
 initSt = St M.empty M.empty (return ())
 
-tt = codegen "pow.fort" [unTFunc pow_func]
+tt = codegen "powi.fort" [unTFunc powi_func]
 
 codegen fn xs = do
   let m = mkModule $ map snd xs
-  writeFile (fn ++ ".ll") $ T.unpack $ ppllvm m
+  let oFile = "generated/" ++ fn ++ ".ll"
+  writeFile oFile $ T.unpack $ ppllvm m
 
 patchPhis st = map f
   where
@@ -130,11 +131,15 @@ freshVar x = f Proxy
       return $ I $ pure $ AST.LocalReference (tyLLVM p) n
 
 evalArgs :: Args a => a -> M [AST.Operand]
-evalArgs = sequence . unArgs
+evalArgs = Monad.sequence . unArgs
 
 class Args a where
   freshArgs :: [ShortByteString] -> M a
   unArgs :: a -> [M AST.Operand]
+
+instance (Ty (I a b)) => Args (I a b) where
+  freshArgs [a] = freshVar a
+  unArgs a = [unI a]
 
 instance (Ty (I a b), Ty (I c d)) => Args (I a b, I c d) where
   freshArgs [a, b] = (,) <$> freshVar a <*> freshVar b
@@ -174,6 +179,22 @@ call f a = I $ do
   bs <- evalArgs a
   IR.call (fst $ unTFunc f) $ map (,[]) bs
 
+type Void = I () ()
+
+sequence :: [Void] -> Void
+sequence xs = I $ do
+  Monad.sequence_ $ map unI xs
+  return voidOperand
+
+voidOperand = AST.ConstantOperand $ AST.Undef AST.void
+
+store :: (Address (I a b), I a b) -> Void
+store (x,y) = I $ do
+  a <- unI x
+  b <- unI y
+  IR.store a 0 b
+  return voidOperand
+
 binop :: (AST.Operand -> AST.Operand -> M AST.Operand) -> (I a b, I c d) -> I e f
 binop f (x, y) = I $ do
   a <- unI x
@@ -183,17 +204,23 @@ binop f (x, y) = I $ do
 arithop :: (AST.Operand -> AST.Operand -> M AST.Operand) -> (I a b, I a b) -> I a b
 arithop = binop
 
+equals :: (I a b, I a b) -> IBool
+equals = cmpop (IR.icmp AST.EQ)
+
 cmpop :: (AST.Operand -> AST.Operand -> M AST.Operand) -> (I a b, I a b) -> IBool
 cmpop = binop
 
-ret :: I a b -> M (T (I a b))
-ret x = do
-  IR.ret =<< unI x
+ret :: Ty (I a b) => I a b -> M (T (I a b))
+ret (x :: I a b) = do
+  a <- unI x
+  case () of
+    () | tyLLVM (Proxy :: Proxy (I a b)) == AST.void -> IR.retVoid
+    _ -> IR.ret a
   return T
 
 func :: (Args a, Ty b) =>
   String -> [ShortByteString] -> (a -> M (T b)) -> TFunc a b
-func n ns (f :: Args a => a -> M (T b)) = TFunc (AST.LocalReference rt fn, do
+func n ns (f :: Args a => a -> M (T b)) = TFunc (AST.ConstantOperand (AST.GlobalReference ft fn), do
   e <- freshArgs ns
   bs <- evalArgs e
   block "start"
@@ -208,15 +235,27 @@ func n ns (f :: Args a => a -> M (T b)) = TFunc (AST.LocalReference rt fn, do
   where
     fn = AST.mkName n
     rt = tyLLVM (Proxy :: Proxy b)
+    ft = AST.FunctionType
+      { AST.resultType = rt
+      , AST.argumentTypes = [] -- BAL: should be able to grab the argument types in a pure way
+      , AST.isVarArg = False
+      }
 
 class Size a where size :: Proxy a -> Word32
 
 instance Size Size1 where size _ = 1
 instance Size Size32 where size _ = 32
+instance Size Addr where size _ = 64 -- BAL: architecture dependent
+instance Size Size64 where size _ = 64
+instance Size Size8 where size _ = 8
 
-instance Size sz => Ty (I a sz) where tyLLVM _ = AST.IntegerType (size (Proxy :: Proxy sz))
+instance Size sz => Ty (I Signed sz) where tyLLVM _ = AST.IntegerType (size (Proxy :: Proxy sz))
+instance Size sz => Ty (I Unsigned sz) where tyLLVM _ = AST.IntegerType (size (Proxy :: Proxy sz))
 
-truncate :: Ty (I c d) => I a b -> I c d
+instance Ty a => Ty (I a Addr) where tyLLVM _ = AST.ptr (tyLLVM (Proxy :: Proxy a))
+instance Ty (I () ()) where tyLLVM _ = AST.void
+
+truncate :: (Ty (I c d)) => I a b -> I c d
 truncate x = f Proxy
   where
     f :: Ty (I c d) => Proxy (I c d) -> I c d
@@ -224,12 +263,28 @@ truncate x = f Proxy
       a <- unI x
       IR.trunc a (tyLLVM p)
 
+unop :: (AST.Operand -> M AST.Operand) -> I a b -> I c d
+unop f x = I $ do
+  a <- unI x
+  f a
+
+type Address a = I a Addr
+data Addr
+
+load :: Address (I a b) -> I a b
+load = unop (flip IR.load 0)
+
+add = arithop IR.add
+subtract :: (I a b, I a b) -> I a b
 subtract = arithop IR.sub
-equals = cmpop (IR.icmp IR.EQ)
 multiply = arithop IR.mul
 divide = arithop IR.sdiv
+bitwise_and :: (I a b, I a b) -> I a b
+bitwise_and = arithop IR.and
 
 type SInt32 = I Signed Size32
+type SInt64 = I Signed Size64
+type UInt8 = I Unsigned Size8
 type IBool = I Unsigned Size1
 
 operator :: ((a,b) -> c) -> a -> b -> c
@@ -240,8 +295,8 @@ operator = curry
 (./) = operator divide
 (.==) = operator equals
 
-pow_func :: TFunc (SInt32, SInt32) SInt32
-pow_func = func "pow" ["x", "y"] $ \(x, y) -> mdo
+powi_func :: TFunc (SInt32, SInt32) SInt32
+powi_func = func "powi" ["x", "y"] $ \(x, y) -> mdo
   go <- label "go" ["r", "a", "b"] $ \(r, a, b) -> mdo
     if_ (b .== 0)
       (ret r)
@@ -251,5 +306,5 @@ pow_func = func "pow" ["x", "y"] $ \(x, y) -> mdo
       )
   jump go (1, x, y)
 
-pow :: (SInt32, SInt32) -> SInt32
-pow = call pow_func
+powi :: (SInt32, SInt32) -> SInt32
+powi = call powi_func

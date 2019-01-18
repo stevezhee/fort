@@ -1,0 +1,21 @@
+;; types
+Char = /unsigned 8
+Bool = /unsigned 1
+
+;; primitives
+== = equals
+equals: (Char, Char) -> Bool
+
+foo: (Bool, Char) -> Char = \(p, c) => /if
+  c == "a" => "b"
+  c == "b" => "c"
+  p => c
+  _ => "z"
+
+bar: (Bool, Char) -> Char = \(p, c) => /if
+  c == "a" => "b"
+  _ => /if
+    c == "b" => "c"
+    _ => /if
+      p => c
+      _ => "z"
