@@ -90,20 +90,49 @@ ppDecls fn xs = vcat $
   , "{-# LANGUAGE RebindableSyntax #-}"
   , "{-# LANGUAGE OverloadedStrings #-}"
   , "{-# OPTIONS_GHC -fno-warn-missing-signatures #-}"
+  , "{-# LANGUAGE MultiParamTypeClasses #-}"
+  , "{-# LANGUAGE FunctionalDependencies #-}"
+  , "{-# LANGUAGE TypeSynonymInstances #-}"
+  , "{-# LANGUAGE FlexibleInstances #-}"
   , ""
   , "import qualified LLVM as Prim"
   , "import Data.String (fromString)"
   , "import Control.Monad.Fix (mfix)"
   , "import Prelude (fromInteger, (>>=), return, fail, ($), IO, (.))"
+  , "import Data.Proxy (Proxy(..))"
   , ""
   , "main :: IO ()"
   , "main" <+> "=" <+> "Prim.codegen" <+> pretty (show fn) <+>
     brackets (commaSep [ "Prim.unTFunc" <+> ppFuncVar v | Just v <- map mFuncVar xs ])
   , ""
-  ] ++ map ppDecl xs
+  ] ++ map ppFieldClass (allFieldDecls xs) ++ map ppDecl xs
+
+allFieldDecls :: [Decl] -> [String]
+allFieldDecls = nub . sort . foldl' (\a b -> a ++ fieldDecls b) []
+
+fieldDecls :: Decl -> [String]
+fieldDecls x = case x of
+  TyDecl _ (TyRecord bs) -> map (canonicalizeName . unLoc . fst) bs
+  _ -> []
+
+ppFieldClass :: String -> Doc x
+ppFieldClass v = "class Has_" <> pretty v <+> "a b | a -> b where" <+> pretty v <+> ":: Prim.Address a -> Prim.Address b"
+
+ppFieldInstance :: Con -> ((Var, Type), Int) -> Doc x
+ppFieldInstance c ((v,t), i) =
+  "instance Has_" <> ppVar v <+> ppCon c <+> ppType t <+> "where" <+> ppVar v <+> "= Prim.fld" <+> pretty i
 
 ppDecl :: Decl -> Doc x
 ppDecl x = case x of
+  TyDecl a (TyRecord bs) -> vcat $
+    [ "data" <+> ppCon a <+> "=" <+> ppCon a
+    , "instance Prim.Ty" <+> ppCon a <+> "where" <> line <> indent 2 (
+        "tyLLVM _ = Prim.tyStruct" <+> line <> indent 2 (brackets (commaSepV
+          [ "Prim.tyLLVM" <+> parens ("Proxy :: Proxy" <+> ppType t) | (_,t) <- bs ]
+        )))
+    ] ++
+    map (ppFieldInstance a) (zip bs [0 ..])
+
   TyDecl a b -> "type" <+> ppCon a <+> "=" <+> ppType b
   OpDecl a b -> parens (ppOp a) <+> "=" <+> "Prim.operator" <+> ppVar b
   PrimDecl a b -> vcat
@@ -173,7 +202,7 @@ ppType x = case x of
   TyTuple bs -> ppTuple $ map ppType bs
   TyNone -> mempty
   TyLam _ _ -> error $ "ppType:" ++ show x
-  TyRecord _ -> error $ "ppType:" ++ show x
+  TyRecord _ -> "Prim.MyStruct" -- BAL: error $ "ppType:" ++ show x
   TyVar a -> parens ("Prim.I" <+> ppVar a)
 
 ppExpr :: Expr -> Doc x
@@ -219,6 +248,10 @@ ppTuple = parens . commaSep
 
 commaSep :: [Doc x] -> Doc x
 commaSep = hcat . intersperse ", "
+
+commaSepV :: [Doc x] -> Doc x
+commaSepV [] = mempty
+commaSepV (x:ys) = vcat (x : [ "," <> y | y <- ys ])
 
 ppPat :: Pat -> Doc x
 ppPat x = case x of

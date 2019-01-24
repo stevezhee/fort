@@ -7,6 +7,9 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE UndecidableInstances #-}
 
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE FunctionalDependencies #-}
+
 {-# OPTIONS_GHC -fno-warn-missing-methods #-}
 
 module LLVM where
@@ -265,8 +268,38 @@ unop f x = I $ do
 
 instance Ty a => Ty (Array a) where tyLLVM _ = AST.ArrayType 0 (tyLLVM (Proxy :: Proxy a)) -- BAL: using unsized for now
 
-index :: (Address (Array (I a)), Idx) -> Address (I a) -- BAL: index type should be tied to the size of the array
-index = binop (\a b -> IR.gep a [AST.ConstantOperand $ AST.Int 32 0, b])
+index :: (Address (Array a), Idx) -> Address a -- BAL: index type should be tied to the size of the array
+index = gep
+
+gep :: (Address a, UInt32) -> Address b
+gep = binop (\a b -> IR.gep a [constInt 0, b])
+
+constInt :: Integer -> AST.Operand
+constInt = AST.ConstantOperand . AST.Int 32
+
+constN :: Integer -> UInt32
+constN = I . pure . constInt
+
+fld :: Integer -> Address a -> Address b
+fld i r = gep (r, constN i)
+
+
+tyStruct :: [AST.Type] -> AST.Type
+tyStruct = AST.StructureType False
+
+-- BAL: remove
+-- data MyStruct
+
+-- instance Ty MyStruct where
+--   tyLLVM _ = tyStruct
+--     [ tyLLVM (Proxy :: Proxy SInt32)
+--     , tyLLVM (Proxy :: Proxy UInt8)
+--     , tyLLVM (Proxy :: Proxy SInt64)
+--     ]
+
+-- class HasX a b | a -> b where x :: Address a -> Address b
+
+-- instance HasX MyStruct SInt32 where x = Prim.fld 0
 
 data Array a = Array a deriving Show
 
@@ -295,7 +328,8 @@ type N a sz = I (Number a sz)
 type SInt32 = N Signed Size32
 type SInt64 = N Signed Size64
 type UInt8 = N Unsigned Size8
-type Idx = N Unsigned Size32
+type UInt32 = N Unsigned Size32
+type Idx = UInt32
 type IBool = N Unsigned Size1
 
 operator :: ((a,b) -> c) -> a -> b -> c
