@@ -51,7 +51,9 @@ subBlock s = do
 
 type M a = IR.IRBuilderT (State St) a
 
-instance Size sz => Num (I a sz) where
+data Number a sz = Number a sz deriving Show
+
+instance Size sz => Num (I (Number a sz)) where
   fromInteger i = I $ pure $ AST.ConstantOperand $ AST.Int (size (Proxy :: Proxy sz)) i
 
 char :: Char -> UInt8
@@ -74,7 +76,7 @@ if_ x y z = mdo
   falselbl <- subBlock "f"
   z
 
-newtype I a b = I{ unI :: M AST.Operand }
+newtype I a = I{ unI :: M AST.Operand }
 newtype TFunc a b = TFunc{ unTFunc :: (AST.Operand, M AST.Global) }
 newtype TLabel a b = TLabel{ unTLabel :: AST.Name }
 
@@ -122,10 +124,10 @@ mkPhi ps@((p,_):_) = AST.Phi (AST.typeOf p) ps []
 joinPhiValues :: [([AST.Operand], AST.Name)] -> [[(AST.Operand, AST.Name)]]
 joinPhiValues xs = transpose [ [ (b, c) | b <- bs ] | (bs, c) <- xs ]
 
-freshVar :: Ty (I a b) => ShortByteString -> M (I a b)
+freshVar :: Ty (I a) => ShortByteString -> M (I a)
 freshVar x = f Proxy
   where
-    f :: Ty (I a b) => Proxy (I a b) -> M (I a b)
+    f :: Ty (I a) => Proxy (I a) -> M (I a)
     f p = do
       n <- IR.freshName x
       return $ I $ pure $ AST.LocalReference (tyLLVM p) n
@@ -137,15 +139,15 @@ class Args a where
   freshArgs :: [ShortByteString] -> M a
   unArgs :: a -> [M AST.Operand]
 
-instance (Ty (I a b)) => Args (I a b) where
+instance (Ty (I a)) => Args (I a) where
   freshArgs [a] = freshVar a
   unArgs a = [unI a]
 
-instance (Ty (I a b), Ty (I c d)) => Args (I a b, I c d) where
+instance (Ty (I a), Ty (I b)) => Args (I a, I b) where
   freshArgs [a, b] = (,) <$> freshVar a <*> freshVar b
   unArgs (a, b) = [unI a, unI b]
 
-instance (Ty (I a b), Ty (I c d), Ty (I e f)) => Args (I a b, I c d, I e f) where
+instance (Ty (I a), Ty (I b), Ty (I c)) => Args (I a, I b, I c) where
   freshArgs [a,b,c] = (,,) <$> freshVar a <*> freshVar b <*> freshVar c
   unArgs (a, b, c) = [unI a, unI b, unI c]
 
@@ -174,12 +176,12 @@ jump x e = do
 
 class Ty a where tyLLVM :: Proxy a -> AST.Type
 
-call :: (Args a, Ty (I b c)) => TFunc a (I b c) -> a -> I b c
+call :: (Args a, Ty (I b)) => TFunc a (I b) -> a -> I b
 call f a = I $ do
   bs <- evalArgs a
   IR.call (fst $ unTFunc f) $ map (,[]) bs
 
-type Void = I () ()
+type Void = I ()
 
 sequence :: [Void] -> Void
 sequence xs = I $ do
@@ -188,33 +190,26 @@ sequence xs = I $ do
 
 voidOperand = AST.ConstantOperand $ AST.Undef AST.void
 
-store :: (Address (I a b), I a b) -> Void
-store (x,y) = I $ do
-  a <- unI x
-  b <- unI y
-  IR.store a 0 b
-  return voidOperand
-
-binop :: (AST.Operand -> AST.Operand -> M AST.Operand) -> (I a b, I c d) -> I e f
+binop :: (AST.Operand -> AST.Operand -> M AST.Operand) -> (I a, I b) -> I c
 binop f (x, y) = I $ do
   a <- unI x
   b <- unI y
   f a b
 
-arithop :: (AST.Operand -> AST.Operand -> M AST.Operand) -> (I a b, I a b) -> I a b
+arithop :: (AST.Operand -> AST.Operand -> M AST.Operand) -> (I a, I a) -> I a
 arithop = binop
 
-equals :: (I a b, I a b) -> IBool
+equals :: (I a, I a) -> IBool
 equals = cmpop (IR.icmp AST.EQ)
 
-cmpop :: (AST.Operand -> AST.Operand -> M AST.Operand) -> (I a b, I a b) -> IBool
+cmpop :: (AST.Operand -> AST.Operand -> M AST.Operand) -> (I a, I a) -> IBool
 cmpop = binop
 
-ret :: Ty (I a b) => I a b -> M (T (I a b))
-ret (x :: I a b) = do
+ret :: Ty (I a) => I a -> M (T (I a))
+ret (x :: I a) = do
   a <- unI x
   case () of
-    () | tyLLVM (Proxy :: Proxy (I a b)) == AST.void -> IR.retVoid
+    () | tyLLVM (Proxy :: Proxy (I a)) == AST.void -> IR.retVoid
     _ -> IR.ret a
   return T
 
@@ -245,47 +240,54 @@ class Size a where size :: Proxy a -> Word32
 
 instance Size Size1 where size _ = 1
 instance Size Size32 where size _ = 32
-instance Size Addr where size _ = 64 -- BAL: architecture dependent
 instance Size Size64 where size _ = 64
 instance Size Size8 where size _ = 8
 
-instance Size sz => Ty (I Signed sz) where tyLLVM _ = AST.IntegerType (size (Proxy :: Proxy sz))
-instance Size sz => Ty (I Unsigned sz) where tyLLVM _ = AST.IntegerType (size (Proxy :: Proxy sz))
+instance Size sz => Ty (N Signed sz) where tyLLVM _ = AST.IntegerType (size (Proxy :: Proxy sz))
+instance Size sz => Ty (N Unsigned sz) where tyLLVM _ = AST.IntegerType (size (Proxy :: Proxy sz))
 
-instance Ty a => Ty (I a Addr) where tyLLVM _ = AST.ptr (tyLLVM (Proxy :: Proxy a))
-instance Ty (I () ()) where tyLLVM _ = AST.void
+instance Ty a => Ty (Address a) where tyLLVM _ = AST.ptr (tyLLVM (Proxy :: Proxy a))
+instance Ty Void where tyLLVM _ = AST.void
 
-truncate :: (Ty (I c d)) => I a b -> I c d
+truncate :: (Ty (I b)) => I a -> I b
 truncate x = f Proxy
   where
-    f :: Ty (I c d) => Proxy (I c d) -> I c d
+    f :: Ty (I b) => Proxy (I b) -> I b
     f p = I $ do
       a <- unI x
       IR.trunc a (tyLLVM p)
 
-unop :: (AST.Operand -> M AST.Operand) -> I a b -> I c d
+unop :: (AST.Operand -> M AST.Operand) -> I a -> I b
 unop f x = I $ do
   a <- unI x
   f a
 
-type Address a = I a Addr
-data Addr
+type Address a = I (Addr a)
+data Addr a = Addr a deriving Show
 
-load :: Address (I a b) -> I a b
+load :: Address (I a) -> I a
 load = unop (flip IR.load 0)
 
+store :: (Address (I a), I a) -> Void
+store (x,y) = I $ do
+  a <- unI x
+  b <- unI y
+  IR.store a 0 b
+  return voidOperand
+
 add = arithop IR.add
-subtract :: (I a b, I a b) -> I a b
+subtract :: (I a, I a) -> I a
 subtract = arithop IR.sub
 multiply = arithop IR.mul
 divide = arithop IR.sdiv
-bitwise_and :: (I a b, I a b) -> I a b
+bitwise_and :: (I a, I a) -> I a
 bitwise_and = arithop IR.and
 
-type SInt32 = I Signed Size32
-type SInt64 = I Signed Size64
-type UInt8 = I Unsigned Size8
-type IBool = I Unsigned Size1
+type N a sz = I (Number a sz)
+type SInt32 = N Signed Size32
+type SInt64 = N Signed Size64
+type UInt8 = N Unsigned Size8
+type IBool = N Unsigned Size1
 
 operator :: ((a,b) -> c) -> a -> b -> c
 operator = curry

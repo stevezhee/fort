@@ -159,8 +159,8 @@ ppLabelVar v = "label_" <> ppVar v
 ppType :: Type -> Doc x
 ppType x = case x of
   TyApp a b -> ppType a <+> ppType b
-  TySigned -> "Prim.I Prim.Signed"
-  TyUnsigned -> "Prim.I Prim.Unsigned"
+  TySigned -> "Prim.N Prim.Signed"
+  TyUnsigned -> "Prim.N Prim.Unsigned"
   TyAddress -> "Prim.Address"
   TyArray -> error $ "ppType:" ++ show x
   TyCon a -> ppCon a
@@ -172,7 +172,7 @@ ppType x = case x of
   TyNone -> mempty
   TyLam _ _ -> error $ "ppType:" ++ show x
   TyRecord _ -> error $ "ppType:" ++ show x
-  TyVar a -> parens ("Prim.I" <+> ppVar a <+> "_" <> ppVar a) -- BAL: need to ensure no conflicts with 2nd variable and user variables
+  TyVar a -> parens ("Prim.I" <+> ppVar a)
 
 ppExpr :: Expr -> Doc x
 ppExpr x = case x of
