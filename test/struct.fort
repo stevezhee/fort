@@ -15,12 +15,13 @@ MyStruct2 = /record
 ;; primitives
 
 store: (/address a, a) -> ()
+.= = store
 
 ;; code
 foo-struct: (/address MyStruct, /address MyStruct2) -> () = \(mystr, mystr2) => /do
-  store (x mystr, 42)
-  store (y mystr, "c")
-  store (z mystr, 42424242)
-  store (y mystr2, 24242424)
-  store (x mystr2, 24)
+  x mystr .= 42
+  y mystr .= "c"
+  z mystr .= 42424242
+  y mystr2 .= 24242424
+  x mystr2 .= 24
   
