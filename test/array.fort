@@ -1,0 +1,20 @@
+;; types
+Int = /signed 32
+Idx = /unsigned 32
+
+;; primitives
+* = multiply
+multiply: (Int, Int) -> Int
+
+load: /address a -> a
+store: (/address a, a) -> ()
+
+index: (/array a, Idx) -> /address a ;; where a is a primitive type
+
+;; code
+foo-array: /array Int -> () = \arr => /do
+  store (index (arr, 0), 21)
+  store (index (arr, 1), load (index (arr, 0)) * 2)
+
+
+;; do array constants also... as long as the code evaluates to a constant at compile time then it's a constant

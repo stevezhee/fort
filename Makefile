@@ -29,7 +29,7 @@ $(GEN_PATH)/%.fort.s: $(GEN_PATH)/%.fort.ll
 $(GEN_PATH)/%.fort.o: $(GEN_PATH)/%.fort.s
 	clang -o $@ -c $^
 
-a.out: main.c $(GEN_PATH)/powi.fort.o $(GEN_PATH)/address.fort.o
+a.out: main.c $(GEN_PATH)/powi.fort.o $(GEN_PATH)/address.fort.o $(GEN_PATH)/array.fort.o
 	clang $^
 
 coverage: $(HS_FILES)

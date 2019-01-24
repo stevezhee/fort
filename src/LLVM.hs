@@ -14,28 +14,27 @@ module LLVM where
 import Control.Monad.Fix
 import Control.Monad.Identity
 import Control.Monad.State
-import qualified Control.Monad as Monad
+import Data.Bitraversable
 import Data.ByteString.Short (ShortByteString)
 import Data.List
+import Data.Monoid
 import Data.Proxy
+import Data.String
 import Data.Word
-import Prelude hiding (until, subtract, truncate, sequence)
-import qualified Data.Map.Strict as M
-import qualified LLVM.AST as AST
-import qualified LLVM.AST.Typed as AST
-import qualified LLVM.AST.Type as AST
-import qualified LLVM.AST.Global as AST
-import qualified LLVM.AST.Constant as AST
-import qualified LLVM.AST.IntegerPredicate as AST
-import qualified LLVM.IRBuilder as IR
+import Debug.Trace
 import LLVM.IRBuilder.Internal.SnocList
 import LLVM.Pretty
+import Prelude hiding (until, subtract, truncate, sequence)
+import qualified Control.Monad as Monad
+import qualified Data.Map.Strict as M
 import qualified Data.Text.Lazy as T
-import Debug.Trace
-import Data.Bitraversable
-import Data.String
-import Data.Monoid
-import LLVM.Analysis as A
+import qualified LLVM.AST as AST
+import qualified LLVM.AST.Constant as AST
+import qualified LLVM.AST.Global as AST
+import qualified LLVM.AST.IntegerPredicate as AST
+import qualified LLVM.AST.Type as AST
+import qualified LLVM.AST.Typed as AST
+import qualified LLVM.IRBuilder as IR
 
 blockNm s = s <> "_"
 
@@ -61,10 +60,6 @@ char = fromInteger . toInteger . fromEnum
 
 data Signed
 data Unsigned
-data Size1
-data Size32
-data Size64
-data Size8
 data T a = T
 
 if_ :: IBool -> M a -> M a -> M a
@@ -238,6 +233,12 @@ func n ns (f :: Args a => a -> M (T b)) = TFunc (AST.ConstantOperand (AST.Global
 
 class Size a where size :: Proxy a -> Word32
 
+-- BAL: generate these (use haskell sized types?)
+data Size1
+data Size32
+data Size64
+data Size8
+
 instance Size Size1 where size _ = 1
 instance Size Size32 where size _ = 32
 instance Size Size64 where size _ = 64
@@ -261,6 +262,14 @@ unop :: (AST.Operand -> M AST.Operand) -> I a -> I b
 unop f x = I $ do
   a <- unI x
   f a
+
+instance Ty a => Ty (Array a) where tyLLVM _ = AST.ptr (AST.ArrayType 0 (tyLLVM (Proxy :: Proxy a))) -- BAL: using unsized for now
+
+index :: (Array (I a), Idx) -> Address (I a) -- BAL: index type should be tied to the size of the array
+index = binop (\a b -> IR.gep a [AST.ConstantOperand $ AST.Int 32 0,b])
+
+type Array a = I (Arr a) -- BAL: omitting size of the array for now
+data Arr a = Arr a deriving Show
 
 type Address a = I (Addr a)
 data Addr a = Addr a deriving Show
@@ -287,6 +296,7 @@ type N a sz = I (Number a sz)
 type SInt32 = N Signed Size32
 type SInt64 = N Signed Size64
 type UInt8 = N Unsigned Size8
+type Idx = N Unsigned Size32
 type IBool = N Unsigned Size1
 
 operator :: ((a,b) -> c) -> a -> b -> c

@@ -75,9 +75,12 @@ ppCon = ppToken
 ppOp :: Op -> Doc x
 ppOp = ppToken
 ppVar :: Var -> Doc x
-ppVar = pretty . map hack . unLoc
+ppVar = pretty . canonicalizeName . unLoc
+
+canonicalizeName :: String -> String
+canonicalizeName = map f
   where
-    hack c = if c == '-' then '_' else c -- BAL: rewrite properly so no conflicts
+    f c = if c == '-' then '_' else c -- '-' is semantically identical to '_'
 
 ppDecls :: FilePath -> [Decl] -> Doc x
 ppDecls fn xs = vcat $
@@ -115,7 +118,7 @@ ppAscription d x = case x of
   _ -> d <+> "::" <+> ppType x
 
 stringifyVar :: Var -> Doc x
-stringifyVar = pretty . show . show . ppToken
+stringifyVar = pretty . show . canonicalizeName . show . ppToken
 
 mFuncVar :: Decl -> Maybe Var
 mFuncVar x = case x of
@@ -162,7 +165,7 @@ ppType x = case x of
   TySigned -> "Prim.N Prim.Signed"
   TyUnsigned -> "Prim.N Prim.Unsigned"
   TyAddress -> "Prim.Address"
-  TyArray -> error $ "ppType:" ++ show x
+  TyArray -> "Prim.Array"
   TyCon a -> ppCon a
   TySize a -> "Prim.Size" <> ppInt a
   TyFun a b -> ppType a <+> "->" <+> ppType b
