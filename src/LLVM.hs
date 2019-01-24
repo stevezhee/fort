@@ -263,13 +263,12 @@ unop f x = I $ do
   a <- unI x
   f a
 
-instance Ty a => Ty (Array a) where tyLLVM _ = AST.ptr (AST.ArrayType 0 (tyLLVM (Proxy :: Proxy a))) -- BAL: using unsized for now
+instance Ty a => Ty (Array a) where tyLLVM _ = AST.ArrayType 0 (tyLLVM (Proxy :: Proxy a)) -- BAL: using unsized for now
 
-index :: (Array (I a), Idx) -> Address (I a) -- BAL: index type should be tied to the size of the array
-index = binop (\a b -> IR.gep a [AST.ConstantOperand $ AST.Int 32 0,b])
+index :: (Address (Array (I a)), Idx) -> Address (I a) -- BAL: index type should be tied to the size of the array
+index = binop (\a b -> IR.gep a [AST.ConstantOperand $ AST.Int 32 0, b])
 
-type Array a = I (Arr a) -- BAL: omitting size of the array for now
-data Arr a = Arr a deriving Show
+data Array a = Array a deriving Show
 
 type Address a = I (Addr a)
 data Addr a = Addr a deriving Show

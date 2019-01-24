@@ -9,10 +9,10 @@ multiply: (Int, Int) -> Int
 load: /address a -> a
 store: (/address a, a) -> ()
 
-index: (/array a, Idx) -> /address a ;; where a is a primitive type
+index: (/address (/array a), Idx) -> /address a ;; where a is a primitive type
 
 ;; code
-foo-array: /array Int -> () = \arr => /do
+foo-array: /address (/array Int) -> () = \arr => /do
   store (index (arr, 0), 21)
   store (index (arr, 1), load (index (arr, 0)) * 2)
 

@@ -19,4 +19,4 @@ Some random stuff about fort:
   - `/if`s are multi-way ifs
   - the syntax is designed to be "low friction", i.e. cutting/pasting/naming expressions should work without extra syntax
   - top level declarations can have any order
-
+  - one element "string" literals are of type Char, e.g. `"c": Char`

@@ -170,7 +170,6 @@ ppType x = case x of
   TySize a -> "Prim.Size" <> ppInt a
   TyFun a b -> ppType a <+> "->" <+> ppType b
   TyTuple [] -> "Prim.Void"
-  TyTuple [a] -> ppType a
   TyTuple bs -> ppTuple $ map ppType bs
   TyNone -> mempty
   TyLam _ _ -> error $ "ppType:" ++ show x
