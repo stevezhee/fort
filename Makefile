@@ -35,7 +35,7 @@ $(GEN_PATH)/%.fort.o: $(GEN_PATH)/%.fort.s | $(GEN_PATH)
 	clang -o $@ -c $^
 
 $(OUT_FILE): main.c $(O_TEST_FILES)
-	clang $^
+	clang -lc $^
 
 .PHONY: coverage
 coverage: $(HS_FILES)

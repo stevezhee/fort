@@ -1,7 +1,7 @@
 ;; types
 Char = /unsigned 8
-Handle = /unsigned 32
-RealWorld = /unsigned 8
+Handle = /unsigned 64
+RealWorld = /unsigned 32
 
 stdin: Handle = 0
 stdout: Handle = 1
@@ -11,7 +11,7 @@ a = "a"
 b: Char = "b"
 
 fst: (Char, Char) -> Char = \(x,_) => x
-foo: Char -> Char = \_ => fst("z","z")
+foo: Char -> Char = \_ => fst ("z","z")
 bar: Char -> Char = \_ => fst (a,b : Char)
 qux: Char -> Char = \_ => fst (c,d)
   /where

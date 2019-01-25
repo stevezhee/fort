@@ -37,8 +37,50 @@ import qualified LLVM.AST.Typed                   as AST
 import qualified LLVM.IRBuilder                   as IR
 import           LLVM.IRBuilder.Internal.SnocList
 import           LLVM.Pretty
-import           Prelude                          hiding (sequence, subtract,
-                                                   truncate, until)
+import           Prelude                          hiding (sequence, subtract, truncate, until)
+
+type M a = IR.IRBuilderT (State St) a
+
+data Number a sz = Number a sz deriving Show
+
+instance Size sz => Num (I (Number a sz)) where
+  fromInteger i = I $ pure $ AST.ConstantOperand $ AST.Int (size (Proxy :: Proxy sz)) i
+
+data Signed
+data Unsigned
+data T a = T
+
+newtype I a = I{ unI :: M AST.Operand }
+newtype TFunc a b = TFunc{ unTFunc :: ((AST.Type, AST.Name), M AST.Global) }
+newtype TLabel a b = TLabel{ unTLabel :: AST.Name }
+
+data St = St
+  { outPhis :: M.Map AST.Name [([AST.Operand], AST.Name)]
+  , inPhis  :: M.Map AST.Name [AST.Name]
+  , funBody :: M ()
+  , externs :: [AST.Global]
+  }
+
+codegen fn xs = do
+  let m = mkModule $ map snd xs
+  let oFile = "generated/" ++ fn ++ ".ll"
+  writeFile oFile $ T.unpack $ ppllvm m
+
+
+mkModule :: [M AST.Global] -> AST.Module
+mkModule xs = AST.defaultModule
+    { AST.moduleDefinitions =
+        let (funs, externals) = unzip $ map mkFun xs
+        in map AST.GlobalDefinition (nub (concat externals) ++ funs)
+    }
+
+mkFun :: M AST.Global -> (AST.Global, [AST.Global])
+mkFun x = (fun{ AST.basicBlocks = patchPhis st bs0 }, externs st)
+  where
+    ((fun, bs0), st) =
+      runState (IR.runIRBuilderT IR.emptyIRBuilder x) initSt
+
+initSt = St M.empty M.empty (return ()) []
 
 blockNm s = s <> "_"
 
@@ -52,63 +94,10 @@ subBlock s = do
     AST.Name a   -> IR.named IR.block (a <> s)
     AST.UnName{} -> error "subBlock"
 
-type M a = IR.IRBuilderT (State St) a
-
-data Number a sz = Number a sz deriving Show
-
-instance Size sz => Num (I (Number a sz)) where
-  fromInteger i = I $ pure $ AST.ConstantOperand $ AST.Int (size (Proxy :: Proxy sz)) i
-
-char :: Char -> UInt8
-char = fromInteger . toInteger . fromEnum
-
-data Signed
-data Unsigned
-data T a = T
-
-if_ :: IBool -> M a -> M a -> M a
-if_ x y z = mdo
-  v <- unI x
-  IR.condBr v truelbl falselbl
-  truelbl <- subBlock "t"
-  y
-  falselbl <- subBlock "f"
-  z
-
-newtype I a = I{ unI :: M AST.Operand }
-newtype TFunc a b = TFunc{ unTFunc :: (AST.Operand, M AST.Global) }
-newtype TLabel a b = TLabel{ unTLabel :: AST.Name }
-
-data St = St
-  { outPhis :: M.Map AST.Name [([AST.Operand], AST.Name)]
-  , inPhis  :: M.Map AST.Name [AST.Name]
-  , funBody :: M ()
-  }
-
 addPhisFromTo :: ([AST.Operand], AST.Name) -> AST.Name -> M ()
 addPhisFromTo v k = do
   modify' $ \st -> st{ outPhis = M.insertWith (++) k [v] (outPhis st) }
   return ()
-
-mkModule :: [M AST.Global] -> AST.Module
-mkModule xs = AST.defaultModule
-    { AST.moduleDefinitions = map (AST.GlobalDefinition . mkFun) xs
-    }
-
-mkFun :: M AST.Global -> AST.Global
-mkFun x = fun{ AST.basicBlocks = patchPhis st bs0 }
-  where
-    ((fun, bs0), st) =
-      runState (IR.runIRBuilderT IR.emptyIRBuilder x) initSt
-
-initSt = St M.empty M.empty (return ())
-
-tt = codegen "powi.fort" [unTFunc powi_func]
-
-codegen fn xs = do
-  let m = mkModule $ map snd xs
-  let oFile = "generated/" ++ fn ++ ".ll"
-  writeFile oFile $ T.unpack $ ppllvm m
 
 patchPhis st = map f
   where
@@ -122,6 +111,15 @@ mkPhi ps@((p,_):_) = AST.Phi (AST.typeOf p) ps []
 
 joinPhiValues :: [([AST.Operand], AST.Name)] -> [[(AST.Operand, AST.Name)]]
 joinPhiValues xs = transpose [ [ (b, c) | b <- bs ] | (bs, c) <- xs ]
+
+if_ :: IBool -> M a -> M a -> M a
+if_ x y z = mdo
+  v <- unI x
+  IR.condBr v truelbl falselbl
+  truelbl <- subBlock "t"
+  y
+  falselbl <- subBlock "f"
+  z
 
 freshVar :: Ty (I a) => ShortByteString -> M (I a)
 freshVar x = f Proxy
@@ -137,18 +135,22 @@ evalArgs = Monad.sequence . unArgs
 class Args a where
   freshArgs :: [ShortByteString] -> M a
   unArgs :: a -> [M AST.Operand]
+  tyArgs :: Proxy a -> [AST.Type]
 
 instance (Ty (I a)) => Args (I a) where
   freshArgs [a] = freshVar a
   unArgs a = [unI a]
+  tyArgs (_ :: Proxy (I a)) = [tyLLVM (Proxy :: Proxy (I a))]
 
 instance (Ty (I a), Ty (I b)) => Args (I a, I b) where
   freshArgs [a, b] = (,) <$> freshVar a <*> freshVar b
   unArgs (a, b) = [unI a, unI b]
+  tyArgs (_ :: Proxy (I a, I b)) = [tyLLVM (Proxy :: Proxy (I a)), tyLLVM (Proxy :: Proxy (I b))]
 
 instance (Ty (I a), Ty (I b), Ty (I c)) => Args (I a, I b, I c) where
   freshArgs [a,b,c] = (,,) <$> freshVar a <*> freshVar b <*> freshVar c
   unArgs (a, b, c) = [unI a, unI b, unI c]
+  tyArgs (_ :: Proxy (I a, I b, I c)) = [tyLLVM (Proxy :: Proxy (I a)), tyLLVM (Proxy :: Proxy (I b)), tyLLVM (Proxy :: Proxy (I c))]
 
 label :: Args a => ShortByteString -> [ShortByteString] -> (a -> M (T b)) -> M (TLabel a b)
 label nm ns f = do
@@ -178,7 +180,7 @@ class Ty a where tyLLVM :: Proxy a -> AST.Type
 call :: (Args a, Ty (I b)) => TFunc a (I b) -> a -> I b
 call f a = I $ do
   bs <- evalArgs a
-  IR.call (fst $ unTFunc f) $ map (,[]) bs
+  irCall (fst $ unTFunc f) bs
 
 type Void = I ()
 
@@ -214,26 +216,19 @@ ret (x :: I a) = do
 
 func :: (Args a, Ty b) =>
   String -> [ShortByteString] -> (a -> M (T b)) -> TFunc a b
-func n ns (f :: Args a => a -> M (T b)) = TFunc (AST.ConstantOperand (AST.GlobalReference ft fn), do
+func n ns (f :: Args a => a -> M (T b)) = TFunc ((ft, fn), do
   e <- freshArgs ns
   bs <- evalArgs e
   block "start"
   f e
   m <- gets funBody
   m
-  return $ AST.functionDefaults
-    { AST.returnType = rt
-    , AST.name = fn
-    , AST.parameters = ([ AST.Parameter v t [] | AST.LocalReference v t <- bs ], False)
+  return $ dflts
+    { AST.parameters = ([ AST.Parameter t v [] | AST.LocalReference t v <- bs ], False)
     })
   where
     fn = AST.mkName n
-    rt = tyLLVM (Proxy :: Proxy b)
-    ft = AST.FunctionType
-      { AST.resultType = rt
-      , AST.argumentTypes = [] -- BAL: should be able to grab the argument types in a pure way
-      , AST.isVarArg = False
-      }
+    (ft,dflts) = funTyAndDefaults fn (Proxy :: Proxy a) (Proxy :: Proxy b)
 
 class Size a where size :: Proxy a -> Word32
 
@@ -272,6 +267,9 @@ instance Ty a => Ty (Array a) where tyLLVM _ = AST.ArrayType 0 (tyLLVM (Proxy ::
 index :: (Address (Array a), Idx) -> Address a -- BAL: index type should be tied to the size of the array
 index = gep
 
+char :: Char -> UInt8
+char = fromInteger . toInteger . fromEnum
+
 gep :: (Address a, UInt32) -> Address b
 gep = binop (\a b -> IR.gep a [constInt 0, b])
 
@@ -286,20 +284,6 @@ fld i r = gep (r, constN i)
 
 tyStruct :: [AST.Type] -> AST.Type
 tyStruct = AST.StructureType False
-
--- BAL: remove
--- data MyStruct
-
--- instance Ty MyStruct where
---   tyLLVM _ = tyStruct
---     [ tyLLVM (Proxy :: Proxy SInt32)
---     , tyLLVM (Proxy :: Proxy UInt8)
---     , tyLLVM (Proxy :: Proxy SInt64)
---     ]
-
--- class HasX a b | a -> b where x :: Address a -> Address b
-
--- instance HasX MyStruct SInt32 where x = Prim.fld 0
 
 data Array a = Array a deriving Show
 
@@ -327,6 +311,7 @@ bitwise_and = arithop IR.and
 type N a sz = I (Number a sz)
 type SInt32 = N Signed Size32
 type SInt64 = N Signed Size64
+type UInt64 = N Unsigned Size64
 type UInt8 = N Unsigned Size8
 type UInt32 = N Unsigned Size32
 type Idx = UInt32
@@ -335,31 +320,55 @@ type IBool = N Unsigned Size1
 operator :: ((a,b) -> c) -> a -> b -> c
 operator = curry
 
-(.*) = operator multiply
-(.-) = operator subtract
-(./) = operator divide
-(.==) = operator equals
+h_get_char :: UInt64 -> UInt8
+h_get_char = extern "fgetc"
 
-powi_func :: TFunc (SInt32, SInt32) SInt32
-powi_func = func "powi" ["x", "y"] $ \(x, y) -> mdo
-  go <- label "go" ["r", "a", "b"] $ \(r, a, b) -> mdo
-    if_ (b .== 0)
-      (ret r)
-      (if_ (truncate b)
-        (jump go (r .* a, a, b .- 1))
-        (jump go (r, a .* a, b ./ 2))
-      )
-  jump go (1, x, y)
+-- (.*) = operator multiply
+-- (.-) = operator subtract
+-- (./) = operator divide
+-- (.==) = operator equals
 
-powi :: (SInt32, SInt32) -> SInt32
-powi = call powi_func
+-- powi_func :: TFunc (SInt32, SInt32) SInt32
+-- powi_func = func "powi" ["x", "y"] $ \(x, y) -> mdo
+--   go <- label "go" ["r", "a", "b"] $ \(r, a, b) -> mdo
+--     if_ (b .== 0)
+--       (ret r)
+--       (if_ (truncate b)
+--         (jump go (r .* a, a, b .- 1))
+--         (jump go (r, a .* a, b ./ 2))
+--       )
+--   jump go (1, x, y)
 
-h_get_char :: UInt32 -> UInt8
-h_get_char = unop (\a -> IR.call (AST.ConstantOperand (AST.GlobalReference tDef "fgetc")) [(a,[])])
+-- powi :: (SInt32, SInt32) -> SInt32
+-- powi = call powi_func
+
+globalRef x y = AST.ConstantOperand (AST.GlobalReference x y)
+
+irCall :: (AST.Type, AST.Name) -> [AST.Operand] -> M AST.Operand
+irCall (t, v) ts = IR.call (globalRef t v) $ map (,[]) ts
+
+extern :: (Args a, Ty (I b)) => AST.Name -> a -> I b
+extern n (xs :: a) = f Proxy
   where
-    rt = tyLLVM (Proxy :: Proxy UInt8)
-    tDef = AST.FunctionType
-      { AST.resultType = rt
-        , AST.argumentTypes = []
-        , AST.isVarArg = False
+    f :: Ty (I b) => Proxy (I b) -> I b
+    f p = I $ do
+      bs <- evalArgs xs
+      let (t, dflts) = funTyAndDefaults n (Proxy :: Proxy a) p
+      modify $ \st -> st{ externs = dflts : externs st }
+      irCall (t, n) bs
+
+funTyAndDefaults :: (Args a, Ty b) => AST.Name -> Proxy a -> Proxy b -> (AST.Type, AST.Global)
+funTyAndDefaults n x y =
+  ( ft
+  , AST.functionDefaults
+      { AST.returnType = AST.resultType ft
+      , AST.name = n
+      , AST.parameters = ([ AST.Parameter t "" [] | t <- AST.argumentTypes ft ], False)
+      }
+  )
+  where
+    ft = AST.FunctionType
+      { AST.resultType = tyLLVM y
+      , AST.argumentTypes = tyArgs x
+      , AST.isVarArg = False
       }

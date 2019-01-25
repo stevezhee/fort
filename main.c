@@ -18,22 +18,24 @@ extern void inc(int*);
 extern void inc2(int*);
 extern void foo_array(int[]);
 extern void foo_struct(MyStruct*, MyStruct2*);
+extern char get_char(int);
 
-int getChar()
-{
-  int c = fgetc(stdin);
-  if (c == EOF){
-    exit(ferror(stdin));
-  }
-  return c;
-}
-void putChar(int c)
-{
-  int r = fputc(c, stdout);
-  if (r == EOF){
-    exit(ferror(stdout));
-  }
-}
+/* int getChar() */
+/* { */
+/*   int c = fgetc(stdin); */
+/*   if (c == EOF){ */
+/*     exit(ferror(stdin)); */
+/*   } */
+/*   return c; */
+/* } */
+/* void putChar(int c) */
+/* { */
+/*   int r = fputc(c, stdout); */
+/*   if (r == EOF){ */
+/*     exit(ferror(stdout)); */
+/*   } */
+/* } */
+
 int main()
 {
   printf("%d\n",powi(3,2));
@@ -58,6 +60,8 @@ int main()
 
   MyStruct mystruct;
   MyStruct2 mystruct2;
+  printf("sizeof int %lu\n", sizeof(int));
+  printf("sizeof FILE* %lu\n", sizeof(FILE*));
   printf("sizeof MyStruct.x %lu\n", sizeof(mystruct.x));
   printf("sizeof MyStruct.y %lu\n", sizeof(mystruct.y));
   printf("sizeof MyStruct.z %lu\n", sizeof(mystruct.z));
@@ -68,5 +72,10 @@ int main()
   printf("mystruct.z %lu\n",mystruct.z);
   printf("mystruct2.x %lu\n",mystruct2.x);
   printf("mystruct2.y %d\n",mystruct2.y);
+  printf("stdin %p\n",stdin);
+
+  //char input = fgetc(stdin); // 42 is obviously the value for the RealWorld
+  // char input = get_char(42); // 42 is obviously the value for the RealWorld
+  // printf("got char:%c", input);
   return 0;
 }
