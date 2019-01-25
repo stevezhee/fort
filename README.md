@@ -42,5 +42,5 @@ for f in $(ls -1 $LLVM_DIR) ; do mv $LLVM_DIR/$f "${LLVM_DIR}/${f/-6.0}"; done
 echo '# llvm 6 tooling' >> ~/.bash_profile
 echo 'export PATH="${PATH}:/usr/local/Cellar/llvm-6.0/6.0.1/bin-no-suffix"' >> ~/.bash_profile
 echo 'export LDFLAGS="$LDFLAGS -L/usr/local/opt/llvm-6.0/lib/llvm-6.0/lib"' >> ~/.bash_profile
-source ~/.bash_profilete
+source ~/.bash_profile
 ```
