@@ -20,3 +20,24 @@ Some random stuff about fort:
   - the syntax is designed to be "low friction", i.e. cutting/pasting/naming expressions should work without extra syntax
   - top level declarations can have any order
   - one element "string" literals are of type Char, e.g. `"c": Char`
+
+# Dependency/Installation help
+## llvm/llvm-hs
+We're targeting llvm 6
+### OSX
+Can easily get this via[a custom homebrew tap](https://github.com/llvm-hs/homebrew-llvm).
+```
+brew tap llvm-hs/llvm
+brew install llvm-hs/llvm/llvm-6.0 --verbose
+```
+This will take a while, go walk your dog a few times...
+
+Now, once it's installed, you'll have symlinks in `/usr/local/bin`, but they'll all be suffixed with `-6.0`. This doesn't play too nicely when tooling looks for i.e. `llc` instead of `llc-6.0`
+Therefore, I profer an alternate workaround:
+```
+cp -R /usr/local/Cellar/llvm-6.0/6.0.1/{bin,bin-no-suffix}
+for f in $(ls -1 /usr/local/Cellar/llvm-6.0/6.0.1/bin-no-suffix) ; do mv $f "${f/-6.0}"; done
+echo '# llvm 6 tooling' >> ~/.bash_profile
+echo 'export PATH="${PATH}:/usr/local/Cellar/llvm-6.0/6.0.1/bin-no-suffix"' >> ~/.bash_profile
+echo 'export LDFLAGS="$LDFLAGS -L/usr/local/opt/llvm-6.0/lib/llvm-6.0/lib"' >> ~/.bash_profile
+```
