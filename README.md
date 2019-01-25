@@ -25,10 +25,11 @@ Some random stuff about fort:
 ## llvm/llvm-hs
 We're targeting llvm 6
 ### OSX
-Can easily get this via[a custom homebrew tap](https://github.com/llvm-hs/homebrew-llvm).
+Can easily get this via [a custom homebrew tap](https://github.com/llvm-hs/homebrew-llvm).
 ```
 brew tap llvm-hs/llvm
 brew install llvm-hs/llvm/llvm-6.0 --verbose
+brew install stack
 ```
 This will take a while, go walk your dog a few times...
 
@@ -36,8 +37,10 @@ Now, once it's installed, you'll have symlinks in `/usr/local/bin`, but they'll 
 Therefore, I profer an alternate workaround:
 ```
 cp -R /usr/local/Cellar/llvm-6.0/6.0.1/{bin,bin-no-suffix}
-for f in $(ls -1 /usr/local/Cellar/llvm-6.0/6.0.1/bin-no-suffix) ; do mv $f "${f/-6.0}"; done
+export LLVM_DIR=/usr/local/Cellar/llvm-6.0/6.0.1/bin-no-suffix
+for f in $(ls -1 $LLVM_DIR) ; do mv $LLVM_DIR/$f "${LLVM_DIR}/${f/-6.0}"; done
 echo '# llvm 6 tooling' >> ~/.bash_profile
 echo 'export PATH="${PATH}:/usr/local/Cellar/llvm-6.0/6.0.1/bin-no-suffix"' >> ~/.bash_profile
 echo 'export LDFLAGS="$LDFLAGS -L/usr/local/opt/llvm-6.0/lib/llvm-6.0/lib"' >> ~/.bash_profile
+source ~/.bash_profilete
 ```
