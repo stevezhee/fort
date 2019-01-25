@@ -6,13 +6,13 @@ Bool = /unsigned 1
 == = equals
 equals: (Char, Char) -> Bool
 
-foo: (Bool, Char) -> Char = \(p, c) => /if
+nested-if-foo: (Bool, Char) -> Char = \(p, c) => /if
   c == "a" => "b"
   c == "b" => "c"
   p => c
   _ => "z"
 
-bar: (Bool, Char) -> Char = \(p, c) => /if
+nested-if-bar: (Bool, Char) -> Char = \(p, c) => /if
   c == "a" => "b"
   _ => /if
     c == "b" => "c"
