@@ -1,5 +1,11 @@
 ;; types
 Char = /unsigned 8
+Handle = /unsigned 32
+RealWorld = /unsigned 8
+
+stdin: Handle = 0
+stdout: Handle = 1
+stderr: Handle = 2
 
 a = "a"
 b: Char = "b"
@@ -11,3 +17,9 @@ qux: Char -> Char = \_ => fst (c,d)
   /where
     c = "c"
     d: Char = "d"
+
+h-get-char: Handle -> Char
+get-char: RealWorld -> Char = \_ => h-get-char stdin
+
+;; h-put-char: (Handle, Char) -> ()
+;; put-char: Char -> () = h-put-char(stdin,)

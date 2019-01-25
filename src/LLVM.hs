@@ -1,43 +1,44 @@
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecursiveDo #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE TupleSections #-}
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE FlexibleContexts       #-}
+{-# LANGUAGE FlexibleInstances      #-}
+{-# LANGUAGE OverloadedStrings      #-}
+{-# LANGUAGE RankNTypes             #-}
+{-# LANGUAGE RecursiveDo            #-}
+{-# LANGUAGE ScopedTypeVariables    #-}
+{-# LANGUAGE TupleSections          #-}
+{-# LANGUAGE UndecidableInstances   #-}
 
-{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE MultiParamTypeClasses  #-}
 
 {-# OPTIONS_GHC -fno-warn-missing-methods #-}
 
 module LLVM where
 
-import Control.Monad.Fix
-import Control.Monad.Identity
-import Control.Monad.State
-import Data.Bitraversable
-import Data.ByteString.Short (ShortByteString)
-import Data.List
-import Data.Monoid
-import Data.Proxy
-import Data.String
-import Data.Word
-import Debug.Trace
-import LLVM.IRBuilder.Internal.SnocList
-import LLVM.Pretty
-import Prelude hiding (until, subtract, truncate, sequence)
-import qualified Control.Monad as Monad
-import qualified Data.Map.Strict as M
-import qualified Data.Text.Lazy as T
-import qualified LLVM.AST as AST
-import qualified LLVM.AST.Constant as AST
-import qualified LLVM.AST.Global as AST
-import qualified LLVM.AST.IntegerPredicate as AST
-import qualified LLVM.AST.Type as AST
-import qualified LLVM.AST.Typed as AST
-import qualified LLVM.IRBuilder as IR
+import qualified Control.Monad                    as Monad
+import           Control.Monad.Fix
+import           Control.Monad.Identity
+import           Control.Monad.State
+import           Data.Bitraversable
+import           Data.ByteString.Short            (ShortByteString)
+import           Data.List
+import qualified Data.Map.Strict                  as M
+import           Data.Monoid
+import           Data.Proxy
+import           Data.String
+import qualified Data.Text.Lazy                   as T
+import           Data.Word
+import           Debug.Trace
+import qualified LLVM.AST                         as AST
+import qualified LLVM.AST.Constant                as AST
+import qualified LLVM.AST.Global                  as AST
+import qualified LLVM.AST.IntegerPredicate        as AST
+import qualified LLVM.AST.Type                    as AST
+import qualified LLVM.AST.Typed                   as AST
+import qualified LLVM.IRBuilder                   as IR
+import           LLVM.IRBuilder.Internal.SnocList
+import           LLVM.Pretty
+import           Prelude                          hiding (sequence, subtract,
+                                                   truncate, until)
 
 blockNm s = s <> "_"
 
@@ -48,7 +49,7 @@ subBlock :: ShortByteString -> M AST.Name
 subBlock s = do
   lbl <- IR.currentBlock
   case lbl of
-    AST.Name a -> IR.named IR.block (a <> s)
+    AST.Name a   -> IR.named IR.block (a <> s)
     AST.UnName{} -> error "subBlock"
 
 type M a = IR.IRBuilderT (State St) a
@@ -208,7 +209,7 @@ ret (x :: I a) = do
   a <- unI x
   case () of
     () | tyLLVM (Proxy :: Proxy (I a)) == AST.void -> IR.retVoid
-    _ -> IR.ret a
+    _                                              -> IR.ret a
   return T
 
 func :: (Args a, Ty b) =>
@@ -283,7 +284,6 @@ constN = I . pure . constInt
 fld :: Integer -> Address a -> Address b
 fld i r = gep (r, constN i)
 
-
 tyStruct :: [AST.Type] -> AST.Type
 tyStruct = AST.StructureType False
 
@@ -353,3 +353,13 @@ powi_func = func "powi" ["x", "y"] $ \(x, y) -> mdo
 
 powi :: (SInt32, SInt32) -> SInt32
 powi = call powi_func
+
+h_get_char :: UInt32 -> UInt8
+h_get_char = unop (\a -> IR.call (AST.ConstantOperand (AST.GlobalReference tDef "fgetc")) [(a,[])])
+  where
+    rt = tyLLVM (Proxy :: Proxy UInt8)
+    tDef = AST.FunctionType
+      { AST.resultType = rt
+        , AST.argumentTypes = []
+        , AST.isVarArg = False
+      }
