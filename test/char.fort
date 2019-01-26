@@ -1,11 +1,11 @@
 ;; types
 Char = /unsigned 8
-Handle = /unsigned 64
-RealWorld = /unsigned 32
+Handle = /address (/unsigned 64)
+RealWorld = /unsigned 1
 
-stdin: Handle = 0
-stdout: Handle = 1
-stderr: Handle = 2
+stdin: Handle
+;; stdout: Handle
+;; stderr: Handle
 
 a = "a"
 b: Char = "b"

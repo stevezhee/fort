@@ -36,8 +36,11 @@ extern char get_char(int);
 /*   } */
 /* } */
 
+FILE* g_stdin;
+
 int main()
 {
+  g_stdin = stdin;
   printf("%d\n",powi(3,2));
   printf("%d\n",powi(128,0));
   printf("%d\n",powi(128,1));
@@ -74,8 +77,7 @@ int main()
   printf("mystruct2.y %d\n",mystruct2.y);
   printf("stdin %p\n",stdin);
 
-  //char input = fgetc(stdin); // 42 is obviously the value for the RealWorld
-  // char input = get_char(42); // 42 is obviously the value for the RealWorld
-  // printf("got char:%c", input);
+  char input = get_char(42); // 42 is obviously the value for the RealWorld
+  printf("got char:%c", input);
   return 0;
 }
