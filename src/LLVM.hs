@@ -309,16 +309,16 @@ case_ (x :: I a) ys = mdo
   v <- unI x
   lbl <- currentBlock
   IR.switch v (snd $ last alts) (init alts)
-  (alts, b:_) <- unzip <$> mapM (f (lbl <> "alt_") v) ys -- BAL: this b isn't needed...
-  return b
+  alts <- mapM (f (lbl <> "alt_") v) ys
+  return $ unreachable "case_"
   where
     prxy = Proxy :: Proxy (I a)
-    f :: ShortByteString -> AST.Operand -> (ShortByteString, I a -> M b) -> M ((AST.Constant, AST.Name), b)
+    f :: ShortByteString -> AST.Operand -> (ShortByteString, I a -> M b) -> M (AST.Constant, AST.Name)
     f pre v (s, g) = do
       altlbl <- IR.named IR.block (pre <> s)
-      b <- g (I (pure v))
+      _ <- g (I (pure v))
       case lookup s $ tagTable prxy of
-        Just i -> return ((AST.Int (neededBitsForTag prxy) i, altlbl), b)
+        Just i -> return (AST.Int (neededBitsForTag prxy) i, altlbl)
         Nothing -> error $ "case_: unknown tag:" ++ show s -- BAL: make a userError function that reports locations
 
 neededBitsForTag :: IsTagged a => Proxy a -> Word32
