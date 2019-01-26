@@ -77,7 +77,8 @@ int main()
   printf("mystruct2.y %d\n",mystruct2.y);
   printf("stdin %p\n",stdin);
 
-  char input = get_char(42); // 42 is obviously the value for the RealWorld
-  printf("got char:%c", input);
+  // enable to test
+  /* char input = get_char(42); // 42 is obviously the value for the RealWorld */
+  /* printf("got char:%c", input); */
   return 0;
 }
