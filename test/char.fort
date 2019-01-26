@@ -1,6 +1,6 @@
 ;; types
 Char = /unsigned 8
-Handle = /address (/unsigned 64)
+Handle = /address (/unsigned 32)
 RealWorld = /unsigned 1
 
 stdin: Handle

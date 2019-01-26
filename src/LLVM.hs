@@ -249,13 +249,23 @@ class Size a where size :: Proxy a -> Word32
 -- BAL: generate these (use haskell sized types?)
 data Size1
 data Size32
-data Size64
 data Size8
+
+data Size64
+instance Size Size64 where size _ = 64
+type UInt64 = N Unsigned Size64
 
 instance Size Size1 where size _ = 1
 instance Size Size32 where size _ = 32
-instance Size Size64 where size _ = 64
 instance Size Size8 where size _ = 8
+type IBool = N Unsigned Size1
+type Idx = UInt32
+type N a sz = I (Number a sz)
+-- type SInt32 = N Signed Size32
+-- type SInt64 = N Signed Size64
+type UInt32 = N Unsigned Size32
+type UInt8 = N Unsigned Size8
+
 
 instance Size sz => Ty (N Signed sz) where tyLLVM _ = tyInt (size (Proxy :: Proxy sz))
 instance Size sz => Ty (N Unsigned sz) where tyLLVM _ = tyInt (size (Proxy :: Proxy sz))
@@ -365,15 +375,6 @@ multiply = arithop IR.mul
 subtract :: (I a, I a) -> I a
 subtract = arithop IR.sub
 
-type IBool = N Unsigned Size1
-type Idx = UInt32
-type N a sz = I (Number a sz)
-type SInt32 = N Signed Size32
-type SInt64 = N Signed Size64
-type UInt32 = N Unsigned Size32
-type UInt64 = N Unsigned Size64
-type UInt8 = N Unsigned Size8
-
 operator :: ((a,b) -> c) -> a -> b -> c
 operator = curry
 
@@ -386,7 +387,7 @@ globalRef x y = AST.ConstantOperand (AST.GlobalReference x y)
 irCall :: (AST.Type, AST.Name) -> [AST.Operand] -> M AST.Operand
 irCall (t, v) ts = IR.call (globalRef t v) $ map (,[]) ts
 
-type Handle = Address UInt64
+type Handle = Address UInt32
 
 stdin :: Handle
 stdin = global "g_stdin"
