@@ -89,10 +89,15 @@ block = IR.named IR.block . blockNm
 
 subBlock :: ShortByteString -> M AST.Name
 subBlock s = do
+  lbl <- currentBlock
+  IR.named IR.block (lbl <> s)
+
+currentBlock :: M ShortByteString
+currentBlock = do
   lbl <- IR.currentBlock
   case lbl of
-    AST.Name a   -> IR.named IR.block (a <> s)
-    AST.UnName{} -> error "subBlock"
+    AST.Name a   -> return a
+    AST.UnName{} -> unreachable "currentBlock"
 
 addPhisFromTo :: ([AST.Operand], AST.Name) -> AST.Name -> M ()
 addPhisFromTo v k = do
@@ -252,8 +257,8 @@ instance Size Size32 where size _ = 32
 instance Size Size64 where size _ = 64
 instance Size Size8 where size _ = 8
 
-instance Size sz => Ty (N Signed sz) where tyLLVM _ = AST.IntegerType (size (Proxy :: Proxy sz))
-instance Size sz => Ty (N Unsigned sz) where tyLLVM _ = AST.IntegerType (size (Proxy :: Proxy sz))
+instance Size sz => Ty (N Signed sz) where tyLLVM _ = tyInt (size (Proxy :: Proxy sz))
+instance Size sz => Ty (N Unsigned sz) where tyLLVM _ = tyInt (size (Proxy :: Proxy sz))
 
 instance Ty a => Ty (Address a) where tyLLVM _ = AST.ptr (tyLLVM (Proxy :: Proxy a))
 instance Ty Void where tyLLVM _ = AST.void
@@ -280,19 +285,59 @@ char :: Char -> UInt8
 char = fromInteger . toInteger . fromEnum
 
 gep :: (Address a, UInt32) -> Address b
-gep = binop (\a b -> IR.gep a [constInt 0, b])
+gep = binop (\a b -> IR.gep a [constInt 32 0, b])
 
-constInt :: Integer -> AST.Operand
-constInt = AST.ConstantOperand . AST.Int 32
+constInt :: Word32 -> Integer -> AST.Operand
+constInt bits = AST.ConstantOperand . AST.Int bits
 
-constN :: Integer -> UInt32
-constN = I . pure . constInt
+constN :: Word32 -> Integer -> UInt32
+constN bits = I . pure . constInt bits
 
 fld :: Integer -> Address a -> Address b
-fld i r = gep (r, constN i)
+fld i r = gep (r, constN 32 i)
 
 tyStruct :: [AST.Type] -> AST.Type
 tyStruct = AST.StructureType False
+
+tyVariant :: [AST.Type] -> AST.Type
+tyVariant = error "tyVariant"
+
+class IsTagged a where tagTable :: Proxy a -> [(ShortByteString, Integer)]
+
+case_ :: IsTagged (I a) => I a -> [(ShortByteString, I a -> M b)] -> M b
+case_ (x :: I a) ys = mdo
+  v <- unI x
+  lbl <- currentBlock
+  IR.switch v (snd $ last alts) (init alts)
+  (alts, b:_) <- unzip <$> mapM (f (lbl <> "alt_") v) ys -- BAL: this b isn't needed...
+  return b
+  where
+    prxy = Proxy :: Proxy (I a)
+    f :: ShortByteString -> AST.Operand -> (ShortByteString, I a -> M b) -> M ((AST.Constant, AST.Name), b)
+    f pre v (s, g) = do
+      altlbl <- IR.named IR.block (pre <> s)
+      b <- g (I (pure v))
+      case lookup s $ tagTable prxy of
+        Just i -> return ((AST.Int (neededBitsForTag prxy) i, altlbl), b)
+        Nothing -> error $ "case_: unknown tag:" ++ show s -- BAL: make a userError function that reports locations
+
+neededBitsForTag :: IsTagged a => Proxy a -> Word32
+neededBitsForTag p = neededBits (genericLength $ tagTable p)
+
+tyInt :: Word32 -> AST.Type
+tyInt = AST.IntegerType
+
+tyEnum :: Integer -> AST.Type
+tyEnum = tyInt . neededBits
+
+enum :: IsTagged (I a) => Integer -> I a
+enum x = f Proxy
+  where
+    f :: IsTagged (I a) => Proxy (I a) -> I a
+    f p = I $ pure $ constInt (neededBitsForTag p) x
+
+neededBits :: Integer -> Word32
+neededBits x = max 1 $ floor ((logBase 2 (fromInteger (x - 1))) :: Double) + 1
 
 data Array a = Array a deriving Show
 

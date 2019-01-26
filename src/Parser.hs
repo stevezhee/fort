@@ -40,7 +40,7 @@ pOp = satisfy (\s -> startsWith oper s && not (s `elem` reservedWords))
 pBind :: P r a -> P r a
 pBind p = p <* reserved "="
 
-reservedWords = ["\\", "=", "=>", "->", ":", "/where", "/if", "/case", "/of", "/do", "/record", "/signed", "/unsigned", "/address", "/array", ",", ";", "{", "}", "[", "]", "(", ")"]
+reservedWords = ["\\", "=", "=>", "->", ":", "/where", "/if", "/case", "/of", "/do", "/record", "/variant", "/signed", "/unsigned", "/address", "/array", ",", ";", "{", "}", "[", "]", "(", ")"]
 
 pTuple :: ([a] -> b) -> P r a -> P r b
 pTuple f p = f <$> parens (sepMany (reserved ",") p)
@@ -77,12 +77,17 @@ grammar = mdo
     (TyCon <$> pCon <?> "type constructor") <|>
     (TyVar <$> pVar <?> "type variable") <|>
     (TyRecord <$> (reserved "/record" *> blockList (pTypedVar (,))) <?> "record type") <|>
+    (TyVariant <$> (reserved "/variant" *> blockList pConOptionalAscription) <?> "variant type") <|>
     (TySize <$> pSize <?> "sized type") <|>
     pTuple TyTuple pType <?> "tuple type"
   pAscription <- rule $ reserved ":" *> pType <?> "type ascription"
   pOptionalAscription <- rule $ pAscription <|> pure TyNone
-  pExprDecl <- rule $ ED <$> pBind ((,) <$> pVar <*> pOptionalAscription) <*> pExpr
-  let alt = (,) <$> pExpr <*> (reserved "=>" *> pExpr)
+  pVarOptionalAscription <- rule ((,) <$> pVar <*> pOptionalAscription)
+  pConOptionalAscription <- rule ((,) <$> pCon <*> pOptionalAscription)
+  pExprDecl <- rule $ ED <$> pBind pVarOptionalAscription <*> pExpr
+  pCaseDecl <- rule $ (,) <$> pBind pConOptionalAscription <*> pExpr
+
+  let pIfAlt = (,) <$> pExpr <*> (reserved "=>" *> pExpr)
   pExpr <- rule $
     (mkWhere <$> pLamE <*> (reserved "/where" *> blockList pExprDecl) <?> "where clause") <|>
     pLamE
@@ -94,8 +99,8 @@ grammar = mdo
     pKeywordE
   pKeywordE <- rule $
     (Sequence <$> (reserved "/do" *> blockList pExpr) <?> "do block") <|>
-    (mkCase <$> (reserved "/case" *> pExpr <* reserved "/of") <*> blockList alt <?> "case expression") <|>
-    (mkIf <$> (reserved "/if" *> blockList alt) <?> "if expression") <|>
+    (Case <$> (reserved "/case" *> pExpr <* reserved "/of") <*> blockList pCaseDecl <?> "case expression") <|>
+    (mkIf <$> (reserved "/if" *> blockList pIfAlt) <?> "if expression") <|>
     pAscriptionE
   pAscriptionE <- rule $
     (Ascription <$> pE0 <*> pAscription) <|>
@@ -137,9 +142,6 @@ mkWhere :: Expr -> [ExprDecl] -> Expr
 mkWhere x ys = case x of
   Lam a b -> Lam a $ Where b ys
   _ -> Where x ys
-
-mkCase :: Expr -> [(Expr, Expr)] -> Expr
-mkCase x ys = mkIf [ (App f x, a) | (f, a) <- ys ]
 
 mkIf :: [(Expr, Expr)] -> Expr
 mkIf [] = error "empty if expression"
@@ -250,7 +252,7 @@ indentation toks@(t0:_) = go t0 [] toks
       | col < indentTop && not (col `elem` (1 : cols)) = error $ "unaligned indentation:" ++ show (locOf x)
       | col == indentTop && unLoc x == "/where" || col < indentTop = close
       | col == indentTop = sep
-      | unLoc x `elem` ["/of", "/where", "/if", "/do", "/record"] = open
+      | unLoc x `elem` ["/of", "/where", "/if", "/do", "/record","/variant"] = open
       | otherwise = adv
       where
         col = column (locOf x)

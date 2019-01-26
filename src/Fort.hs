@@ -6,6 +6,7 @@ module Fort where
 import Data.Loc
 import Data.Text.Prettyprint.Doc
 import Data.List
+import Data.Char
 
 type Con = Token
 type Op = Token
@@ -21,21 +22,24 @@ data Decl
 
 data ExprDecl = ED{ edLHS :: (Var, Type), edRHS :: Expr } deriving Show
 
+-- In general the compiler is free to reorder and lay out data any way it sees
+-- fit. If you want to ffi to/from C/LLVM/etc. you must marshal the data
 data Type
   = TyApp Type Type
   | TyLam Var Type
   | TyFun Type Type
   | TyRecord [(Var, Type)]
+  | TyVariant [(Con, Type)]
   | TyTuple [Type]
   | TyVar Var
   | TyCon Con
   | TySize (L Int)
-  | TyNone -- BAL: remove
+  | TyNone -- BAL: remove(?)
   | TyAddress
   | TyArray
   | TySigned
   | TyUnsigned
-  deriving (Show)
+  deriving (Show, Eq)
 
 data Expr
   = Prim Prim
@@ -50,6 +54,7 @@ data Expr
   | Record [ExprDecl]
   | Tuple [Maybe Expr]
   | Ascription Expr Type
+  | Case Expr [((Con,Type),Expr)]
   -- BAL: ? | Terminator Terminator -- BAL: break this apart from expr
   deriving Show
 
@@ -103,12 +108,23 @@ ppDecls fn xs = vcat $
   , ""
   , "main :: IO ()"
   , "main" <+> "=" <+> "Prim.codegen" <+> pretty (show fn) <+>
-    brackets (commaSep [ "Prim.unTFunc" <+> ppFuncVar v | Just v <- map mFuncVar xs ])
+    ppListV [ "Prim.unTFunc" <+> ppFuncVar v | Just v <- map mFuncVar xs ]
   , ""
-  ] ++ map ppFieldClass (allFieldDecls xs) ++ map ppDecl xs
+  ] ++
+  map ppFieldClass (allFieldDecls xs) ++
+  map ppEnumClass (allEnumDecls xs) ++
+  map ppDecl xs
 
 allFieldDecls :: [Decl] -> [String]
 allFieldDecls = nub . sort . foldl' (\a b -> a ++ fieldDecls b) []
+
+allEnumDecls :: [Decl] -> [String]
+allEnumDecls = nub . sort . foldl' (\a b -> a ++ enumDecls b) []
+
+enumDecls :: Decl -> [String]
+enumDecls x = case x of
+  TyDecl _ (TyVariant bs) | isTyEnum bs -> map (conToVarName . fst) bs
+  _ -> []
 
 fieldDecls :: Decl -> [String]
 fieldDecls x = case x of
@@ -118,20 +134,58 @@ fieldDecls x = case x of
 ppFieldClass :: String -> Doc x
 ppFieldClass v = "class Has_" <> pretty v <+> "a b | a -> b where" <+> pretty v <+> ":: Prim.Address a -> Prim.Address b"
 
+ppEnumClass :: String -> Doc x
+ppEnumClass v = "class Enum_" <> pretty v <+> "a where" <+> pretty v <+> ":: a"
+
 ppFieldInstance :: Con -> ((Var, Type), Int) -> Doc x
 ppFieldInstance c ((v,t), i) =
   "instance Has_" <> ppVar v <+> ppCon c <+> ppType t <+> "where" <+> ppVar v <+> "= Prim.fld" <+> pretty i
+
+ppEnumInstance :: Con -> ((Con, a), Int) -> Doc x
+ppEnumInstance t ((c,_), i) =
+  "instance Enum_" <> pretty v <+> ppCon t <+> "where" <+> pretty v <+> "= Prim.enum" <+> pretty i
+  where
+    v = conToVarName c
+
+ppTaggedInstance :: Con -> [((Con, a), Int)] -> Doc x
+ppTaggedInstance t alts =
+  "instance Prim.IsTagged" <+> ppCon t <+> "where" <> line <> indent 2
+    ("tagTable _ = " <+>
+     ppListV [ ppTuple [stringifyName c, pretty i] | ((c,_), i) <- alts ])
+
+conToVarName :: Con -> String
+conToVarName = canonicalizeName . lowercase . unLoc
+
+lowercase :: String -> String
+lowercase "" = ""
+lowercase (c:cs) = toLower c : cs
+
+isTyEnum :: [(Con, Type)] -> Bool
+isTyEnum = all ((==) TyNone . snd)
 
 ppDecl :: Decl -> Doc x
 ppDecl x = case x of
   TyDecl a (TyRecord bs) -> vcat $
     [ "data" <+> ppCon a <+> "=" <+> ppCon a
     , "instance Prim.Ty" <+> ppCon a <+> "where" <> line <> indent 2 (
-        "tyLLVM _ = Prim.tyStruct" <+> line <> indent 2 (brackets (commaSepV
-          [ "Prim.tyLLVM" <+> parens ("Proxy :: Proxy" <+> ppType t) | (_,t) <- bs ]
-        )))
+        "tyLLVM _ = Prim.tyStruct" <+> ppListV
+          [ "Prim.tyLLVM" <+> ppProxy t | (_,t) <- bs ]
+        )
     ] ++
     map (ppFieldInstance a) (zip bs [0 ..])
+
+  TyDecl a (TyVariant bs) | isTyEnum bs -> vcat $
+    [ "data" <+> dataCon <+> "=" <+> dataCon
+    , "type" <+> ppCon a <+> "=" <+> "Prim.I" <+> dataCon
+    , "instance Prim.Ty" <+> ppCon a <+> "where" <> line <> indent 2 (
+        "tyLLVM _ = Prim.tyEnum" <+> pretty (length bs)
+        )
+    , ppTaggedInstance a alts
+    ] ++
+    map (ppEnumInstance a) alts
+    where
+      alts = zip bs [0 ..]
+      dataCon = ppCon a <> "__Enum__"
 
   TyDecl a b -> "type" <+> ppCon a <+> "=" <+> ppType b
   OpDecl a b -> parens (ppOp a) <+> "=" <+> "Prim.operator" <+> ppVar b
@@ -146,8 +200,8 @@ ppAscription d x = case x of
   TyNone -> d
   _ -> d <+> "::" <+> ppType x
 
-stringifyVar :: Var -> Doc x
-stringifyVar = pretty . show . canonicalizeName . show . ppToken
+stringifyName :: L String -> Doc x
+stringifyName = pretty . show . canonicalizeName . show . ppToken
 
 mFuncVar :: Decl -> Maybe Var
 mFuncVar x = case x of
@@ -162,9 +216,9 @@ ppExprDecl isTopLevel labels (ED (v,t) e) = case e of
   Prim a -> "let" <+> lhs <+> "=" <+> ppPrim a
   _ | isTopLevel -> vcat
         [ lhs <+> "=" <+> "Prim.call" <+> ppFuncVar v
-        , ppFuncVar v <+> "=" <+> "Prim.func" <+> stringifyVar v <+> ppTerm labels e
+        , ppFuncVar v <+> "=" <+> "Prim.func" <+> stringifyName v <+> ppTerm labels e
         ]
-  _ -> ppLabelAscription (ppVar v) t <+> "<-" <+> "Prim.label" <+> stringifyVar v <+> ppTerm (unLoc v : labels) e
+  _ -> ppLabelAscription (ppVar v) t <+> "<-" <+> "Prim.label" <+> stringifyName v <+> ppTerm (unLoc v : labels) e
   where
     lhs = ppAscription (ppVar v) t
 
@@ -190,32 +244,37 @@ ppLabelVar v = "label_" <> ppVar v
 
 ppType :: Type -> Doc x
 ppType x = case x of
-  TyApp a b -> ppType a <+> ppType b
-  TySigned -> "Prim.N Prim.Signed"
-  TyUnsigned -> "Prim.N Prim.Unsigned"
-  TyAddress -> "Prim.Address"
-  TyArray -> "Prim.Array"
-  TyCon a -> ppCon a
-  TySize a -> "Prim.Size" <> ppInt a
-  TyFun a b -> ppType a <+> "->" <+> ppType b
-  TyTuple [] -> "Prim.Void"
-  TyTuple bs -> ppTuple $ map ppType bs
-  TyNone -> mempty
-  TyLam _ _ -> error $ "ppType:" ++ show x
-  TyRecord _ -> "Prim.MyStruct" -- BAL: error $ "ppType:" ++ show x
-  TyVar a -> parens ("Prim.I" <+> ppVar a)
+  TyApp a b   -> ppType a <+> ppType b
+  TySigned    -> "Prim.N Prim.Signed"
+  TyUnsigned  -> "Prim.N Prim.Unsigned"
+  TyAddress   -> "Prim.Address"
+  TyArray     -> "Prim.Array"
+  TyCon a     -> ppCon a
+  TySize a    -> "Prim.Size" <> ppInt a
+  TyFun a b   -> ppType a <+> "->" <+> ppType b
+  TyTuple []  -> "Prim.Void"
+  TyTuple bs  -> ppTuple $ map ppType bs
+  TyNone      -> "Prim.Void" -- BAL: need to remove TyNone
+  TyLam{}     -> error $ "ppType:" ++ show x
+  TyRecord{}  -> error $ "ppType:" ++ show x
+  TyVar a     -> parens ("Prim.I" <+> ppVar a)
+  TyVariant{} -> error $ "ppType:" ++ show x
 
 ppExpr :: Expr -> Doc x
 ppExpr x = case x of
   Prim a -> ppPrim a
   App a b -> parens (ppExpr a <+> ppExpr b)
   Tuple bs -> ppTuple $ map (maybe mempty ppExpr) bs
-  Lam{} -> error "ppExpr:" -- BAL: ppTerm?
-  Where{} -> error "ppExpr:" -- BAL: ppTerm?
-  If{} -> error "ppExpr:" -- BAL: ppTerm?
-  Sequence{} -> error "ppExpr:" -- BAL: ppTerm?
-  Record{} -> error "ppExpr:"
+  Lam a b -> "\\" <> ppPat a <+> "->" <+> "mdo" <> line <> indent 2 (ppTerm [] b) -- ppTerm [] x -- BAL: this isn't correct.  Need the labels at least...
+  Where{} -> error $ "ppExpr:" ++ show x -- BAL: ppTerm?
+  If{} -> error $ "ppExpr:" ++ show x -- BAL: ppTerm?
+  Sequence{} -> error $ "ppExpr:" -- BAL: ppTerm?
+  Record{} -> error $ "ppExpr:" ++ show x
   Ascription a b -> parens (ppAscription (ppExpr a) b)
+  Case{} -> error $ "ppExpr:" ++ show x
+
+ppProxy :: Type -> Doc x
+ppProxy t = parens ("Proxy :: Proxy" <+> ppType t) 
 
 ppTerm :: [String] -> Expr -> Doc x
 ppTerm labels = go
@@ -226,12 +285,15 @@ ppTerm labels = go
         where
           lbls = map edLabel bs
       Lam a b -> stringifyPat a <+> "$" <+> "\\" <> ppPat a <+> "->" <+> "mdo" <> line <> indent 2 (go b)
-      If a b c -> "Prim.if_" <+> parens (ppExpr a) <> line <> indent 2 (vcat [parens (go b), parens (go c)])
+      If a b c -> "Prim.if_" <+> ppExpr a <> line <> indent 2 (vcat [parens (go b), parens (go c)])
       Prim a -> "Prim.ret" <+> ppPrim a
       App (Prim (Var a)) b
-        | isLabel a -> "Prim.jump" <+> ppVar a <+> parens (ppExpr b)
-        | otherwise -> "Prim.ret" <+> parens (ppVar a <+> parens (ppExpr b))
-      Sequence bs -> "Prim.ret" <+> parens ("Prim.sequence" <+> brackets (commaSep $ map ppExpr bs))
+        | isLabel a -> "Prim.jump" <+> ppVar a <+> ppExpr b
+        | otherwise -> "Prim.ret" <+> parens (ppVar a <+> ppExpr b)
+      Sequence bs -> "Prim.ret" <+> parens ("Prim.sequence" <+> (ppListV $ map ppExpr bs))
+      Case a bs -> "Prim.case_" <+> ppExpr a <+>
+        ppListV [ ppTuple [stringifyName c, ppExpr e] | ((c,_t), e) <- bs ]
+      -- BAL: ^ put this type somewhere...
       _ -> error $ "ppTerm:" ++ show x
       where
         isLabel a = unLoc a `elem` labels
@@ -241,10 +303,16 @@ stringifyPat = pretty . show . go
   where
     go x = case x of
       TupleP bs _ -> concatMap go bs
-      VarP v _ -> [stringifyVar v]
+      VarP v _ -> [stringifyName v]
 
 ppTuple :: [Doc x] -> Doc x
 ppTuple = parens . commaSep
+
+ppList :: [Doc x] -> Doc x
+ppList = brackets . commaSep
+
+ppListV :: [Doc x] -> Doc x
+ppListV xs = line <> indent 2 (brackets $ commaSepV xs)
 
 commaSep :: [Doc x] -> Doc x
 commaSep = hcat . intersperse ", "

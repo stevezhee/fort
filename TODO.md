@@ -1,4 +1,5 @@
 - get dependencies in makefile correct
+- pretty printer for .ll
 - make builds faster
 - get up to date on latest llvm-hs
 - there must be a faster way to do installs

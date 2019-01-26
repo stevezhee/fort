@@ -1,0 +1,18 @@
+;; types
+Color = /variant
+  Red
+  Green
+  Blue
+
+Char = /unsigned 8
+
+foo-color: Color -> Color = \c => /case c /of
+  Red   = \_ => green
+  Green = \_ => green
+  Blue  = \_ => red
+
+One = /variant
+  One
+
+foo-one: One -> One = \c => /case c /of
+  One = \_ => one
