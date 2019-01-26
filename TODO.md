@@ -1,5 +1,7 @@
 - get dependencies in makefile correct
 - make builds faster
+- get up to date on latest llvm-hs
+- there must be a faster way to do installs
 - pretty print Haskell code (both written and generated)
 - add git hooks for pretty printing and hlint
 - add haddock
