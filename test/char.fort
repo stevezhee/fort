@@ -1,13 +1,25 @@
 ;; types
 Char = /unsigned 8
+Handle = /address (/unsigned 64)
+RealWorld = /unsigned 1
+
+stdin: Handle
+;; stdout: Handle
+;; stderr: Handle
 
 a = "a"
 b: Char = "b"
 
 fst: (Char, Char) -> Char = \(x,_) => x
-foo: Char -> Char = \_ => fst("z","z")
+foo: Char -> Char = \_ => fst ("z","z")
 bar: Char -> Char = \_ => fst (a,b : Char)
 qux: Char -> Char = \_ => fst (c,d)
   /where
     c = "c"
     d: Char = "d"
+
+h-get-char: Handle -> Char
+get-char: RealWorld -> Char = \_ => h-get-char stdin
+
+;; h-put-char: (Handle, Char) -> ()
+;; put-char: Char -> () = h-put-char(stdin,)
