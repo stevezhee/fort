@@ -26,6 +26,7 @@ import           Data.String
 import qualified Data.Text.Lazy                   as T
 import           Data.Word
 import qualified LLVM.AST                         as AST
+import qualified LLVM.AST.Instruction
 import qualified LLVM.AST.Constant                as AST
 import qualified LLVM.AST.Global                  as AST
 import qualified LLVM.AST.Global
@@ -38,9 +39,10 @@ import           Prelude                          hiding (sequence, subtract, tr
 
 type M a = IR.IRBuilderT (State St) a
 
-data Number a sz = Number a sz deriving Show
+data IntNum a sz = IntNum a sz deriving Show
+data FloatNum sz = FloatNum sz deriving Show
 
-instance Size sz => Num (I (Number a sz)) where
+instance Size sz => Num (I (IntNum a sz)) where
   fromInteger i = I $ pure $ AST.ConstantOperand $ AST.Int (size (Proxy :: Proxy sz)) i
 
 data Signed
@@ -214,12 +216,6 @@ binop f (x, y) = I $ do
 arithop :: (AST.Operand -> AST.Operand -> M AST.Operand) -> (I a, I a) -> I a
 arithop = binop
 
-equals :: (I a, I a) -> IBool
-equals = cmpop (IR.icmp AST.EQ)
-
-cmpop :: (AST.Operand -> AST.Operand -> M AST.Operand) -> (I a, I a) -> IBool
-cmpop = binop
-
 ret :: Ty (I a) => I a -> M (T (I a))
 ret (x :: I a) = do
   a <- unI x
@@ -253,33 +249,24 @@ data Size8
 
 data Size64
 instance Size Size64 where size _ = 64
-type UInt64 = N Unsigned Size64
+type UInt64 = INum Unsigned Size64
 
 instance Size Size1 where size _ = 1
 instance Size Size32 where size _ = 32
 instance Size Size8 where size _ = 8
-type IBool = N Unsigned Size1
+type IBool = INum Unsigned Size1
 type Idx = UInt32
-type N a sz = I (Number a sz)
--- type SInt32 = N Signed Size32
--- type SInt64 = N Signed Size64
-type UInt32 = N Unsigned Size32
-type UInt8 = N Unsigned Size8
+type INum a sz = I (IntNum a sz)
+type SInt32 = INum Signed Size32
+type SInt64 = INum Signed Size64
+type UInt32 = INum Unsigned Size32
+type UInt8 = INum Unsigned Size8
 
 
-instance Size sz => Ty (N Signed sz) where tyLLVM _ = tyInt (size (Proxy :: Proxy sz))
-instance Size sz => Ty (N Unsigned sz) where tyLLVM _ = tyInt (size (Proxy :: Proxy sz))
+instance Size sz => Ty (INum a sz) where tyLLVM _ = tyInt (size (Proxy :: Proxy sz))
 
 instance Ty a => Ty (Address a) where tyLLVM _ = AST.ptr (tyLLVM (Proxy :: Proxy a))
 instance Ty Void where tyLLVM _ = AST.void
-
-truncate :: (Ty (I b)) => I a -> I b
-truncate x = f Proxy
-  where
-    f :: Ty (I b) => Proxy (I b) -> I b
-    f p = I $ do
-      a <- unI x
-      IR.trunc a (tyLLVM p)
 
 unop :: (AST.Operand -> M AST.Operand) -> I a -> I b
 unop f x = I $ do
@@ -364,17 +351,6 @@ store (x,y) = I $ do
   IR.store a 0 b
   return voidOperand
 
-add :: (I a, I a) -> I a
-add = arithop IR.add
-bitwise_and :: (I a, I a) -> I a
-bitwise_and = arithop IR.and
-divide :: (I a, I a) -> I a
-divide = arithop IR.sdiv
-multiply :: (I a, I a) -> I a
-multiply = arithop IR.mul
-subtract :: (I a, I a) -> I a
-subtract = arithop IR.sub
-
 operator :: ((a,b) -> c) -> a -> b -> c
 operator = curry
 
@@ -434,3 +410,106 @@ funDefaults n ft = AST.functionDefaults
     , AST.name = n
     , AST.parameters = ([ AST.Parameter t "" [] | t <- AST.argumentTypes ft ], False)
     }
+
+class Number a where
+  add :: (a, a) -> a
+  subtract :: (a, a) -> a
+  multiply :: (a, a) -> a
+  divide :: (a, a) -> a
+  remainder :: (a, a) -> a
+
+cmpop :: (AST.Operand -> AST.Operand -> M AST.Operand) -> (I a, I a) -> IBool
+cmpop = binop
+
+class Equal a where
+  equals :: (a, a) -> IBool
+  not_equals :: (a, a) -> IBool
+
+class Ordered a where
+  greater_than :: (a, a) -> IBool
+  greater_than_or_equals :: (a, a) -> IBool
+  less_than :: (a, a) -> IBool
+  less_than_or_equals :: (a, a) -> IBool
+
+instance Equal (INum a sz) where
+  equals = cmpop (IR.icmp AST.EQ)
+  not_equals = cmpop (IR.icmp AST.NE)
+
+instance Ordered (INum Signed sz) where
+  greater_than = cmpop (IR.icmp AST.SGT)
+  greater_than_or_equals = cmpop (IR.icmp AST.SGE)
+  less_than = cmpop (IR.icmp AST.SLT)
+  less_than_or_equals = cmpop (IR.icmp AST.SLE)
+
+instance Ordered (INum Unsigned sz) where
+  greater_than = cmpop (IR.icmp AST.UGT)
+  greater_than_or_equals = cmpop (IR.icmp AST.UGE)
+  less_than = cmpop (IR.icmp AST.ULT)
+  less_than_or_equals = cmpop (IR.icmp AST.ULE)
+
+instance Number (INum Signed sz) where
+  add = arithop IR.add
+  subtract = arithop IR.sub
+  multiply = arithop IR.mul
+  divide = arithop IR.sdiv
+  remainder = arithop srem
+    where
+      -- BAL: llvm-hs missing IR.srem(?)
+      srem a b = IR.emitInstr (AST.typeOf a) $ LLVM.AST.Instruction.SRem a b []
+
+instance Number (INum Unsigned sz) where
+  add = arithop IR.add
+  subtract = arithop IR.sub
+  multiply = arithop IR.mul
+  divide = arithop IR.udiv
+  remainder = arithop IR.urem
+
+bitwise_and :: (INum a sz, INum a sz) -> INum a sz
+bitwise_and = arithop IR.and
+
+bitwise_or :: (INum a sz, INum a sz) -> INum a sz
+bitwise_or = arithop IR.or
+
+bitwise_xor :: (INum a sz, INum a sz) -> INum a sz
+bitwise_xor = arithop IR.xor
+
+arithmetic_shift_right :: (INum a sz, INum a sz) -> INum a sz
+arithmetic_shift_right = arithop IR.ashr
+
+logical_shift_right :: (INum a sz, INum a sz) -> INum a sz
+logical_shift_right = arithop IR.lshr
+
+shift_left :: (INum a sz, INum a sz) -> INum a sz
+shift_left = arithop IR.shl
+
+bitop :: (Ty (I a), Ty (I b)) => (AST.Operand -> AST.Type -> M AST.Operand) -> I a -> I b
+bitop g x = f Proxy
+  where
+    f :: Ty (I b) => Proxy (I b) -> I b
+    f p = I $ do
+      a <- unI x
+      g a (tyLLVM p)
+
+bitcast :: (Ty (I a), Ty (I b)) => I a -> I b
+bitcast = bitop IR.bitcast
+
+truncate :: (Size aSz, Size bSz) => INum a aSz -> INum b bSz
+truncate = bitop IR.trunc
+
+sign_extend :: (Size aSz, Size bSz) => INum a aSz -> INum a bSz
+sign_extend = bitop IR.sext
+
+zero_extend :: (Size aSz, Size bSz) => INum a aSz -> INum a bSz
+zero_extend = bitop IR.zext
+
+-- not supported (yet?)
+-- alloca :: Type -> Maybe I a -> Word32 -> I a
+-- extractElement :: (I a, I a) -> I a
+-- extractValue :: I a -> [Word32] -> I a
+-- insertElement :: (I a, I a) -> I a -> I a
+-- insertValue :: I a -> I a -> [Word32] -> I a
+-- unreachable :: M ()
+-- shuffleVector :: I a -> I a -> Constant -> I a
+-- inttoptr :: I a -> Type -> I a
+-- ptrtoint :: I a -> Type -> I a
+-- other floating point instructions

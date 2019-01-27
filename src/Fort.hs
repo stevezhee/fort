@@ -245,8 +245,8 @@ ppLabelVar v = "label_" <> ppVar v
 ppType :: Type -> Doc x
 ppType x = case x of
   TyApp a b   -> ppType a <+> ppType b
-  TySigned    -> "Prim.N Prim.Signed"
-  TyUnsigned  -> "Prim.N Prim.Unsigned"
+  TySigned    -> "Prim.INum Prim.Signed"
+  TyUnsigned  -> "Prim.INum Prim.Unsigned"
   TyAddress   -> "Prim.Address"
   TyArray     -> "Prim.Array"
   TyCon a     -> ppCon a
