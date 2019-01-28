@@ -9,13 +9,13 @@
 - add a primitive to put/get a character from a handle (and add stdin/stdout/stderr values)
 - test out more complicated nested ifs/arrays/records (which I stupidly named the test file struct.fort)
 - multi-dimensional arrays (this one might be a big tougher)
-- add constraints to the arithmetic operators so that they are (constrained) polymorphic
 - strings and string buffers
 - create a stack datatype which is a record with an Int for the `top` and an array of the data
 - initialization of constructed datatypes (i.e. records, arrays, variants (once I get them working))
-- add the llvm `bitcast` operator and some of the other non-arithmetic ones
 - add sizes to Arrays
 - investigate using llvm-hs-typed
 
 done:
 - add all the llvm arithmetic operators
+- add the llvm `bitcast` operator and some of the other non-arithmetic ones
+- add constraints to the arithmetic operators so that they are (constrained) polymorphic
