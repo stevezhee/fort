@@ -1,17 +1,5 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RecursiveDo #-}
--- {-# LANGUAGE RecordWildCards #-}
--- {-# LANGUAGE FlexibleContexts #-}
-
--- -- {-# LANGUAGE OverloadedStrings #-}
-
-{-# OPTIONS_GHC -fno-warn-missing-signatures #-}
--- {-# OPTIONS_GHC -fno-warn-incomplete-patterns #-}
--- {-# OPTIONS_GHC -fno-warn-unused-local-binds #-}
--- {-# OPTIONS_GHC -fno-warn-unused-matches #-}
--- {-# OPTIONS_GHC -fno-warn-unused-do-bind #-}
--- {-# OPTIONS_GHC -fno-warn-type-defaults #-}
--- {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
 module Parser
   ( parseAndCodeGen
@@ -32,22 +20,34 @@ import qualified Language.Lexer.Applicative as L
 import qualified Text.Earley as E
 import System.Exit
 
+pCon :: P r Con
 pCon = satisfy (startsWith upper)
+
 pSize :: P r (L Int)
 pSize = fmap read <$> satisfy (startsWith digit)
+
+pVar :: P r Var
 pVar = satisfy (startsWith lower)
+
+pOp :: P r Token
 pOp = satisfy (\s -> startsWith oper s && not (s `elem` reservedWords))
+
 pBind :: P r a -> P r a
 pBind p = p <* reserved "="
 
+reservedWords :: [String]
 reservedWords = ["\\", "=", "=>", "->", ":", "/where", "/if", "/case", "/of", "/do", "/record", "/variant", "/signed", "/unsigned", "/address", "/array", ",", ";", "{", "}", "[", "]", "(", ")"]
 
 pTuple :: ([a] -> b) -> P r a -> P r b
 pTuple f p = f <$> parens (sepMany (reserved ",") p)
 
+parens :: P r a -> P r a
 parens = between "(" ")"
 
+sepSome :: P r a -> P r b -> P r [b]
 sepSome sep p = (:) <$> p <*> many (sep *> p)
+
+sepMany :: P r a -> P r b -> P r [b]
 sepMany sep p = sepSome sep p <|> pure []
 
 between :: String -> String -> P r a -> P r a
@@ -177,6 +177,7 @@ startsWith f t = case t of
   c : _ -> f c
   _ -> False
 
+isInt :: String -> Bool
 isInt s = case s of
   '-' : b : _ -> digit b
   _ -> startsWith digit s
@@ -199,6 +200,7 @@ oper c =
 inclusive :: Ord a => a -> a -> a -> Bool
 inclusive a b c = c >= a && c <= b
 
+parseAndCodeGen :: FilePath -> IO ()
 parseAndCodeGen fn = do
   putStrLn ("compiling " ++ fn)
   s <- readFile fn
@@ -225,21 +227,30 @@ parseAndCodeGen fn = do
           -- return Nothing
           exitFailure
         _ -> do
-          let errtok@(L errloc _) = toks !! (position rpt - 1)
-          print "errors :("
-          print toks
-          print asts
-          print rpt
-          print errtok
-          print errloc
-          print ()
+          let errtok@(L errloc _) = toks !! (position rpt)
+          putStrLn $ displayLoc errloc ++ ":error:unexpected token:"
+          case errloc of
+            NoLoc -> return ()
+            Loc start _ -> do
+              putStrLn (lines s !! (posLine start - 1))
+              putStrLn (replicate (posCol start - 1) ' ' ++ replicate (length $ unLoc errtok) '^')
+          putStrLn $ "got: " ++ show (unLoc errtok)
+          putStrLn $ "expected: " ++ show (expected rpt)
+            -- print toks
+          -- print asts
+          -- print rpt
+          -- print errtok
+          -- print errloc
+          -- print ()
           exitFailure
           -- return Nothing
 
+column :: Located a => a -> Int
 column x = case locOf x of
   NoLoc -> error "NoLoc"
   Loc p _ -> posCol p
 
+useLoc :: Located b => a -> b -> L a
 useLoc s t = L (locOf t) s
 
 indentation :: [Token] -> [Token]
@@ -266,23 +277,29 @@ indentation toks@(t0:_) = go t0 [] toks
           a : _ -> x : useLoc "{" x : go x (column (locOf a) : cols) xs
         adv = x : go x cols xs
 
+tokWS :: Tok
 tokWS =
   some (sym ' ') <|>
   some (sym '\n') <|>
   string ";;" *> many (psym ((/=) '\n'))
 
+tok :: Tok
 tok =
   (:) <$> sym '/' <*> some (psym lower) <|> -- reserved words
   (:) <$> psym (\c -> lower c || upper c) <*> many (psym ident) <|>
   (:) <$> sym '-' <*> digits <|>
   digits <|>
   some (psym oper) <|>
-  stringlit <|>
+  stringLit <|>
   (:[]) <$> psym special
 
-stringlit = (\a bs c -> a : concat bs ++ [c]) <$> sym '"' <*> many p <*> sym '"'
+type Tok = RE Char String
+
+stringLit :: Tok
+stringLit = (\a bs c -> a : concat bs ++ [c]) <$> sym '"' <*> many p <*> sym '"'
   where
     p = esc <|> ((:[]) <$> psym (\c -> c /= '"' && c /= '\n'))
     esc = (\a b -> [a,b]) <$> sym '\\' <*> psym ((/=) '\n')
 
+digits :: Tok
 digits = some $ psym digit
