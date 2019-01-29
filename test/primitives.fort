@@ -48,7 +48,7 @@ three: Int = 3
 add1: Int -> Int = \x => x + 1
 
 ;; function application
-;; four: Int = add1 three
+;; four: Int = add1 three ;; BAL: this should work
 
 ;; mutable values
 
