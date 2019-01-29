@@ -1,5 +1,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 
 module Fort where
 
@@ -46,7 +47,7 @@ toInstructionType :: Type -> Type
 toInstructionType = go
   where
     go x = case x of
-      TyFun a b -> TyFun (go a) (iType b)
+      TyFun a b -> TyFun (go a) (go b)
       TyTuple [a] -> go a
       TyTuple bs@(_:_) -> TyTuple $ map go bs
       _ -> iType x
@@ -148,22 +149,25 @@ canonicalizeName = map f
 
 ppDecls :: FilePath -> [Decl] -> Doc x
 ppDecls fn xs = vcat $
-  [ "{-# LANGUAGE NoImplicitPrelude #-}"
+  [ "{-# LANGUAGE FlexibleContexts #-}"
+  , "{-# LANGUAGE FlexibleInstances #-}"
+  , "{-# LANGUAGE FunctionalDependencies #-}"
+  , "{-# LANGUAGE MultiParamTypeClasses #-}"
+  , "{-# LANGUAGE NoImplicitPrelude #-}"
+  , "{-# LANGUAGE OverloadedStrings #-}"
+  , "{-# LANGUAGE RankNTypes #-}"
+  , "{-# LANGUAGE RebindableSyntax #-}"
   , "{-# LANGUAGE RecursiveDo #-}"
   , "{-# LANGUAGE ScopedTypeVariables #-}"
-  , "{-# LANGUAGE RebindableSyntax #-}"
-  , "{-# LANGUAGE OverloadedStrings #-}"
-  , "{-# OPTIONS_GHC -fno-warn-missing-signatures #-}"
-  , "{-# LANGUAGE MultiParamTypeClasses #-}"
-  , "{-# LANGUAGE FunctionalDependencies #-}"
   , "{-# LANGUAGE TypeSynonymInstances #-}"
-  , "{-# LANGUAGE FlexibleInstances #-}"
   , ""
-  , "import qualified LLVM as Prim"
-  , "import Data.String (fromString)"
+  , "{-# OPTIONS_GHC -fno-warn-missing-signatures #-}"
+  , ""
   , "import Control.Monad.Fix (mfix)"
   , "import Prelude (fromInteger, (>>=), return, fail, ($), IO, (.), undefined)"
   , "import Data.Proxy (Proxy(..))"
+  , "import Data.String (fromString)"
+  , "import qualified LLVM as Prim"
   , ""
   , "main :: IO ()"
   , "main" <+> "=" <+> "Prim.codegen" <+> pretty (show fn) <>
@@ -173,10 +177,16 @@ ppDecls fn xs = vcat $
   map ppFieldClass (allFieldDecls xs) ++
   map ppEnumClass (allEnumDecls xs) ++
   map ppSize userSizes ++
-  map ppDecl xs
+  map (ppDecl nameTbl) xs
   where
     userTypes = concatMap declTypes xs
     userSizes = sort $ nub $ concatMap typeSizes userTypes
+    nameTbl = catMaybes $ map nameAndType xs
+
+nameAndType x = case x of
+  PrimDecl a b -> Just (unLoc a, b)
+  ExprDecl (ED (a,b) _) -> Just (unLoc a, b)
+  _ -> Nothing
 
 ppSize :: Int -> Doc x
 ppSize i
@@ -236,8 +246,8 @@ lowercase (c:cs) = toLower c : cs
 isTyEnum :: [(Con, Type)] -> Bool
 isTyEnum = all ((==) TyNone . snd)
 
-ppDecl :: Decl -> Doc x
-ppDecl x = case x of
+ppDecl :: [(String, Type)] -> Decl -> Doc x
+ppDecl tbl x = case x of
   TyDecl a (TyRecord bs) -> vcat $
     [ "data" <+> ppCon a
     , "instance Prim.Ty" <+> ppCon a <+> "where" <> line <> indent 2 (
@@ -257,20 +267,81 @@ ppDecl x = case x of
     map (ppEnumInstance a) alts
     where
       alts = zip bs [0 ..]
-      dataCon = ppCon a <> "__Enum__"
+      -- BAL: dataCon = ppCon a <> "__Enum__"
 
   TyDecl a b -> "type" <+> ppCon a <+> "=" <+> ppType b
-  OpDecl a b -> parens (ppOp a) <+> "=" <+> "Prim.operator" <+> ppVar b
+  OpDecl a b -> case lookup (unLoc b) tbl of
+    Nothing -> error $ "unknown operator binding" ++ show (a,b)
+    Just t -> vcat
+      [ ppAscription (parens (ppOp a)) $ typeToOperatorType t
+      , parens (ppOp a) <+> "=" <+> "Prim.operator" <+> ppVar b
+      ]
   PrimDecl a b -> vcat
     [ ppAscription (ppVar a) b
     , ppVar a <+> "=" <+> "Prim." <> pretty (show (ppVar a))
     ]
   ExprDecl a -> ppExprDecl True [] a
 
+typeToOperatorType :: Type -> Type
+typeToOperatorType x = case x of
+  TyFun (TyTuple [a,b]) c -> TyFun a (TyFun b c)
+  _ -> error $ "unexpected type for operator decl:" ++ show x
+  
+-- tagFieldName :: Con -> Con -> Var
+-- tagFieldName t x = useLoc "__tag" x
+
+-- tagType :: Con -> Type
+-- tagType t = undefined -- useLoc ("Tag-" ++ unLoc t) t
+
+-- unionType :: Con -> Type
+-- unionType t = undefined -- useLoc ("unsafe-union-" ++ unLoc t) t
+
+-- introductionName :: Con -> Con -> Var
+-- introductionName t x = useLoc (lowercase (unLoc t) ++ "-" ++ unLoc x) x
+
+-- eliminationName :: Con -> Var
+-- eliminationName t = useLoc (lowercase (unLoc t)) t
+
+ppLabelAscription :: Doc x -> Type -> Doc x
+ppLabelAscription = ppAscriptionF ppLabelType
+
 ppAscription :: Doc x -> Type -> Doc x
-ppAscription d x = case x of
+ppAscription = ppAscriptionF ppType
+
+ppAscriptionF :: (Type -> Doc x) -> Doc x -> Type -> Doc x
+ppAscriptionF f d x = case x of
   TyNone -> d
-  _ -> d <+> "::" <+> ppType (toInstructionType x)
+  _ -> d <+> classes <+> f (toInstructionType x)
+  where
+    classes = case tyVars x of
+      [] -> "::"
+      vs -> "::" <+> ppTuple (map g vs) <+> "=>"
+        where
+          g v
+            | isSizeTyVar v = "Prim.Size" <+> pretty v
+            | otherwise = "Prim.Ty" <+> pretty v
+
+isSizeTyVar :: String -> Bool
+isSizeTyVar v = take 2 v == "sz" -- BAL: hacky way to determine that it's a Size TyVar
+
+tyVars :: Type -> [String]
+tyVars = sort . nub . go
+  where
+    go x = case x of
+      TyVar v -> [unLoc v]
+      TyApp a b -> go a ++ go b
+      TyLam v a -> filter ((/=) (unLoc v)) (go a)
+      TyFun a b -> go a ++ go b
+      TyRecord bs  -> concatMap (go . snd) bs
+      TyVariant bs -> concatMap (go . snd) bs
+      TyTuple bs   -> concatMap go bs
+      TyCon{}    -> []
+      TySize{}   -> []
+      TyNone     -> []
+      TyAddress  -> []
+      TyArray    -> []
+      TySigned   -> []
+      TyUnsigned -> []
 
 stringifyName :: L String -> Doc x
 stringifyName = pretty . show . canonicalizeName . show . ppToken
@@ -290,14 +361,10 @@ ppExprDecl isTopLevel labels (ED (v,t) e) = case e of
         [ lhs <+> "=" <+> "Prim.call" <+> ppFuncVar v
         , ppFuncVar v <+> "=" <+> "Prim.func" <+> stringifyName v <+> ppTerm labels e
         ]
-  _ -> ppLabelAscription (ppVar v) t <+> "<-" <+> "Prim.label" <+> stringifyName v <+> ppTerm (unLoc v : labels) e
+  _ -> ppLabelAscription (ppVar v) t <+> "<-" <+> "Prim.label" <+> stringifyName v <+>
+       ppTerm (unLoc v : labels) e
   where
     lhs = ppAscription (ppVar v) t
-
-ppLabelAscription :: Doc x -> Type -> Doc x
-ppLabelAscription d x = case x of
-  TyNone -> d
-  _ -> d <+> "::" <+> ppLabelType (toInstructionType x)
 
 ppLabelType :: Type -> Doc x
 ppLabelType x = case x of

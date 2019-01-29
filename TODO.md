@@ -14,6 +14,7 @@
 - initialization of constructed datatypes (i.e. records, arrays, variants (once I get them working))
 - add sizes to Arrays
 - investigate using llvm-hs-typed
+- make error reporting better
 
 done:
 - add all the llvm arithmetic operators

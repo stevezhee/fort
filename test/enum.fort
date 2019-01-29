@@ -1,18 +1,85 @@
 ;; types
-Color = /variant
-  Red
-  Green
-  Blue
-
+Int = /signed 32
+Tag = /unsigned 1
+Bool = /unsigned 1
 Char = /unsigned 8
 
-foo-color: Color -> Color = \c => /case c /of
-  Red   = \_ => green
-  Green = \_ => green
-  Blue  = \_ => red
+;; primitives
+load: /address a -> a
 
-One = /variant
-  One
+equals: (Tag, Tag) -> Bool
+== = equals
 
-foo-one: One -> One = \c => /case c /of
-  One = \_ => one
+bitcast: /address a -> /address b
+store: (/address a, a) -> ()
+
+;; InLR = /variant
+;;   InL: Char
+;;   InR: Int
+
+InLR = /record
+  tag-InLR: Tag ;; needs to be custom with enough bits to represent the number of tags
+  unsafe-union-InLR: Int ;; largest type
+  
+;; helper functions
+;; tag-InLR, e.g. tag-InLR x ===> (load ((tag-InLR (x :: /address InLR)) :: /address Tag)) :: Tag
+
+unsafe-InLR-InL: /address InLR -> /address Char = \x => bitcast (unsafe-union-InLR x)
+unsafe-InLR-InR: /address InLR -> /address Int  = \x => bitcast (unsafe-union-InLR x)
+
+;; data type Introduction
+
+tag-inL: Tag = 0
+tag-inR: Tag = 1
+
+inL: (/address InLR, Char) -> () = \(p,a) => /do
+  store (tag-InLR p, tag-inL)  
+  store (unsafe-InLR-InL p, a)
+
+inR: (/address InLR, Int) -> () = \(p,a) => /do
+  store (tag-InLR p, tag-inR)  
+  store (unsafe-InLR-InR p, a) 
+
+;; data type Elimination
+;; inLR: (/address InLR, Char -> a, Int -> a) -> a = \(x, f, g) =>
+;;   switch (load (tag-inLR x))
+;;     [ (tag-inL, f (unsafe-InLR-InL x))
+;;     , (tag-inR, g (unsafe-InLR-InR x))
+;;     ]
+
+;; inLR: (/address InLR, /record
+;;   un-inL: Char -> a
+;;   un-inR: Int  -> a) -> a ...
+
+;; class IsVariant x where
+
+;;  .... = /case x /of
+;;    InL = \c => ... c ...
+;;    InR = \i => ... c ...
+
+;; maybe :: b -> (a -> b) -> Maybe a -> b
+;; either :: (a -> c) -> (b -> c) -> Either a b -> c
+
+;; code
+
+;; union { Char; Int }
+
+;; Option = \a => /variant
+;;   0 None
+;;   1 Some: a
+;;   2 ...
+
+;; ptr -> struct
+;;   tag: Int
+;;   union: 
+;;     data 
+
+;; struct
+;;   { tag: int
+;;   , data: 64 bytes ;; this is the biggest type in the union
+;;   ;; , data: union {
+;;   ;;     c: char;  1 byte
+;;   ;;     i: int;   4 bytes
+;;   ;;     d: long long; 64 bytes
+;;   ;;   }
+;;   }

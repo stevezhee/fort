@@ -25,3 +25,4 @@ foo-struct: (/address MyStruct, /address MyStruct2) -> () = \(mystr, mystr2) => 
   y mystr2 .= 24242424
   x mystr2 .= 24
   
+  
