@@ -18,7 +18,7 @@ extern void inc(int*);
 extern void inc2(int*);
 extern void foo_array(int[2]);
 extern void foo_struct(MyStruct*, MyStruct2*);
-extern char get_char(int);
+extern void char_io_test(int);
 extern void foo_2dim_array(int[2][3]);
 
 /* int getChar() */
@@ -38,10 +38,14 @@ extern void foo_2dim_array(int[2][3]);
 /* } */
 
 FILE* g_stdin;
+FILE* g_stdout;
+FILE* g_stderr;
 
 int main(int argc, char**argv)
 {
   g_stdin = stdin;
+  g_stdout = stdout;
+  g_stderr = stderr;
   printf("%d\n",powi(3,2));
   printf("%d\n",powi(128,0));
   printf("%d\n",powi(128,1));
@@ -80,8 +84,7 @@ int main(int argc, char**argv)
 
   if(argc > 1)
     {
-      char input = get_char(42); // 42 is obviously the value for the RealWorld
-      printf("got char:%c", input);
+      char_io_test(42); // 42 is obviously the value for the RealWorld
     }
 
   int arr2[2][3];

@@ -349,6 +349,9 @@ operator = curry
 h_get_char :: I Handle -> I Char_
 h_get_char = extern "fgetc"
 
+h_put_char :: (I Char_, I Handle) -> I ()
+h_put_char = extern "fputc"
+
 globalRef :: AST.Type -> AST.Name -> AST.Operand
 globalRef x y = AST.ConstantOperand (AST.GlobalReference x y)
 
@@ -359,6 +362,12 @@ type Handle = Addr (IntNum Unsigned Size32)
 
 stdin :: I Handle
 stdin = global "g_stdin"
+
+stdout :: I Handle
+stdout = global "g_stdout"
+
+stderr :: I Handle
+stderr = global "g_stderr"
 
 addExtern :: AST.Global -> M ()
 addExtern d = modify $ \st -> st{ externs = d : externs st }

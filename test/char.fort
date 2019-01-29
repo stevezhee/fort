@@ -4,8 +4,8 @@ Handle = /address (/unsigned 32)
 RealWorld = /unsigned 1
 
 stdin: Handle
-;; stdout: Handle
-;; stderr: Handle
+stdout: Handle
+stderr: Handle
 
 a = "a"
 b: Char = "b"
@@ -21,5 +21,9 @@ qux: Char -> Char = \_ => fst (c,d)
 h-get-char: Handle -> Char
 get-char: RealWorld -> Char = \_ => h-get-char stdin
 
-;; h-put-char: (Handle, Char) -> ()
-;; put-char: Char -> () = h-put-char(stdin,)
+h-put-char: (Char, Handle) -> ()
+put-char: Char -> () = h-put-char (,stdout)
+
+char-io-test: RealWorld -> () = \w => /do
+  put-char (get-char w)
+  put-char "!"
