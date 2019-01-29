@@ -361,7 +361,7 @@ ppTerm labels = go
       Prim a -> "Prim.ret" <+> ppPrim a
       App (Prim (Var a)) b
         | isLabel a -> "Prim.jump" <+> ppVar a <+> ppExpr b
-        | otherwise -> "Prim.ret" <+> parens (ppVar a <+> ppExpr b)
+      App{} -> "Prim.ret" <+> parens (ppExpr x)
       Sequence bs -> "Prim.ret" <+> parens ("Prim.sequence" <+> (ppListV $ map ppExpr bs))
       Case a bs -> "Prim.case_" <+> ppExpr a <>
         ppListV [ ppTuple [stringifyName c, ppExpr e] | ((c,_t), e) <- bs ]

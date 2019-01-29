@@ -45,10 +45,10 @@ three: Int = 3
 ;; functions are defined using lambdas for the arguments
 ;; '\' <var> '=>' <definition>
 
-add1: Int -> Int = \x => add (x,1) ;; BAL: fixme x + 1
+add1: Int -> Int = \x => x + 1
 
 ;; function application
-;; BAL: fixme four: Int = add1 three
+;; four: Int = add1 three
 
 ;; mutable values
 
