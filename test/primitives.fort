@@ -1,0 +1,59 @@
+;; types
+;; <type name> '=' <type>
+
+SInt8 = /signed 8 ;; 8 bit signed integer
+;; keywords start with a '/'
+
+UInt128 = /unsigned 128 ;; 128 bit unsigned integer
+Int = /signed 32
+
+;; TODO: floating point
+
+Char = /unsigned 8
+Bool = /unsigned 1 ;; TODO: make an enum
+
+CharArr = /array 6 Char ;; 6 element array of characters
+IntMultArr = /array 2 (/array 3 Int) ;; multi-dimensional array [2][3] of int
+
+CharIntTuple = (Char, Int) ;; order is specified
+
+CharIntRecord = /record ;; at struct where order is unspecified
+  char: Char
+  int: Int
+
+;; values are immutable
+;; addresses allow you to mutate a value at the given address
+
+;; primitives are declared with a name and a type but no definition
+;; <primitive name> ':' <type>
+
+;; primitives are defined in src/LLVM.hs
+
+load: /address a -> a ;; function types have the syntax a '->' b
+add: (Int, Int) -> Int ;; multiple arguments are declared with tupling
+store: (/address a, a) -> () ;; void result type
+
+;; binary operators are declared with an operator and a name
+;; <operator> '=' <function name>
++ = add
+
+;; values are declared with a name, type (optional), and definition (including functions)
+;; <value name> [':' Type] '=' <definition>
+
+three: Int = 3
+
+;; functions are defined using lambdas for the arguments
+;; '\' <var> '=>' <definition>
+
+add1: Int -> Int = \x => add (x,1) ;; BAL: fixme x + 1
+
+;; function application
+;; BAL: fixme four: Int = add1 three
+
+;; mutable values
+
+add3AtLoc: /address Int -> () = \p => /do ;; /do sequences operations
+  store (p, add(1, load p))
+  store (p, add(1, load p))
+  store (p, add(1, load p))
+

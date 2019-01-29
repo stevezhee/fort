@@ -20,7 +20,7 @@ extern void foo_array(int[2]);
 extern void foo_struct(MyStruct*, MyStruct2*);
 extern void char_io_test(int);
 extern void foo_2dim_array(int[2][3]);
-
+extern void add3AtLoc(int*);
 /* int getChar() */
 /* { */
 /*   int c = fgetc(stdin); */
@@ -98,5 +98,10 @@ int main(int argc, char**argv)
           printf("arr2[%d][%d] = %d\n",i,j,arr2[i][j]);
         }
     }
+
+  int myInt = 4;
+  add3AtLoc(&myInt);
+  printf("myInt = %d\n", myInt);
+
   return 0;
 }
