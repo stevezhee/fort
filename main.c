@@ -16,9 +16,10 @@ extern int powi(int, int);
 extern int squared(int);
 extern void inc(int*);
 extern void inc2(int*);
-extern void foo_array(int[]);
+extern void foo_array(int[2]);
 extern void foo_struct(MyStruct*, MyStruct2*);
 extern char get_char(int);
+extern void foo_2dim_array(int[2][3]);
 
 /* int getChar() */
 /* { */
@@ -81,6 +82,18 @@ int main(int argc, char**argv)
     {
       char input = get_char(42); // 42 is obviously the value for the RealWorld
       printf("got char:%c", input);
+    }
+
+  int arr2[2][3];
+  foo_2dim_array(arr2);
+
+  int i,j;
+  for(i=0;i<2;++i)
+    {
+      for(j=0;j<3;++j)
+        {
+          printf("arr2[%d][%d] = %d\n",i,j,arr2[i][j]);
+        }
     }
   return 0;
 }

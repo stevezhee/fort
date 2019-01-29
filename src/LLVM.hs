@@ -40,10 +40,11 @@ import           Prelude                          hiding (sequence, subtract, tr
 type M a = IR.IRBuilderT (State St) a
 
 data IntNum a sz = IntNum a sz deriving Show
-data FloatNum sz = FloatNum sz deriving Show
 
-instance Size sz => Num (I (IntNum a sz)) where
-  fromInteger i = I $ pure $ AST.ConstantOperand $ AST.Int (size (Proxy :: Proxy sz)) i
+type INum a sz = I (IntNum a sz)
+
+instance Size sz => Num (INum a sz) where
+  fromInteger i = I $ pure $ constInt (fromIntegral $ size (Proxy :: Proxy sz)) i
 
 data Signed
 data Unsigned
@@ -121,7 +122,7 @@ mkPhi t ps = AST.Phi t ps []
 joinPhiValues :: [([AST.Operand], AST.Name)] -> [[(AST.Operand, AST.Name)]]
 joinPhiValues xs = transpose [ [ (b, c) | b <- bs ] | (bs, c) <- xs ]
 
-if_ :: IBool -> M a -> M a -> M a
+if_ :: I Bool_ -> M a -> M a -> M a
 if_ x y z = mdo
   v <- unI x
   IR.condBr v truelbl falselbl
@@ -130,10 +131,10 @@ if_ x y z = mdo
   falselbl <- subBlock "f"
   z
 
-freshVar :: Ty (I a) => ShortByteString -> M (I a)
+freshVar :: Ty a => ShortByteString -> M (I a)
 freshVar x = f Proxy
   where
-    f :: Ty (I a) => Proxy (I a) -> M (I a)
+    f :: Ty a => Proxy a -> M (I a)
     f p = do
       n <- IR.freshName x
       return $ I $ pure $ AST.LocalReference (tyLLVM p) n
@@ -146,28 +147,28 @@ class Args a where
   unArgs :: a -> [M AST.Operand]
   tyArgs :: Proxy a -> [AST.Type]
 
-instance (Ty (I a)) => Args (I a) where
+instance Ty a => Args (I a) where
   freshArgs [a] = freshVar a
   freshArgs _ = unreachable "freshArgs"
   unArgs a = [unI a]
-  tyArgs (_ :: Proxy (I a)) = [tyLLVM (Proxy :: Proxy (I a))]
+  tyArgs (_ :: Proxy (I a)) = [tyLLVM (Proxy :: Proxy a)]
 
-instance (Ty (I a), Ty (I b)) => Args (I a, I b) where
+instance (Ty a, Ty b) => Args (I a, I b) where
   freshArgs [a, b] = (,) <$> freshVar a <*> freshVar b
   freshArgs _ = unreachable "freshArgs"
   unArgs (a, b) = [unI a, unI b]
-  tyArgs (_ :: Proxy (I a, I b)) = [tyLLVM (Proxy :: Proxy (I a)), tyLLVM (Proxy :: Proxy (I b))]
+  tyArgs (_ :: Proxy (I a, I b)) = [tyLLVM (Proxy :: Proxy a), tyLLVM (Proxy :: Proxy b)]
 
-instance (Ty (I a), Ty (I b), Ty (I c)) => Args (I a, I b, I c) where
+instance (Ty a, Ty b, Ty c) => Args (I a, I b, I c) where
   freshArgs [a,b,c] = (,,) <$> freshVar a <*> freshVar b <*> freshVar c
   freshArgs _ = unreachable "freshArgs"
   unArgs (a, b, c) = [unI a, unI b, unI c]
-  tyArgs (_ :: Proxy (I a, I b, I c)) = [tyLLVM (Proxy :: Proxy (I a)), tyLLVM (Proxy :: Proxy (I b)), tyLLVM (Proxy :: Proxy (I c))]
+  tyArgs (_ :: Proxy (I a, I b, I c)) = [tyLLVM (Proxy :: Proxy a), tyLLVM (Proxy :: Proxy b), tyLLVM (Proxy :: Proxy c)]
 
 unreachable :: String -> a
 unreachable s = error $ "unreachable:" ++ s
 
-label :: Args a => ShortByteString -> [ShortByteString] -> (a -> M (T b)) -> M (TLabel a b)
+label :: Args a => ShortByteString -> [ShortByteString] -> (a -> M (T (I b))) -> M (TLabel a (I b))
 label nm ns f = do
   let k = AST.Name (blockNm nm) -- BAL:unsafe, assert(?) at least
   e <- freshArgs ns
@@ -181,7 +182,7 @@ label nm ns f = do
     }
   return $ TLabel k
 
-jump :: (Args a, Ty b) => TLabel a b -> a -> M (T b)
+jump :: (Args a, Ty b) => TLabel a (I b) -> a -> M (T (I b))
 jump x e = do
   let targ = unTLabel x
   lbl <- IR.currentBlock
@@ -191,11 +192,6 @@ jump x e = do
   return T
 
 class Ty a where tyLLVM :: Proxy a -> AST.Type
-
-call :: (Args a, Ty (I b)) => TFunc a (I b) -> a -> I b
-call f a = I $ do
-  bs <- evalArgs a
-  irCall (fst $ unTFunc f) bs
 
 type Void = I ()
 
@@ -216,17 +212,22 @@ binop f (x, y) = I $ do
 arithop :: (AST.Operand -> AST.Operand -> M AST.Operand) -> (I a, I a) -> I a
 arithop = binop
 
-ret :: Ty (I a) => I a -> M (T (I a))
+ret :: Ty a => I a -> M (T (I a))
 ret (x :: I a) = do
   a <- unI x
   case () of
-    () | tyLLVM (Proxy :: Proxy (I a)) == AST.void -> IR.retVoid
+    () | tyLLVM (Proxy :: Proxy a) == AST.void -> IR.retVoid
     _                                              -> IR.ret a
   return T
 
+call :: (Args a, Ty b) => TFunc a b -> a -> I b
+call f a = I $ do
+  bs <- evalArgs a
+  irCall (fst $ unTFunc f) bs
+
 func :: (Args a, Ty b) =>
-  String -> [ShortByteString] -> (a -> M (T b)) -> TFunc a b
-func n ns (f :: Args a => a -> M (T b)) = TFunc ((ft, fn), do
+  String -> [ShortByteString] -> (a -> M (T (I b))) -> TFunc a b
+func n ns (f :: Args a => a -> M (T (I b))) = TFunc ((ft, fn), do
   e  <- freshArgs ns
   bs <- evalArgs e
   _  <- block "start"
@@ -240,58 +241,49 @@ func n ns (f :: Args a => a -> M (T b)) = TFunc ((ft, fn), do
     fn = AST.mkName n
     ft = funTy (Proxy :: Proxy a) (Proxy :: Proxy b)
 
-class Size a where size :: Proxy a -> Word32
+class Size a where size :: Proxy a -> Word64
 
--- BAL: generate these (use haskell sized types?)
 data Size1
 data Size32
 data Size8
 
-data Size64
-instance Size Size64 where size _ = 64
-type UInt64 = INum Unsigned Size64
-
 instance Size Size1 where size _ = 1
-instance Size Size32 where size _ = 32
 instance Size Size8 where size _ = 8
-type IBool = INum Unsigned Size1
-type Idx = UInt32
-type INum a sz = I (IntNum a sz)
-type SInt32 = INum Signed Size32
-type SInt64 = INum Signed Size64
-type UInt32 = INum Unsigned Size32
-type UInt8 = INum Unsigned Size8
+instance Size Size32 where size _ = 32
 
+type UInt32 = IntNum Unsigned Size32
+type Char_ = IntNum Unsigned Size8
+type Bool_ = IntNum Unsigned Size1
 
-instance Size sz => Ty (INum a sz) where tyLLVM _ = tyInt (size (Proxy :: Proxy sz))
+instance Size sz => Ty (IntNum a sz) where tyLLVM _ = tyInt (fromIntegral $ size (Proxy :: Proxy sz))
+-- instance Ty Bool where tyLLVM _ = tyInt 1 -- BAL: make bool a non-numeric type
+-- instance Ty Char where tyLLVM _ = tyInt 8 -- BAL: make char a non-numeric type
 
-instance Ty a => Ty (Address a) where tyLLVM _ = AST.ptr (tyLLVM (Proxy :: Proxy a))
-instance Ty Void where tyLLVM _ = AST.void
+instance Ty a => Ty (Addr a) where tyLLVM _ = AST.ptr (tyLLVM (Proxy :: Proxy a))
+instance Ty () where tyLLVM _ = AST.void
 
 unop :: (AST.Operand -> M AST.Operand) -> I a -> I b
 unop f x = I $ do
   a <- unI x
   f a
 
-instance Ty a => Ty (Array a) where tyLLVM _ = AST.ArrayType 0 (tyLLVM (Proxy :: Proxy a)) -- BAL: using unsized for now
+instance (Size sz, Ty a) => Ty (Array sz a) where
+  tyLLVM _ = AST.ArrayType (size (Proxy :: Proxy sz)) (tyLLVM (Proxy :: Proxy a))
 
-index :: (Address (Array a), Idx) -> Address a -- BAL: index type should be tied to the size of the array
+index :: (Address (Array sz a), I UInt32) -> Address a -- BAL: index type should be tied to the size of the array
 index = gep
 
-char :: Char -> UInt8
+char :: Char -> I Char_
 char = fromInteger . toInteger . fromEnum
 
-gep :: (Address a, UInt32) -> Address b
+gep :: (Address a, I UInt32) -> Address b
 gep = binop (\a b -> IR.gep a [constInt 32 0, b])
 
 constInt :: Word32 -> Integer -> AST.Operand
 constInt bits = AST.ConstantOperand . AST.Int bits
 
-constN :: Word32 -> Integer -> UInt32
-constN bits = I . pure . constInt bits
-
 fld :: Integer -> Address a -> Address b
-fld i r = gep (r, constN 32 i)
+fld i r = gep (r, I $ pure $ constInt 32 i)
 
 tyStruct :: [AST.Type] -> AST.Type
 tyStruct = AST.StructureType False
@@ -301,7 +293,7 @@ tyVariant = error "tyVariant"
 
 class IsTagged a where tagTable :: Proxy a -> [(ShortByteString, Integer)]
 
-case_ :: IsTagged (I a) => I a -> [(ShortByteString, I a -> M b)] -> M b
+case_ :: IsTagged a => I a -> [(ShortByteString, I a -> M b)] -> M b
 case_ (x :: I a) ys = mdo
   v <- unI x
   lbl <- currentBlock
@@ -309,7 +301,7 @@ case_ (x :: I a) ys = mdo
   alts <- mapM (f (lbl <> "alt_") v) ys
   return $ unreachable "case_"
   where
-    prxy = Proxy :: Proxy (I a)
+    prxy = Proxy :: Proxy a
     f :: ShortByteString -> AST.Operand -> (ShortByteString, I a -> M b) -> M (AST.Constant, AST.Name)
     f pre v (s, g) = do
       altlbl <- IR.named IR.block (pre <> s)
@@ -327,24 +319,24 @@ tyInt = AST.IntegerType
 tyEnum :: Integer -> AST.Type
 tyEnum = tyInt . neededBits
 
-enum :: IsTagged (I a) => Integer -> I a
+enum :: IsTagged a => Integer -> I a
 enum x = f Proxy
   where
-    f :: IsTagged (I a) => Proxy (I a) -> I a
+    f :: IsTagged a => Proxy a -> I a
     f p = I $ pure $ constInt (neededBitsForTag p) x
 
 neededBits :: Integer -> Word32
 neededBits x = max 1 $ floor ((logBase 2 (fromInteger (x - 1))) :: Double) + 1
 
-data Array a = Array a deriving Show
+data Array sz a = Array sz a deriving Show
 
 type Address a = I (Addr a)
 data Addr a = Addr a deriving Show
 
-load :: Address (I a) -> I a
+load :: Address a -> I a
 load = unop (flip IR.load 0)
 
-store :: (Address (I a), I a) -> Void
+store :: (Address a, I a) -> Void
 store (x,y) = I $ do
   a <- unI x
   b <- unI y
@@ -354,7 +346,7 @@ store (x,y) = I $ do
 operator :: ((a,b) -> c) -> a -> b -> c
 operator = curry
 
-h_get_char :: Handle -> UInt8
+h_get_char :: I Handle -> I Char_
 h_get_char = extern "fgetc"
 
 globalRef :: AST.Type -> AST.Name -> AST.Operand
@@ -363,18 +355,18 @@ globalRef x y = AST.ConstantOperand (AST.GlobalReference x y)
 irCall :: (AST.Type, AST.Name) -> [AST.Operand] -> M AST.Operand
 irCall (t, v) ts = IR.call (globalRef t v) $ map (,[]) ts
 
-type Handle = Address UInt32
+type Handle = Addr (IntNum Unsigned Size32)
 
-stdin :: Handle
+stdin :: I Handle
 stdin = global "g_stdin"
 
 addExtern :: AST.Global -> M ()
 addExtern d = modify $ \st -> st{ externs = d : externs st }
 
-global :: Ty (I a) => AST.Name -> I a
+global :: Ty a => AST.Name -> I a
 global n = f Proxy
   where
-    f :: Ty (I a) => Proxy (I a) -> I a
+    f :: Ty a => Proxy a -> I a
     f p = I $ do
       let ty = tyLLVM p
       addExtern $ globalDefaults n ty
@@ -387,10 +379,10 @@ globalDefaults n t = AST.globalVariableDefaults
   , AST.isConstant = True
   }
 
-extern :: (Args a, Ty (I b)) => AST.Name -> a -> I b
+extern :: (Args a, Ty b) => AST.Name -> a -> I b
 extern n (xs :: a) = f Proxy
   where
-    f :: Ty (I b) => Proxy (I b) -> I b
+    f :: Ty b => Proxy b -> I b
     f p = I $ do
       bs <- evalArgs xs
       let t = funTy (Proxy :: Proxy a) p
@@ -418,18 +410,18 @@ class Number a where
   divide :: (a, a) -> a
   remainder :: (a, a) -> a
 
-cmpop :: (AST.Operand -> AST.Operand -> M AST.Operand) -> (I a, I a) -> IBool
+cmpop :: (AST.Operand -> AST.Operand -> M AST.Operand) -> (I a, I a) -> I Bool_
 cmpop = binop
 
 class Equal a where
-  equals :: (a, a) -> IBool
-  not_equals :: (a, a) -> IBool
+  equals :: (a, a) -> I Bool_
+  not_equals :: (a, a) -> I Bool_
 
 class Ordered a where
-  greater_than :: (a, a) -> IBool
-  greater_than_or_equals :: (a, a) -> IBool
-  less_than :: (a, a) -> IBool
-  less_than_or_equals :: (a, a) -> IBool
+  greater_than :: (a, a) -> I Bool_
+  greater_than_or_equals :: (a, a) -> I Bool_
+  less_than :: (a, a) -> I Bool_
+  less_than_or_equals :: (a, a) -> I Bool_
 
 instance Equal (INum a sz) where
   equals = cmpop (IR.icmp AST.EQ)
@@ -482,15 +474,15 @@ logical_shift_right = arithop IR.lshr
 shift_left :: (INum a sz, INum a sz) -> INum a sz
 shift_left = arithop IR.shl
 
-bitop :: (Ty (I a), Ty (I b)) => (AST.Operand -> AST.Type -> M AST.Operand) -> I a -> I b
+bitop :: (Ty a, Ty b) => (AST.Operand -> AST.Type -> M AST.Operand) -> I a -> I b
 bitop g x = f Proxy
   where
-    f :: Ty (I b) => Proxy (I b) -> I b
+    f :: Ty b => Proxy b -> I b
     f p = I $ do
       a <- unI x
       g a (tyLLVM p)
 
-bitcast :: (Ty (I a), Ty (I b)) => I a -> I b
+bitcast :: (Ty a, Ty b) => I a -> I b
 bitcast = bitop IR.bitcast
 
 truncate :: (Size aSz, Size bSz) => INum a aSz -> INum b bSz

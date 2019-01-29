@@ -250,9 +250,6 @@ column x = case locOf x of
   NoLoc -> error "NoLoc"
   Loc p _ -> posCol p
 
-useLoc :: Located b => a -> b -> L a
-useLoc s t = L (locOf t) s
-
 indentation :: [Token] -> [Token]
 indentation [] = []
 indentation toks@(t0:_) = go t0 [] toks

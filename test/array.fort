@@ -9,12 +9,19 @@ multiply: (Int, Int) -> Int
 load: /address a -> a
 store: (/address a, a) -> ()
 
-index: (/address (/array a), Idx) -> /address a ;; where a is a primitive type
+index: (/address (/array sz a), Idx) -> /address a ;; where a is a primitive type
 
 ;; code
-foo-array: /address (/array Int) -> () = \arr => /do
+foo-array: /address (/array 2 Int) -> () = \arr => /do
   store (index (arr, 0), 21)
   store (index (arr, 1), load (index (arr, 0)) * 2)
 
+foo-2dim-array: /address (/array 2 (/array 3 Int)) -> () = \arr => /do
+  store (index (index (arr, 0), 0), 0)
+  store (index (index (arr, 0), 1), 1)
+  store (index (index (arr, 0), 2), 1)
+  store (index (index (arr, 1), 0), 2)
+  store (index (index (arr, 1), 1), 3)
+  store (index (index (arr, 1), 2), 5)
 
 ;; do array constants also... as long as the code evaluates to a constant at compile time then it's a constant
