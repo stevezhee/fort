@@ -193,9 +193,7 @@ jump x e = do
 
 class Ty a where tyLLVM :: Proxy a -> AST.Type
 
-type Void = I ()
-
-sequence :: [Void] -> Void
+sequence :: [I ()] -> I ()
 sequence xs = I $ do
   Monad.sequence_ $ map unI xs
   return voidOperand
@@ -220,7 +218,7 @@ ret (x :: I a) = do
     _                                              -> IR.ret a
   return T
 
-call :: (Args a, Ty b) => TFunc a b -> a -> I b
+call :: (Args a, Ty b) => TFunc a b -> (a -> I b)
 call f a = I $ do
   bs <- evalArgs a
   irCall (fst $ unTFunc f) bs
@@ -282,7 +280,7 @@ gep = binop (\a b -> IR.gep a [constInt 32 0, b])
 constInt :: Word32 -> Integer -> AST.Operand
 constInt bits = AST.ConstantOperand . AST.Int bits
 
-fld :: Integer -> Address a -> Address b
+fld :: (Ty a, Ty b) => Integer -> Address a -> Address b
 fld i r = gep (r, I $ pure $ constInt 32 i)
 
 tyStruct :: [AST.Type] -> AST.Type
@@ -333,17 +331,17 @@ data Array sz a = Array sz a deriving Show
 type Address a = I (Addr a)
 data Addr a = Addr a deriving Show
 
-load :: Address a -> I a
+load :: Ty a => Address a -> I a
 load = unop (flip IR.load 0)
 
-store :: (Address a, I a) -> Void
+store :: Ty a => (Address a, I a) -> I ()
 store (x,y) = I $ do
   a <- unI x
   b <- unI y
   IR.store a 0 b
   return voidOperand
 
-operator :: ((a,b) -> c) -> a -> b -> c
+operator :: ((a, b) -> c) -> a -> b -> c
 operator = curry
 
 h_get_char :: I Handle -> I Char_
