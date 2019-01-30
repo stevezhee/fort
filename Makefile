@@ -1,25 +1,26 @@
 TEST_DIR=test
 GEN_DIR=generated
 GEN_PATH=$(GEN_DIR)/$(TEST_DIR)
-TEST_FILES=$(wildcard $(TEST_DIR)/*.fort)
-LL_TEST_FILES=$(addprefix $(GEN_DIR)/, $(addsuffix .ll, $(TEST_FILES)))
-S_TEST_FILES=$(addsuffix .s, $(basename $(LL_TEST_FILES)))
-O_TEST_FILES=$(addsuffix .o, $(basename $(LL_TEST_FILES)))
-HS_FILES=$(wildcard src/**/*.hs) $(wildcard app/**/*.hs)
+DIRS = $(TEST_DIR) $(GEN_DIR) $(GEN_PATH)
+HS_FILES=$(shell find src -name \*.hs) $(shell find app -name \*.hs)
+FORT_FILES=$(wildcard $(TEST_DIR)/*.fort)
+GEN_FILE_NAMES=$(FORT_FILES:$(TEST_DIR)/%.fort=%)
+GEN_HS_FILES=$(GEN_FILE_NAMES:%=$(GEN_PATH)/%.fort.hs)
+GEN_LL_FILES=$(GEN_FILE_NAMES:%=$(GEN_PATH)/%.fort.ll)
+GEN_S_FILES=$(GEN_FILE_NAMES:%=$(GEN_PATH)/%.fort.s)
+GEN_O_FILES=$(GEN_FILE_NAMES:%=$(GEN_PATH)/%.fort.o)
 OUT_FILE=a.out
 
-
-.PRECIOUS: $(GEN_PATH)/%.fort.hs $(GEN_PATH)/%.fort.ll $(GEN_PATH)/%.fort.s
+.PRECIOUS: $(GEN_HS_FILES) $(GEN_LL_FILES) $(GEN_S_FILES) $(GEN_O_FILES)
 
 .PHONY: all
 all: coverage run
 
-DIRS = $(TEST_DIR) $(GEN_DIR) $(GEN_PATH)
 $(DIRS):
 	mkdir -p $@
 
 .PHONY: run
-run: $(OUT_FILE) $(HS_FILES)
+run: $(OUT_FILE)
 	./$<
 
 $(GEN_PATH)/%.fort.hs: test/%.fort $(HS_FILES) | $(GEN_PATH)
@@ -34,7 +35,7 @@ $(GEN_PATH)/%.fort.s: $(GEN_PATH)/%.fort.ll | $(GEN_PATH)
 $(GEN_PATH)/%.fort.o: $(GEN_PATH)/%.fort.s | $(GEN_PATH)
 	clang -o $@ -c $^
 
-$(OUT_FILE): main.c $(O_TEST_FILES)
+$(OUT_FILE): main.c $(GEN_O_FILES)
 	clang -lc $^
 
 .PHONY: coverage
