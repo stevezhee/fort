@@ -6,17 +6,24 @@
 - pretty print Haskell code (both written and generated)
 - add git hooks for pretty printing and hlint
 - add haddock
-- add a primitive to put/get a character from a handle (and add stdin/stdout/stderr values)
 - test out more complicated nested ifs/arrays/records (which I stupidly named the test file struct.fort)
-- multi-dimensional arrays (this one might be a big tougher)
 - strings and string buffers
 - create a stack datatype which is a record with an Int for the `top` and an array of the data
 - initialization of constructed datatypes (i.e. records, arrays, variants (once I get them working))
-- add sizes to Arrays
 - investigate using llvm-hs-typed
 - make error reporting better
+- add sizes to array indices
+- add an easy mechanism to write tests
+- add constraints for ad-hoc polymophism
+- use type families instead of functional dependencies?
+- n-dimensional tuples
+- polymorphic containers (arrays, tuples, variants, records)
+- make chars and bools their own types
 
 done:
 - add all the llvm arithmetic operators
 - add the llvm `bitcast` operator and some of the other non-arithmetic ones
 - add constraints to the arithmetic operators so that they are (constrained) polymorphic
+- add a primitive to put/get a character from a handle (and add stdin/stdout/stderr values)
+- multi-dimensional arrays (this one might be a big tougher)
+- add sizes to Arrays

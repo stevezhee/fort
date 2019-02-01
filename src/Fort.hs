@@ -41,6 +41,7 @@ data Type
   | TyAddress
   | TyArray
   | TySigned
+  | TyChar
   | TyUnsigned
   deriving (Show, Eq)
 
@@ -72,6 +73,7 @@ typeSizes x = case x of
   TyAddress -> []
   TyArray -> []
   TySigned -> []
+  TyChar -> []
   TyUnsigned -> []
 
 patTypes :: Pat -> [Type]
@@ -235,6 +237,7 @@ lowercase (c:cs) = toLower c : cs
 isTyEnum :: [(Con, Type)] -> Bool
 isTyEnum = all ((==) TyNone . snd)
 
+ppInstance :: Doc x -> [Doc x] -> [Doc x] -> Doc x
 ppInstance a bs cs =
   "instance" <+> a <+> hcat (map parens bs) <+> "where" <> line <> indent 2 (vcat cs)
 
@@ -276,7 +279,7 @@ ppDecl tbl x = case x of
               , "sizeof _ = Prim.tyVariantSize" <> ppListV
                   [ "Prim.sizeof" <+> ppProxy t | (_,t) <- bs ]
               ]
-          , ppInstance "Prim.Caseable" ["Prim.Addr" <+> ppCon a, "Prim.IntNum Prim.Unsigned Size" <> pretty (neededBitsList bs :: Int)]
+          , ppInstance "Prim.Caseable" ["Prim.Addr" <+> ppCon a, "Prim.IntNum Prim.Unsigned Size" <> pretty (neededBitsList bs :: Int)]  -- BAL: use a tag newtype for better type inference?
               [ "caseof = Prim.load . Prim.field 0"
               , "altConstant _ = Prim.altCon" <+> ppList (map (pretty . show . fst) bs)
               ]
@@ -285,7 +288,6 @@ ppDecl tbl x = case x of
           map (ppUnsafeCon a) bs
         where
           alts = zip bs [0 :: Int ..]
-          -- BAL: dataCon = ppCon a <> "__Enum__"
 
   TyDecl a b -> "type" <+> ppCon a <+> "=" <+> ppType b
   OpDecl a b -> case lookup (unLoc b) tbl of
@@ -307,6 +309,7 @@ ppUnsafeCon a (c, t) = vcat
   , pretty (unsafeUnConName c) <+> "= Prim.unsafeCon"
   ]
 
+ppInject :: Pretty a => Con -> ((Con, Type), a) -> Doc x
 ppInject a ((c, TyNone), i) = vcat
   [ pretty (conToVarName c) <+> "::" <+> ppType (toInstructionType (TyFun (TyTuple [tyAddress $ TyCon a]) (TyTuple [])))
   , pretty (conToVarName c) <+> "= Prim.injectTag" <+> pretty i
@@ -356,7 +359,7 @@ tyVars :: Type -> [String]
 tyVars = sort . nub . go
   where
     go x = case x of
-      TyVar v -> [unLoc v]
+      TyVar v   -> [unLoc v]
       TyApp a b -> go a ++ go b
       TyLam v a -> filter ((/=) (unLoc v)) (go a)
       TyFun a b -> go a ++ go b
@@ -370,6 +373,7 @@ tyVars = sort . nub . go
       TyArray    -> []
       TySigned   -> []
       TyUnsigned -> []
+      TyChar     -> []
 
 stringifyName :: L String -> Doc x
 stringifyName = pretty . show . canonicalizeName . show . ppToken
@@ -403,7 +407,6 @@ ppLabelType x = case x of
   TyFun a b -> "Prim.TLabel" <+> parens (ppType a) <+> parens (ppType b)
   _ -> ppType x
 
-
 edLabel :: ExprDecl -> String
 edLabel = unLoc . fst . edLHS
 
@@ -418,6 +421,7 @@ ppType x = case x of
   TyApp a b   -> ppType a <+> ppType b
   TySigned    -> "Prim.IntNum Prim.Signed"
   TyUnsigned  -> "Prim.IntNum Prim.Unsigned"
+  TyChar      -> "Prim.Char_"
   TyAddress   -> "Prim.Addr"
   TyArray     -> "Prim.Array"
   TyCon a     -> ppCon a
@@ -485,7 +489,7 @@ ppAlt x = case x of
   DefaultP -> pretty (show ("default" :: String))
   ConP c -> pretty (show c)
   IntP i -> pretty (show (show i))
-  CharP c -> pretty (unLoc c)
+  CharP c -> pretty (show (show c))
   StringP s -> pretty (unLoc s)
 
 stringifyPat :: Pat -> Doc x
@@ -519,13 +523,10 @@ ppPat x = case x of
 ppPrim :: Prim -> Doc x
 ppPrim x = case x of
   Var a -> ppVar a
-  IntL a -> parens ("Prim.int" <+> pretty (show (unLoc a)))
   Op a -> ppOp a
   StringL _ -> error $ "ppPrim:" ++ show x
-  CharL a -> ppChar a
-
-ppChar :: L Char -> Doc x
-ppChar c = parens ("Prim.char" <+> pretty (show (unLoc c)))
+  IntL a -> parens ("Prim.int" <+> pretty (show (unLoc a)))
+  CharL a -> parens ("Prim.char" <+> pretty (show (unLoc a)))
 
 readError :: Read a => String -> String -> a
 readError desc s = case readMaybe s of

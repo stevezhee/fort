@@ -1,5 +1,5 @@
 ;; types
-Char = /unsigned 8
+Char = /char 8
 Int = /signed 32
 Int64 = /signed 64
 
@@ -20,7 +20,7 @@ store: (/address a, a) -> ()
 ;; code
 foo-struct: (/address MyStruct, /address MyStruct2) -> () = \(mystr, mystr2) => /do
   x mystr .= 42
-  y mystr .= "c"
+  y mystr .= #"c"
   z mystr .= 42424242
   y mystr2 .= 24
   x mystr2 .= 24242424

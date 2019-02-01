@@ -19,6 +19,7 @@ import Text.Regex.Applicative
 import qualified Language.Lexer.Applicative as L
 import qualified Text.Earley as E
 import System.Exit
+import Data.List
 
 pCon :: P r Con
 pCon = satisfy (startsWith upper)
@@ -30,13 +31,13 @@ pVar :: P r Var
 pVar = satisfy (startsWith lower)
 
 pOp :: P r Token
-pOp = satisfy (\s -> startsWith oper s && not (s `elem` reservedWords))
+pOp = satisfy (\s -> startsWith oper s && not (s `elem` reservedWords) && not (hasCharLitPrefix s))
 
 pBind :: P r a -> P r a
 pBind p = p <* reserved "="
 
 reservedWords :: [String]
-reservedWords = ["\\", "=", "=>", "->", ":", "/where", "/if", "/case", "/of", "/do", "/record", "/variant", "/signed", "/unsigned", "/address", "/array", ",", ";", "{", "}", "[", "]", "(", ")"]
+reservedWords = ["\\", "=", "=>", "->", ":", "/where", "/if", "/case", "/of", "/do", "/record", "/variant", "/signed", "/unsigned", "/address", "/char", "/array", ",", ";", "{", "}", "[", "]", "(", ")"]
 
 pTuple :: ([a] -> b) -> P r a -> P r b
 pTuple f p = f <$> parens (sepMany (reserved ",") p)
@@ -71,6 +72,7 @@ grammar = mdo
     (TyApp <$> pTy0 <*> pTy1 <?> "type application") <|> pTy0
   pTy0 <- rule $
     (pure TyUnsigned <* reserved "/unsigned") <|>
+    (pure TyChar <* reserved "/char") <|>
     (pure TySigned <* reserved "/signed") <|>
     (pure TyAddress <* reserved "/address") <|>
     (pure TyArray <* reserved "/array") <|>
@@ -162,16 +164,21 @@ pPrim :: P r Prim
 pPrim =
   (Var <$> pVar <?> "variable") <|>
   (Op <$> pOp <?> "operator") <|>
-  (f <$> pStringLit) <|>
+  (StringL <$> pStringLit) <|>
+  (CharL <$> pCharLit) <|>
   (IntL <$> pIntLit)
+
+hasCharLitPrefix = isPrefixOf "#\""
+
+pCharLit :: P r (L Char)
+pCharLit = f <$> satisfy hasCharLitPrefix <?> "character literal"
   where
-    f :: Token -> Prim
-    f (L a b) = case b of
-      ['"', c, '"'] -> CharL $ L a c
-      _ -> StringL $ L a b
+    f s = case unLoc s of
+      ['#', '"', c, '"'] -> c `useLoc` s
+      _ -> error $ "unexpected character literal syntax:" ++ show s
 
 pStringLit :: P r Token
-pStringLit = satisfy (startsWith ((==) '"')) <?> "string/char literal"
+pStringLit = satisfy (startsWith ((==) '"')) <?> "string literal"
 
 pIntLit :: P r (L Int)
 pIntLit = (\s -> useLoc (readError msg $ unLoc s) s) <$> satisfy isInt <?> msg
@@ -183,7 +190,7 @@ pAlt =
   const DefaultP <$> satisfy (== "_") <|>
   ConP <$> pCon <|>
   IntP <$> pIntLit <|>
-  -- | CharP Char -- BAL: what to use for character literals?
+  CharP <$> pCharLit <|>
   StringP <$> pStringLit
 
 startsWith :: (Char -> Bool) -> String -> Bool
@@ -300,11 +307,15 @@ tok =
   (:) <$> psym (\c -> lower c || upper c) <*> many (psym ident) <|>
   (:) <$> sym '-' <*> digits <|>
   digits <|>
+  charLit <|>
   some (psym oper) <|>
   stringLit <|>
   (:[]) <$> psym special
 
 type Tok = RE Char String
+
+charLit :: Tok
+charLit =  (:) <$> sym '#' <*> stringLit
 
 stringLit :: Tok
 stringLit = (\a bs c -> a : concat bs ++ [c]) <$> sym '"' <*> many p <*> sym '"'

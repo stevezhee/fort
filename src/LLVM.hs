@@ -41,17 +41,24 @@ import           Prelude                          hiding (sequence, subtract, tr
 type M a = IR.IRBuilderT (State St) a
 
 data IntNum a sz = IntNum a sz deriving Show
+data Char_ sz = Char_ sz deriving Show
 
 type INum a sz = I (IntNum a sz)
-
-char :: Char -> I Char_
-char = int . toInteger . fromEnum
 
 int :: Size sz => Integer -> I (IntNum a sz)
 int i = f Proxy
   where
     f :: Size sz => Proxy sz -> I (IntNum a sz)
-    f prxy = I $ pure $ constInt (fromIntegral $ size prxy) i
+    f = iConstInt i
+
+char :: Size sz => Char -> I (Char_ sz)
+char c = f Proxy
+  where
+    f :: Size sz => Proxy sz -> I (Char_ sz)
+    f = iConstInt (toInteger $ fromEnum c)
+
+iConstInt :: Size sz => Integer -> Proxy sz -> I a
+iConstInt i prxy = I $ pure $ constInt (fromIntegral $ size prxy) i
 
 data Signed
 data Unsigned
@@ -258,12 +265,16 @@ instance Size Size8 where size _ = 8
 instance Size Size32 where size _ = 32
 
 type UInt32 = IntNum Unsigned Size32
-type Char_ = IntNum Unsigned Size8
 type Bool_ = IntNum Unsigned Size1
 
 instance Size sz => Ty (IntNum a sz) where
   tyLLVM = tyInt . fromIntegral . sizeof
   sizeof _ = size (Proxy :: Proxy sz)
+
+instance Size sz => Ty (Char_ sz) where
+  tyLLVM = tyInt . fromIntegral . sizeof
+  sizeof _ = size (Proxy :: Proxy sz)
+
 
 -- instance Ty Bool where tyLLVM _ = tyInt 1 -- BAL: make bool a non-numeric type
 -- instance Ty Char where tyLLVM _ = tyInt 8 -- BAL: make char a non-numeric type
@@ -373,6 +384,12 @@ instance (Size sz) => Caseable (IntNum a sz) (IntNum a sz) where
   altConstant _ s =
     AST.Int (fromIntegral $ size (Proxy :: Proxy sz)) (readError "integer pattern" s)
 
+instance (Size sz) => Caseable (Char_ sz) (Char_ sz) where
+  caseof = id
+  altConstant _ s =
+    AST.Int (fromIntegral $ size (Proxy :: Proxy sz)) (toInteger $ fromEnum (readError "character pattern" s :: Char))
+
+
 -- BAL: pass the default in
 case_ :: Caseable a b => I a -> [(String, I a -> M (T (I c)))] -> M (T (I c))
 case_ (x :: I a) ys = mdo
@@ -411,10 +428,10 @@ store (x,y) = I $ do
 operator :: ((a, b) -> c) -> a -> b -> c
 operator = curry
 
-h_get_char :: I Handle -> I Char_
+h_get_char :: Size sz => I Handle -> I (Char_ sz) -- BAL: use different ones base on the size
 h_get_char = extern "fgetc"
 
-h_put_char :: (I Char_, I Handle) -> I ()
+h_put_char :: Size sz => (I (Char_ sz), I Handle) -> I () -- BAL: use different ones base on the size
 h_put_char = extern "fputc"
 
 globalRef :: AST.Type -> AST.Name -> AST.Operand
@@ -501,17 +518,21 @@ instance Equal (INum a sz) where
   equals = cmpop (IR.icmp AST.EQ)
   not_equals = cmpop (IR.icmp AST.NE)
 
-instance Ordered (INum Signed sz) where
-  greater_than = cmpop (IR.icmp AST.SGT)
-  greater_than_or_equals = cmpop (IR.icmp AST.SGE)
-  less_than = cmpop (IR.icmp AST.SLT)
-  less_than_or_equals = cmpop (IR.icmp AST.SLE)
-
 instance Ordered (INum Unsigned sz) where
   greater_than = cmpop (IR.icmp AST.UGT)
   greater_than_or_equals = cmpop (IR.icmp AST.UGE)
   less_than = cmpop (IR.icmp AST.ULT)
   less_than_or_equals = cmpop (IR.icmp AST.ULE)
+
+instance Equal (I (Char_ sz)) where
+  equals = cmpop (IR.icmp AST.EQ)
+  not_equals = cmpop (IR.icmp AST.NE)
+
+instance Ordered (I (Char_ sz)) where
+  greater_than = cmpop (IR.icmp AST.SGT)
+  greater_than_or_equals = cmpop (IR.icmp AST.SGE)
+  less_than = cmpop (IR.icmp AST.SLT)
+  less_than_or_equals = cmpop (IR.icmp AST.SLE)
 
 instance Number (INum Signed sz) where
   add = arithop IR.add

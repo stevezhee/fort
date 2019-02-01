@@ -1,5 +1,5 @@
 ;; types
-Char = /unsigned 8
+Char = /char 8
 Bool = /unsigned 1
 
 ;; primitives
@@ -7,15 +7,15 @@ Bool = /unsigned 1
 equals: (Char, Char) -> Bool
 
 nested-if-foo: (Bool, Char) -> Char = \(p, c) => /if
-  c == "a" => "b"
-  c == "b" => "c"
+  c == #"a" => #"b"
+  c == #"b" => #"c"
   p => c
-  _ => "z"
+  _ => #"z"
 
 nested-if-bar: (Bool, Char) -> Char = \(p, c) => /if
-  c == "a" => "b"
+  c == #"a" => #"b"
   _ => /if
-    c == "b" => "c"
+    c == #"b" => #"c"
     _ => /if
       p => c
-      _ => "z"
+      _ => #"z"
