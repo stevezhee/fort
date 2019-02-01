@@ -18,7 +18,8 @@
 - use type families instead of functional dependencies?
 - n-dimensional tuples
 - polymorphic containers (arrays, tuples, variants, records)
-- make chars and bools their own types
+- make bools their own type
+- generate convience functions for variant `/case`s
 
 done:
 - add all the llvm arithmetic operators
@@ -27,3 +28,4 @@ done:
 - add a primitive to put/get a character from a handle (and add stdin/stdout/stderr values)
 - multi-dimensional arrays (this one might be a big tougher)
 - add sizes to Arrays
+- make chars their own types

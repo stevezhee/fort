@@ -577,6 +577,11 @@ bitop g x = f Proxy
       a <- unI x
       g a (tyLLVM p)
 
+-- data String_
+
+-- stringLit :: String -> I String_
+-- stringLit s = I $ IR.globalStringPtr s undefined
+
 bitcast :: (Ty a, Ty b) => I a -> I b
 bitcast = bitop IR.bitcast
 
