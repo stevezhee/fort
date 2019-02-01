@@ -24,7 +24,7 @@ pCon :: P r Con
 pCon = satisfy (startsWith upper)
 
 pSize :: P r (L Int)
-pSize = fmap read <$> satisfy (startsWith digit)
+pSize = fmap (readError "size type") <$> satisfy (startsWith digit)
 
 pVar :: P r Var
 pVar = satisfy (startsWith lower)
@@ -84,8 +84,9 @@ grammar = mdo
   pOptionalAscription <- rule $ pAscription <|> pure TyNone
   pVarOptionalAscription <- rule ((,) <$> pVar <*> pOptionalAscription)
   pConOptionalAscription <- rule ((,) <$> pCon <*> pOptionalAscription)
+  pAltOptionalAscription <- rule ((,) <$> pAlt <*> pOptionalAscription)
   pExprDecl <- rule $ ED <$> pBind pVarOptionalAscription <*> pExpr
-  pCaseDecl <- rule $ (,) <$> pBind pConOptionalAscription <*> pExpr
+  pCaseDecl <- rule $ (,) <$> pBind pAltOptionalAscription <*> pExpr
 
   let pIfAlt = (,) <$> pExpr <*> (reserved "=>" *> pExpr)
   pExpr <- rule $
@@ -114,7 +115,6 @@ grammar = mdo
     (pTuple TupleP pPat <*> pOptionalAscription <?> "tuple pattern")
   return (blockItems pDecl)
   where
-
     blockList = braces . blockItems
     blockItems p = many (reserved ";" *> p) -- BAL:
     braces p = reserved "{" *> p <* reserved "}"
@@ -162,15 +162,29 @@ pPrim :: P r Prim
 pPrim =
   (Var <$> pVar <?> "variable") <|>
   (Op <$> pOp <?> "operator") <|>
-  (f <$> satisfy (startsWith ((==) '"')) <?> "string/char literal") <|>
-  g <$> satisfy isInt <?> "numeric literal"
+  (f <$> pStringLit) <|>
+  (IntL <$> pIntLit)
   where
     f :: Token -> Prim
     f (L a b) = case b of
-      ['"', c, '"'] -> Char $ L a c
-      _ -> String $ L a b
-    g :: Token -> Prim
-    g (L a b) = Int $ L a $ read b
+      ['"', c, '"'] -> CharL $ L a c
+      _ -> StringL $ L a b
+
+pStringLit :: P r Token
+pStringLit = satisfy (startsWith ((==) '"')) <?> "string/char literal"
+
+pIntLit :: P r (L Int)
+pIntLit = (\s -> useLoc (readError msg $ unLoc s) s) <$> satisfy isInt <?> msg
+  where
+    msg = "integer literal"
+
+pAlt :: P r Alt
+pAlt =
+  const DefaultP <$> satisfy (== "_") <|>
+  ConP <$> pCon <|>
+  IntP <$> pIntLit <|>
+  -- | CharP Char -- BAL: what to use for character literals?
+  StringP <$> pStringLit
 
 startsWith :: (Char -> Bool) -> String -> Bool
 startsWith f t = case t of

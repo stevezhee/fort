@@ -9,6 +9,7 @@ import Data.Text.Prettyprint.Doc
 import Data.List
 import Data.Char
 import Data.Maybe
+import Text.Read hiding (parens)
 
 type Con = Token
 type Op = Token
@@ -114,7 +115,7 @@ data Expr
   | Record [ExprDecl]
   | Tuple [Maybe Expr]
   | Ascription Expr Type
-  | Case Expr [((Con,Type),Expr)]
+  | Case Expr [((Alt,Type),Expr)]
   -- BAL: ? | Terminator Terminator -- BAL: break this apart from expr
   deriving Show
 
@@ -125,10 +126,18 @@ data Pat
 
 data Prim
   = Var Var
-  | String (L String)
-  | Int (L Int)
-  | Char (L Char)
+  | StringL (L String)
+  | IntL (L Int)
+  | CharL (L Char)
   | Op Op
+  deriving Show
+
+data Alt
+  = DefaultP
+  | ConP Con
+  | IntP (L Int)
+  | CharP (L Char)
+  | StringP (L String)
   deriving Show
 
 ppLoc :: Pretty a => L a -> Doc x
@@ -165,8 +174,10 @@ ppDecls fn xs = vcat $
   , ""
   , "import Control.Monad.Fix (mfix)"
   , "import Prelude (fromInteger, (>>=), return, fail, ($), IO, (.), undefined)"
+  , "import qualified Prelude"
   , "import Data.Proxy (Proxy(..))"
   , "import Data.String (fromString)"
+  , "import qualified Fort as Prim"
   , "import qualified LLVM as Prim"
   , ""
   , "main :: IO ()"
@@ -174,8 +185,8 @@ ppDecls fn xs = vcat $
     ppListV [ "Prim.unTFunc" <+> ppFuncVar v | Just v <- map mFuncVar xs ]
   , ""
   ] ++
-  map ppFieldClass (allFieldDecls xs) ++
-  map ppEnumClass (allEnumDecls xs) ++
+  map ppHasClass (allFieldDecls xs) ++
+  -- map ppEnumClass (allEnumDecls xs) ++
   map ppSize userSizes ++
   map (ppDecl nameTbl) xs
   where
@@ -183,6 +194,7 @@ ppDecls fn xs = vcat $
     userSizes = sort $ nub $ concatMap typeSizes userTypes
     nameTbl = catMaybes $ map nameAndType xs
 
+nameAndType :: Decl -> Maybe (String, Type)
 nameAndType x = case x of
   PrimDecl a b -> Just (unLoc a, b)
   ExprDecl (ED (a,b) _) -> Just (unLoc a, b)
@@ -193,7 +205,7 @@ ppSize i
   | i `elem` [1,8,32] = "type" <+> sizeCon <+> "= Prim." <> sizeCon
   | otherwise = vcat
     [ "data" <+> sizeCon
-    , "instance Prim.Size" <+> sizeCon <+> "where size _ =" <+> pretty i
+    , ppInstance "Prim.Size" [sizeCon] ["size _ =" <+> pretty i]
     ]
   where
     sizeCon = "Size" <> pretty i
@@ -201,40 +213,17 @@ ppSize i
 allFieldDecls :: [Decl] -> [String]
 allFieldDecls = nub . sort . foldl' (\a b -> a ++ fieldDecls b) []
 
-allEnumDecls :: [Decl] -> [String]
-allEnumDecls = nub . sort . foldl' (\a b -> a ++ enumDecls b) []
-
-enumDecls :: Decl -> [String]
-enumDecls x = case x of
-  TyDecl _ (TyVariant bs) | isTyEnum bs -> map (conToVarName . fst) bs
-  _ -> []
-
 fieldDecls :: Decl -> [String]
 fieldDecls x = case x of
   TyDecl _ (TyRecord bs) -> map (canonicalizeName . unLoc . fst) bs
   _ -> []
 
-ppFieldClass :: String -> Doc x
-ppFieldClass v = "class Has_" <> pretty v <+> "a b | a -> b where" <+> pretty v <+> ":: Prim.Address a -> Prim.Address b"
+ppHasClass :: String -> Doc x
+ppHasClass v = "class Has_" <> pretty v <+> "a b | a -> b where" <+> pretty v <+> ":: Prim.Address a -> Prim.Address b"
 
-ppEnumClass :: String -> Doc x
-ppEnumClass v = "class Enum_" <> pretty v <+> "a where" <+> pretty v <+> ":: Prim.I a"
-
-ppFieldInstance :: Con -> ((Var, Type), Int) -> Doc x
-ppFieldInstance c ((v,t), i) =
-  "instance Has_" <> ppVar v <+> ppCon c <+> ppType t <+> "where" <+> ppVar v <+> "= Prim.fld" <+> pretty i
-
-ppEnumInstance :: Con -> ((Con, a), Int) -> Doc x
-ppEnumInstance t ((c,_), i) =
-  "instance Enum_" <> pretty v <+> ppCon t <+> "where" <+> pretty v <+> "= Prim.enum" <+> pretty i
-  where
-    v = conToVarName c
-
-ppTaggedInstance :: Con -> [((Con, a), Int)] -> Doc x
-ppTaggedInstance t alts =
-  "instance Prim.IsTagged" <+> ppCon t <+> "where" <> line <> indent 2
-    ("tagTable _ =" <>
-     ppListV [ ppTuple [stringifyName c, pretty i] | ((c,_), i) <- alts ])
+ppHasInstance :: Con -> ((Var, Type), Int) -> Doc x
+ppHasInstance c ((v,t), i) =
+  ppInstance ("Has_" <> ppVar v) [ppCon c, ppType t] [ppVar v <+> "= Prim.field" <+> pretty i]
 
 conToVarName :: Con -> String
 conToVarName = canonicalizeName . lowercase . unLoc
@@ -246,28 +235,57 @@ lowercase (c:cs) = toLower c : cs
 isTyEnum :: [(Con, Type)] -> Bool
 isTyEnum = all ((==) TyNone . snd)
 
+ppInstance a bs cs =
+  "instance" <+> a <+> hcat (map parens bs) <+> "where" <> line <> indent 2 (vcat cs)
+
 ppDecl :: [(String, Type)] -> Decl -> Doc x
 ppDecl tbl x = case x of
   TyDecl a (TyRecord bs) -> vcat $
     [ "data" <+> ppCon a
-    , "instance Prim.Ty" <+> ppCon a <+> "where" <> line <> indent 2 (
-        "tyLLVM _ = Prim.tyStruct" <+> ppListV
-          [ "Prim.tyLLVM" <+> ppProxy t | (_,t) <- bs ]
-        )
+    , ppInstance "Prim.Ty" [ppCon a]
+        [ "tyLLVM _ = Prim.tyStruct" <+> ppListV
+            [ "Prim.tyLLVM" <+> ppProxy t | (_,t) <- bs ]
+        , "sizeof _ = Prelude.sum" <+> ppListV
+            [ "Prim.sizeof" <+> ppProxy t | (_,t) <- bs ]
+        ]
     ] ++
-    map (ppFieldInstance a) (zip bs [0 ..])
+    map (ppHasInstance a) (zip bs [0 ..])
 
-  TyDecl a (TyVariant bs) | isTyEnum bs -> vcat $
-    [ "data" <+> ppCon a
-    , "instance Prim.Ty" <+> ppCon a <+> "where" <> line <> indent 2 (
-        "tyLLVM _ = Prim.tyEnum" <+> pretty (length bs)
-        )
-    , ppTaggedInstance a alts
-    ] ++
-    map (ppEnumInstance a) alts
-    where
-      alts = zip bs [0 ..]
-      -- BAL: dataCon = ppCon a <> "__Enum__"
+  TyDecl a (TyVariant bs)
+    | isTyEnum bs -> vcat $
+        [ "data" <+> ppCon a
+        , ppInstance "Prim.Ty" [ppCon a]
+            [ "tyLLVM = Prim.tyEnum"
+            , "sizeof _ = Prim.neededBits" <+> pretty (length bs)
+            ]
+        , ppInstance "Prim.Caseable" [ppCon a, ppCon a]
+            [ "caseof = Prelude.id"
+            , "altConstant _ = Prim.altCon" <+> ppList (map (pretty . show . fst) bs)
+            ]
+        ] ++
+        [ vcat [ pretty (conToVarName c) <+> ":: Prim.I" <+> ppCon a
+               , pretty (conToVarName c) <+> "= Prim.enum" <+> pretty i
+               , pretty (unsafeUnConName c) <+> "= Prelude.const"
+               ] | ((c,_),i) <- alts ]
+
+    | otherwise -> vcat $
+          [ "data" <+> ppCon a
+          , ppInstance "Prim.Ty" [ppCon a]
+              [ "tyLLVM _ = Prim.tyVariant" <> ppListV
+                  [ "Prim.tyAndSize" <+> ppProxy t  | (_,t) <- bs ]
+              , "sizeof _ = Prim.tyVariantSize" <> ppListV
+                  [ "Prim.sizeof" <+> ppProxy t | (_,t) <- bs ]
+              ]
+          , ppInstance "Prim.Caseable" ["Prim.Addr" <+> ppCon a, "Prim.IntNum Prim.Unsigned Size" <> pretty (neededBitsList bs :: Int)]
+              [ "caseof = Prim.load . Prim.field 0"
+              , "altConstant _ = Prim.altCon" <+> ppList (map (pretty . show . fst) bs)
+              ]
+          ] ++
+          map (ppInject a) alts ++
+          map (ppUnsafeCon a) bs
+        where
+          alts = zip bs [0 :: Int ..]
+          -- BAL: dataCon = ppCon a <> "__Enum__"
 
   TyDecl a b -> "type" <+> ppCon a <+> "=" <+> ppType b
   OpDecl a b -> case lookup (unLoc b) tbl of
@@ -282,25 +300,32 @@ ppDecl tbl x = case x of
     ]
   ExprDecl a -> ppExprDecl True [] a
 
+ppUnsafeCon :: Con -> (Con,Type) -> Doc x
+ppUnsafeCon _ (c, TyNone) = pretty (unsafeUnConName c) <+> "= Prelude.const"
+ppUnsafeCon a (c, t) = vcat
+  [ pretty (unsafeUnConName c) <+> ":: (Prim.I (Prim.Addr " <> ppType t <> ") -> Prim.M c) -> (Prim.I (Prim.Addr (" <> ppCon a <> ")) -> Prim.M c)"
+  , pretty (unsafeUnConName c) <+> "= Prim.unsafeCon"
+  ]
+
+ppInject a ((c, TyNone), i) = vcat
+  [ pretty (conToVarName c) <+> "::" <+> ppType (toInstructionType (TyFun (TyTuple [tyAddress $ TyCon a]) (TyTuple [])))
+  , pretty (conToVarName c) <+> "= Prim.injectTag" <+> pretty i
+  ]
+ppInject a ((c, t), i) = vcat
+  [ pretty (conToVarName c) <+> "::" <+> ppType (toInstructionType (TyFun (TyTuple [tyAddress $ TyCon a, t]) (TyTuple [])))
+  , pretty (conToVarName c) <+> "= Prim.inject" <+> pretty i
+  ]
+
+neededBits :: Integral n => Integer -> n
+neededBits n = ceiling (logBase 2 (fromInteger n :: Double))
+
+neededBitsList :: Integral n => [a] -> n
+neededBitsList xs = neededBits (genericLength xs)
+
 typeToOperatorType :: Type -> Type
 typeToOperatorType x = case x of
   TyFun (TyTuple [a,b]) c -> TyFun a (TyFun b c)
   _ -> error $ "unexpected type for operator decl:" ++ show x
-  
--- tagFieldName :: Con -> Con -> Var
--- tagFieldName t x = useLoc "__tag" x
-
--- tagType :: Con -> Type
--- tagType t = undefined -- useLoc ("Tag-" ++ unLoc t) t
-
--- unionType :: Con -> Type
--- unionType t = undefined -- useLoc ("unsafe-union-" ++ unLoc t) t
-
--- introductionName :: Con -> Con -> Var
--- introductionName t x = useLoc (lowercase (unLoc t) ++ "-" ++ unLoc x) x
-
--- eliminationName :: Con -> Var
--- eliminationName t = useLoc (lowercase (unLoc t)) t
 
 ppLabelAscription :: Doc x -> Type -> Doc x
 ppLabelAscription = ppAscriptionF ppLabelType
@@ -323,6 +348,9 @@ ppAscriptionF f d x = case x of
 
 isSizeTyVar :: String -> Bool
 isSizeTyVar v = take 2 v == "sz" -- BAL: hacky way to determine that it's a Size TyVar
+
+tyAddress :: Type -> Type
+tyAddress = TyApp TyAddress
 
 tyVars :: Type -> [String]
 tyVars = sort . nub . go
@@ -357,12 +385,16 @@ ppExprDecl :: Bool -> [String] -> ExprDecl -> Doc x
 ppExprDecl isTopLevel labels (ED (v,t) e) = case e of
   Prim a | isTopLevel -> lhs <+> "=" <+> ppPrim a
   Prim a -> "let" <+> lhs <+> "=" <+> ppPrim a
-  _ | isTopLevel -> vcat
+  Lam a _
+    | isTopLevel -> vcat
         [ lhs <+> "=" <+> "Prim.call" <+> ppFuncVar v
-        , ppFuncVar v <+> "=" <+> "Prim.func" <+> stringifyName v <+> ppTerm labels e
+        , ppFuncVar v <+> "=" <+> "Prim.func" <+> stringifyName v <+>
+          stringifyPat a <+> "$" <+> parens (ppTerm labels e)
         ]
-  _ -> ppLabelAscription (ppVar v) t <+> "<-" <+> "Prim.label" <+> stringifyName v <+>
-       ppTerm (unLoc v : labels) e
+    | otherwise ->
+        ppLabelAscription (ppVar v) t <+> "<-" <+> "Prim.label" <+> stringifyName v <+>
+        stringifyPat a <+> "$" <+> parens (ppTerm (unLoc v : labels) e)
+  _ -> error $ "ppExprDecl:" ++ show e
   where
     lhs = ppAscription (ppVar v) t
 
@@ -389,7 +421,7 @@ ppType x = case x of
   TyAddress   -> "Prim.Addr"
   TyArray     -> "Prim.Array"
   TyCon a     -> ppCon a
-  TySize a    -> "Size" <> ppInt a
+  TySize a    -> "Size" <> pretty (unLoc a)
   TyFun a b   -> ppType a <+> "->" <+> ppType b
   TyTuple []  -> "()"
   TyTuple bs  -> ppTuple $ map ppType bs
@@ -413,7 +445,7 @@ ppExpr x = case x of
   Case{} -> error $ "ppExpr:" ++ show x
 
 ppProxy :: Type -> Doc x
-ppProxy t = parens ("Proxy :: Proxy" <+> ppType t) 
+ppProxy t = parens ("Proxy :: Proxy" <+> parens (ppType t))
 
 ppTerm :: [String] -> Expr -> Doc x
 ppTerm labels = go
@@ -423,7 +455,7 @@ ppTerm labels = go
       Where a bs -> (vcat $ map (ppExprDecl False lbls) bs ++ [ppTerm lbls a])
         where
           lbls = map edLabel bs
-      Lam a b -> stringifyPat a <+> "$" <+> "\\" <> ppPat a <+> "->" <+> "mdo" <> line <> indent 2 (go b)
+      Lam a b -> "\\" <> ppPat a <+> "->" <+> "mdo" <> line <> indent 2 (go b)
       If a b c -> "Prim.if_" <+> ppExpr a <> line <> indent 2 (vcat [parens (go b), parens (go c)])
       Prim a -> "Prim.ret" <+> ppPrim a
       App (Prim (Var a)) b
@@ -431,11 +463,30 @@ ppTerm labels = go
       App{} -> "Prim.ret" <+> parens (ppExpr x)
       Sequence bs -> "Prim.ret" <+> parens ("Prim.sequence" <+> (ppListV $ map ppExpr bs))
       Case a bs -> "Prim.case_" <+> ppExpr a <>
-        ppListV [ ppTuple [stringifyName c, ppExpr e] | ((c,_t), e) <- bs ]
+        ppListV [ ppTuple [ppAlt c, ppAltCon labels c e] | ((c,_t), e) <- bs ]
       -- BAL: ^ put this type somewhere...
       _ -> error $ "ppTerm:" ++ show x
       where
         isLabel a = unLoc a `elem` labels
+
+ppAltCon :: [String] -> Alt -> Expr -> Doc x
+ppAltCon labels x e = case x of
+  ConP c -> pretty (unsafeUnConName c) <+> parens (ppTerm labels e)
+  DefaultP -> parens (ppTerm labels e)
+  _ -> "Prelude.const" <+> parens (ppTerm labels e)
+
+unsafeUnConName :: Con -> String
+unsafeUnConName c = "unsafe_" ++ unLoc c
+
+-- BAL: error if default alt not in last position
+-- BAL: char, int, and string require default alt
+ppAlt :: Alt -> Doc x
+ppAlt x = case x of
+  DefaultP -> pretty (show ("default" :: String))
+  ConP c -> pretty (show c)
+  IntP i -> pretty (show (show i))
+  CharP c -> pretty (unLoc c)
+  StringP s -> pretty (unLoc s)
 
 stringifyPat :: Pat -> Doc x
 stringifyPat = pretty . show . go
@@ -465,16 +516,19 @@ ppPat x = case x of
   TupleP bs t -> ppAscription (ppTuple (map ppPat bs)) t
   VarP a t -> ppAscription (ppVar a) t
 
-ppInt :: L Int -> Doc x
-ppInt = ppLoc
-
 ppPrim :: Prim -> Doc x
 ppPrim x = case x of
   Var a -> ppVar a
-  Int a -> ppInt a
+  IntL a -> parens ("Prim.int" <+> pretty (show (unLoc a)))
   Op a -> ppOp a
-  String _ -> error $ "ppPrim:" ++ show x
-  Char a -> ppChar a
+  StringL _ -> error $ "ppPrim:" ++ show x
+  CharL a -> ppChar a
 
 ppChar :: L Char -> Doc x
 ppChar c = parens ("Prim.char" <+> pretty (show (unLoc c)))
+
+readError :: Read a => String -> String -> a
+readError desc s = case readMaybe s of
+  Nothing -> error $ "unable to read:" ++ desc ++ ":" ++ show s
+  Just a -> a
+

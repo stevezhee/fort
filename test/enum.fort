@@ -1,51 +1,99 @@
 ;; types
 Int = /signed 32
-Tag = /unsigned 1
 Bool = /unsigned 1
 Char = /unsigned 8
 
 ;; primitives
 load: /address a -> a
 
-equals: (Tag, Tag) -> Bool
-== = equals
+;; case expressions
+;; integer
+int-case: Int -> Int = \x => /case x /of
+  42 = 0
+  24 = x
+  _ = \_ => 1 ;; BAL: should be \_ => 1
 
-bitcast: /address a -> /address b
-store: (/address a, a) -> ()
+;; enum
+Color = /variant
+  Red
+  Green
+  Blue
 
-;; InLR = /variant
+enum-case: Color -> Color = \c => /case c /of
+  Red = green
+  Green = red
+  _ = \_ => blue ;; BAL: should be \_ => blue
+
+;; variant
+Either = /variant
+  Left: Char
+  Right: Int
+
+either-case: /address Either -> () = \x => /case x /of
+  Left = \a => left (x, load a)
+  Right = \b => right (x, load b)
+
+;; variant mixed
+Optional = /variant
+  None
+  Some: Char
+
+optional-case: /address Optional -> () = \x => /case x /of
+  None = none x
+  Some = \c => some (x, load c)
+
+;; InLR = /variant ;; BAL: ensure that tag names are unique from type names
 ;;   InL: Char
 ;;   InR: Int
 
-InLR = /record
-  tag-InLR: Tag ;; needs to be custom with enough bits to represent the number of tags
-  unsafe-union-InLR: Int ;; largest type
-  
+;; generates the following virtual type:
+;;
+;; InLR = /record
+;;   tag: /unsigned (number of bits need to hold the tag)
+;;   union: a type large enough to hold the largest variant value
+;;
+;; generates the following functions:
+;; inL: (/address InLR, /address Char) -> ()
+;; inR: (/address InLR, /address Int) -> ()
+
+;; asdf: /address InLR -> () = \p => /do
+;;   inL (p, "c")
+;;   inR (p, 42)
+
+;; ;;;;;;;; step 2: generate accessor functions for each tag
+;; accessor for the tag also...
+;; unsafe-union-InL: /address InLR -> /address Char = \x => bitcast (unsafe-union-InLR x)
+;; unsafe-union-InR: /address InLR -> /address Int  = \x => bitcast (unsafe-union-InLR x)
+
+;; ;;;;;; step 3: generate constructor functions for each tag
+;; inL: (/address InLR, Char) -> () = \(p,a) => /do
+;;   store (tag-InLR p, InL)  
+;;   store (unsafe-InLR-InL p, a)
+
+;; inR: (/address InLR, Int) -> () = \(p,a) => /do
+;;   store (tag-InLR p, InR)  
+;;   store (unsafe-InLR-InR p, a) 
+
+;;;;;; step 4: generate destructor function
+;; data type Elimination
+;; inLR: (/address InLR, /address Char -> a, /address Int -> a) -> a = \(x, f, g) =>
+;;   switch (tag x)
+;;     [ (inL-tag, f (unsafe-union-InL x))
+;;     , (inR-tag, g (unsafe-union-InR x))
+;;     ]
+
+;; maybe :: a -> (b -> a) -> (Maybe b -> a)
+;; either :: (a -> c) -> (b -> c) -> (Either a b -> c)
+
+;;;;;; step 5: make it generic
+
 ;; helper functions
 ;; tag-InLR, e.g. tag-InLR x ===> (load ((tag-InLR (x :: /address InLR)) :: /address Tag)) :: Tag
 
-unsafe-InLR-InL: /address InLR -> /address Char = \x => bitcast (unsafe-union-InLR x)
-unsafe-InLR-InR: /address InLR -> /address Int  = \x => bitcast (unsafe-union-InLR x)
-
 ;; data type Introduction
 
-tag-inL: Tag = 0
-tag-inR: Tag = 1
-
-inL: (/address InLR, Char) -> () = \(p,a) => /do
-  store (tag-InLR p, tag-inL)  
-  store (unsafe-InLR-InL p, a)
-
-inR: (/address InLR, Int) -> () = \(p,a) => /do
-  store (tag-InLR p, tag-inR)  
-  store (unsafe-InLR-InR p, a) 
-
-;; data type Elimination
-;; inLR: (/address InLR, Char -> a, Int -> a) -> a = \(x, f, g) =>
-;;   switch (load (tag-inLR x))
-;;     [ (tag-inL, f (unsafe-InLR-InL x))
-;;     , (tag-inR, g (unsafe-InLR-InR x))
-;;     ]
+;; tag-inL: Tag = 0
+;; tag-inR: Tag = 1
 
 ;; inLR: (/address InLR, /record
 ;;   un-inL: Char -> a

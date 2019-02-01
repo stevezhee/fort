@@ -9,8 +9,8 @@ MyStruct = /record
   z: Int64
   
 MyStruct2 = /record
-  y: Int64
-  x: Int
+  y: Int
+  x: Int64
 
 ;; primitives
 
@@ -22,7 +22,6 @@ foo-struct: (/address MyStruct, /address MyStruct2) -> () = \(mystr, mystr2) => 
   x mystr .= 42
   y mystr .= "c"
   z mystr .= 42424242
-  y mystr2 .= 24242424
-  x mystr2 .= 24
-  
+  y mystr2 .= 24
+  x mystr2 .= 24242424
   

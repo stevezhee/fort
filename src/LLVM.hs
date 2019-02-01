@@ -15,8 +15,8 @@
 module LLVM where
 
 import qualified Control.Monad                    as Monad
-import           Control.Monad.Identity
-import           Control.Monad.State
+import           Control.Monad.Identity           hiding (sequence)
+import           Control.Monad.State              hiding (sequence)
 import           Data.ByteString.Short            (ShortByteString)
 import           Data.List
 import qualified Data.Map.Strict                  as M
@@ -25,6 +25,7 @@ import           Data.Proxy
 import           Data.String
 import qualified Data.Text.Lazy                   as T
 import           Data.Word
+import           Fort                             (neededBitsList, readError)
 import qualified LLVM.AST                         as AST
 import qualified LLVM.AST.Instruction
 import qualified LLVM.AST.Constant                as AST
@@ -43,8 +44,14 @@ data IntNum a sz = IntNum a sz deriving Show
 
 type INum a sz = I (IntNum a sz)
 
-instance Size sz => Num (INum a sz) where
-  fromInteger i = I $ pure $ constInt (fromIntegral $ size (Proxy :: Proxy sz)) i
+char :: Char -> I Char_
+char = int . toInteger . fromEnum
+
+int :: Size sz => Integer -> I (IntNum a sz)
+int i = f Proxy
+  where
+    f :: Size sz => Proxy sz -> I (IntNum a sz)
+    f prxy = I $ pure $ constInt (fromIntegral $ size prxy) i
 
 data Signed
 data Unsigned
@@ -191,7 +198,9 @@ jump x e = do
   IR.br targ
   return T
 
-class Ty a where tyLLVM :: Proxy a -> AST.Type
+class Ty a where
+  tyLLVM :: Proxy a -> AST.Type
+  sizeof :: Proxy a -> Word64
 
 sequence :: [I ()] -> I ()
 sequence xs = I $ do
@@ -223,8 +232,7 @@ call f a = I $ do
   bs <- evalArgs a
   irCall (fst $ unTFunc f) bs
 
-func :: (Args a, Ty b) =>
-  String -> [ShortByteString] -> (a -> M (T (I b))) -> TFunc a b
+func :: (Args a, Ty b) => String -> [ShortByteString] -> (a -> M (T (I b))) -> TFunc a b
 func n ns (f :: Args a => a -> M (T (I b))) = TFunc ((ft, fn), do
   e  <- freshArgs ns
   bs <- evalArgs e
@@ -253,12 +261,20 @@ type UInt32 = IntNum Unsigned Size32
 type Char_ = IntNum Unsigned Size8
 type Bool_ = IntNum Unsigned Size1
 
-instance Size sz => Ty (IntNum a sz) where tyLLVM _ = tyInt (fromIntegral $ size (Proxy :: Proxy sz))
+instance Size sz => Ty (IntNum a sz) where
+  tyLLVM = tyInt . fromIntegral . sizeof
+  sizeof _ = size (Proxy :: Proxy sz)
+
 -- instance Ty Bool where tyLLVM _ = tyInt 1 -- BAL: make bool a non-numeric type
 -- instance Ty Char where tyLLVM _ = tyInt 8 -- BAL: make char a non-numeric type
 
-instance Ty a => Ty (Addr a) where tyLLVM _ = AST.ptr (tyLLVM (Proxy :: Proxy a))
-instance Ty () where tyLLVM _ = AST.void
+instance Ty a => Ty (Addr a) where
+  tyLLVM _ = AST.ptr (tyLLVM (Proxy :: Proxy a))
+  sizeof _ = 64 -- BAL: architecture dependent
+
+instance Ty () where
+  tyLLVM _ = AST.void
+  sizeof _ = 0
 
 unop :: (AST.Operand -> M AST.Operand) -> I a -> I b
 unop f x = I $ do
@@ -267,12 +283,10 @@ unop f x = I $ do
 
 instance (Size sz, Ty a) => Ty (Array sz a) where
   tyLLVM _ = AST.ArrayType (size (Proxy :: Proxy sz)) (tyLLVM (Proxy :: Proxy a))
+  sizeof _ = size (Proxy :: Proxy sz) * sizeof (Proxy :: Proxy a)
 
 index :: (Address (Array sz a), I UInt32) -> Address a -- BAL: index type should be tied to the size of the array
 index = gep
-
-char :: Char -> I Char_
-char = fromInteger . toInteger . fromEnum
 
 gep :: (Address a, I UInt32) -> Address b
 gep = binop (\a b -> IR.gep a [constInt 32 0, b])
@@ -280,51 +294,104 @@ gep = binop (\a b -> IR.gep a [constInt 32 0, b])
 constInt :: Word32 -> Integer -> AST.Operand
 constInt bits = AST.ConstantOperand . AST.Int bits
 
-fld :: (Ty a, Ty b) => Integer -> Address a -> Address b
-fld i r = gep (r, I $ pure $ constInt 32 i)
+field :: (Ty a, Ty b) => Integer -> Address a -> Address b
+field i r = gep (r, I $ pure $ constInt 32 i)
 
 tyStruct :: [AST.Type] -> AST.Type
 tyStruct = AST.StructureType False
 
-tyVariant :: [AST.Type] -> AST.Type
-tyVariant = error "tyVariant"
+tyVariant :: [(AST.Type, Word64)] -> AST.Type
+tyVariant xs = tyStruct
+  [ tyInt (neededBitsList xs)
+  , fst $ maximumBy (\a b -> compare (snd a) (snd b)) xs
+  ]
 
-class IsTagged a where tagTable :: Proxy a -> [(ShortByteString, Integer)]
+tyVariantSize :: [Word64] -> Word64
+tyVariantSize xs = neededBitsList xs + maximum xs
 
-case_ :: IsTagged a => I a -> [(ShortByteString, I a -> M b)] -> M b
+class (Ty a, Ty b) => Caseable a b | a -> b where
+  caseof :: I a -> I b
+  altConstant :: Proxy a -> String -> AST.Constant
+
+tyAndSize :: Ty a => Proxy a -> (AST.Type, Word64)
+tyAndSize prxy = (tyLLVM prxy, sizeof prxy)
+
+tyEnum :: Ty a => Proxy a -> AST.Type
+tyEnum = tyInt . fromIntegral . sizeof
+
+unsafeCon :: Ty b => (I (Addr b) -> M c) -> (I (Addr a) -> M c)
+unsafeCon (f :: I (Addr b) -> M c) = \x -> do
+  a <- unI x
+  p <- getVariantValueAddr (Proxy :: Proxy (Addr b)) a
+  f $ I $ pure $ p
+
+altCon :: [String] -> String -> AST.Constant
+altCon xs s = AST.Int (neededBitsList xs) $ case lookup s $ zip xs [0 .. ] of
+  Nothing -> error $ "unexpected alt tag:" ++ s
+  Just i -> i
+
+enum :: Ty a => Integer -> I a
+enum i = f Proxy
+  where
+    f :: Ty a => Proxy a -> I a
+    f prxy = I $ pure $ constInt (fromIntegral $ sizeof prxy) i
+
+injectTag :: (Ty a) => Integer -> Address a -> I ()
+injectTag i (x :: Address a) = I $ do
+  -- evaluate x
+  a <- unI x
+  tag <- IR.gep a [constInt 32 0, constInt 32 0]
+  IR.store tag 0 (constInt (variantTagBits t) i)
+  return voidOperand
+  where
+    t = tyLLVM (Proxy :: Proxy (Addr a))
+
+inject :: (Ty a, Ty b) => Integer -> (Address a, I b) -> I ()
+inject i (x :: Address a, y :: I b) = I $ do
+  -- evaluate x
+  a <- unI x
+  -- tag
+  _ <- unI $ injectTag i (I (pure a) :: Address a)
+  -- value
+  c <- unI y
+  val <- getVariantValueAddr (Proxy :: Proxy (Addr b)) a
+  IR.store val 0 c
+  return voidOperand
+
+getVariantValueAddr :: Ty a => Proxy a -> AST.Operand -> M AST.Operand
+getVariantValueAddr prxy a = do
+  uval <- IR.gep a [constInt 32 0, constInt 32 1]
+  IR.bitcast uval (tyLLVM prxy)
+
+variantTagBits :: AST.Type -> Word32
+variantTagBits x = case x of
+  AST.PointerType (AST.StructureType _ [AST.IntegerType a,  _]) _ -> a
+  _ -> error $ "variantTagBits:unexpected type:" ++ show x
+
+instance (Size sz) => Caseable (IntNum a sz) (IntNum a sz) where
+  caseof = id
+  altConstant _ s =
+    AST.Int (fromIntegral $ size (Proxy :: Proxy sz)) (readError "integer pattern" s)
+
+-- BAL: pass the default in
+case_ :: Caseable a b => I a -> [(String, I a -> M (T (I c)))] -> M (T (I c))
 case_ (x :: I a) ys = mdo
   v <- unI x
+  let e :: I a = I $ pure v
   lbl <- currentBlock
-  IR.switch v (snd $ last alts) (init alts)
-  alts <- mapM (f (lbl <> "alt_") v) ys
-  return $ unreachable "case_"
+  b <- unI $ caseof e
+  IR.switch b (snd $ last alts) (init alts)
+  alts <- mapM (g lbl) [ (s, f e) | (s, f) <- ys ]
+  return T
   where
-    prxy = Proxy :: Proxy a
-    f :: ShortByteString -> AST.Operand -> (ShortByteString, I a -> M b) -> M (AST.Constant, AST.Name)
-    f pre v (s, g) = do
-      altlbl <- IR.named IR.block (pre <> s)
-      _ <- g (I (pure v))
-      case lookup s $ tagTable prxy of
-        Just i -> return (AST.Int (neededBitsForTag prxy) i, altlbl)
-        Nothing -> error $ "case_: unknown tag:" ++ show s -- BAL: make a userError function that reports locations
-
-neededBitsForTag :: IsTagged a => Proxy a -> Word32
-neededBitsForTag p = neededBits (genericLength $ tagTable p)
+    g :: ShortByteString -> (String, M (T (I b))) -> M (AST.Constant, AST.Name)
+    g lbl (s, y) = do
+      altlbl <- IR.named IR.block (lbl <> "alt_" <> fromString s)
+      _ <- y
+      return (altConstant (Proxy :: Proxy a) s, altlbl)
 
 tyInt :: Word32 -> AST.Type
 tyInt = AST.IntegerType
-
-tyEnum :: Integer -> AST.Type
-tyEnum = tyInt . neededBits
-
-enum :: IsTagged a => Integer -> I a
-enum x = f Proxy
-  where
-    f :: IsTagged a => Proxy a -> I a
-    f p = I $ pure $ constInt (neededBitsForTag p) x
-
-neededBits :: Integer -> Word32
-neededBits x = max 1 $ floor ((logBase 2 (fromInteger (x - 1))) :: Double) + 1
 
 data Array sz a = Array sz a deriving Show
 

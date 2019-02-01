@@ -8,8 +8,8 @@ typedef struct {
 } MyStruct;
 
 typedef struct {
-  long int x;
   int y;
+  long int x;
 } MyStruct2;
 
 extern int powi(int, int);
@@ -78,8 +78,8 @@ int main(int argc, char**argv)
   printf("mystruct.x %d\n",mystruct.x);
   printf("mystruct.y %c\n",mystruct.y);
   printf("mystruct.z %lu\n",mystruct.z);
-  printf("mystruct2.x %lu\n",mystruct2.x);
   printf("mystruct2.y %d\n",mystruct2.y);
+  printf("mystruct2.x %lu\n",mystruct2.x);
   printf("stdin %p\n",stdin);
 
   if(argc > 1)
