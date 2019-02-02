@@ -6,7 +6,7 @@
 - add git hooks for pretty printing and hlint
 - add haddock
 - test out more complicated nested ifs/arrays/records (which I stupidly named the test file struct.fort)
-- strings and string buffers
+- string buffers
 - create a stack datatype which is a record with an Int for the `top` and an array of the data
 - initialization of constructed datatypes (i.e. records, arrays, variants (once I get them working))
 - investigate using llvm-hs-typed
@@ -29,3 +29,4 @@ done:
 - multi-dimensional arrays (this one might be a big tougher)
 - add sizes to Arrays
 - make chars their own types
+- constant strings
