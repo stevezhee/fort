@@ -42,6 +42,7 @@ data Type
   | TyArray
   | TySigned
   | TyChar
+  | TyString
   | TyUnsigned
   deriving (Show, Eq)
 
@@ -74,6 +75,7 @@ typeSizes x = case x of
   TyArray -> []
   TySigned -> []
   TyChar -> []
+  TyString -> []
   TyUnsigned -> []
 
 patTypes :: Pat -> [Type]
@@ -374,6 +376,7 @@ tyVars = sort . nub . go
       TySigned   -> []
       TyUnsigned -> []
       TyChar     -> []
+      TyString   -> []
 
 stringifyName :: L String -> Doc x
 stringifyName = pretty . show . canonicalizeName . show . ppToken
@@ -422,6 +425,7 @@ ppType x = case x of
   TySigned    -> "Prim.IntNum Prim.Signed"
   TyUnsigned  -> "Prim.IntNum Prim.Unsigned"
   TyChar      -> "Prim.Char_"
+  TyString    -> "Prim.String_"
   TyAddress   -> "Prim.Addr"
   TyArray     -> "Prim.Array"
   TyCon a     -> ppCon a
@@ -486,10 +490,10 @@ unsafeUnConName c = "unsafe_" ++ unLoc c
 -- BAL: char, int, and string require default alt
 ppAlt :: Alt -> Doc x
 ppAlt x = case x of
-  DefaultP -> pretty (show ("default" :: String))
-  ConP c -> pretty (show c)
-  IntP i -> pretty (show (show i))
-  CharP c -> pretty (show (show c))
+  DefaultP  -> pretty (show ("default" :: String))
+  ConP c    -> pretty (show c)
+  IntP i    -> pretty (show (show i))
+  CharP c   -> pretty (show (show c))
   StringP s -> pretty (unLoc s)
 
 stringifyPat :: Pat -> Doc x
@@ -522,11 +526,11 @@ ppPat x = case x of
 
 ppPrim :: Prim -> Doc x
 ppPrim x = case x of
-  Var a -> ppVar a
-  Op a -> ppOp a
-  StringL _ -> error $ "ppPrim:" ++ show x
-  IntL a -> parens ("Prim.int" <+> pretty (show (unLoc a)))
-  CharL a -> parens ("Prim.char" <+> pretty (show (unLoc a)))
+  Var a     -> ppVar a
+  Op a      -> ppOp a
+  StringL a -> parens ("Prim.string" <+> pretty (unLoc a))
+  IntL a    -> parens ("Prim.int" <+> pretty (show (unLoc a)))
+  CharL a   -> parens ("Prim.char" <+> pretty (show (unLoc a)))
 
 readError :: Read a => String -> String -> a
 readError desc s = case readMaybe s of

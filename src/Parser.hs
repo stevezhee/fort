@@ -37,7 +37,7 @@ pBind :: P r a -> P r a
 pBind p = p <* reserved "="
 
 reservedWords :: [String]
-reservedWords = ["\\", "=", "=>", "->", ":", "/where", "/if", "/case", "/of", "/do", "/record", "/variant", "/signed", "/unsigned", "/address", "/char", "/array", ",", ";", "{", "}", "[", "]", "(", ")"]
+reservedWords = ["\\", "=", "=>", "->", ":", "/where", "/if", "/case", "/of", "/do", "/record", "/variant", "/signed", "/unsigned", "/address", "/char", "/string", "/array", ",", ";", "{", "}", "[", "]", "(", ")"]
 
 pTuple :: ([a] -> b) -> P r a -> P r b
 pTuple f p = f <$> parens (sepMany (reserved ",") p)
@@ -73,6 +73,7 @@ grammar = mdo
   pTy0 <- rule $
     (pure TyUnsigned <* reserved "/unsigned") <|>
     (pure TyChar <* reserved "/char") <|>
+    (pure TyString <* reserved "/string") <|>
     (pure TySigned <* reserved "/signed") <|>
     (pure TyAddress <* reserved "/address") <|>
     (pure TyArray <* reserved "/array") <|>

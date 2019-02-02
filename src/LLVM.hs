@@ -69,7 +69,7 @@ char c = f Proxy
     f = iConstInt (toInteger $ fromEnum c)
 
 iConstInt :: Size sz => Integer -> Proxy sz -> I a
-iConstInt i prxy = I $ pure $ constInt (fromIntegral $ size prxy) i
+iConstInt i prxy = I $ pure $ intOperand (fromIntegral $ size prxy) i
 
 data Signed
 data Unsigned
@@ -79,6 +79,7 @@ newtype I a = I{ unI :: M AST.Operand }
 newtype TFunc a b = TFunc{ unTFunc :: ((AST.Type, AST.Name), M AST.Global) }
 newtype TLabel a b = TLabel{ unTLabel :: AST.Name }
 
+-- BAL: now that we are using ModuleBuilderT this can probably be simplified
 data St = St
   { outPhis :: M.Map AST.Name [([AST.Operand], AST.Name)]
   , inPhis  :: M.Map AST.Name [AST.Name]
@@ -245,6 +246,7 @@ call f a = I $ do
   bs <- evalArgs a
   irCall (fst $ unTFunc f) bs
 
+-- BAL: now that we are using ModuleBuilderT this can probably be simplified
 func :: (Args a, Ty b) => String -> [ShortByteString] -> (a -> M (T (I b))) -> TFunc a b
 func n ns (f :: Args a => a -> M (T (I b))) = TFunc ((ft, fn), do
   e  <- freshArgs ns
@@ -263,8 +265,8 @@ func n ns (f :: Args a => a -> M (T (I b))) = TFunc ((ft, fn), do
 class Size a where size :: Proxy a -> Word64
 
 data Size1
-data Size32
 data Size8
+data Size32
 
 instance Size Size1 where size _ = 1
 instance Size Size8 where size _ = 8
@@ -283,7 +285,6 @@ instance Size sz => Ty (Char_ sz) where
 
 
 -- instance Ty Bool where tyLLVM _ = tyInt 1 -- BAL: make bool a non-numeric type
--- instance Ty Char where tyLLVM _ = tyInt 8 -- BAL: make char a non-numeric type
 
 instance Ty a => Ty (Addr a) where
   tyLLVM _ = AST.ptr (tyLLVM (Proxy :: Proxy a))
@@ -306,13 +307,13 @@ index :: (Address (Array sz a), I UInt32) -> Address a -- BAL: index type should
 index = gep
 
 gep :: (Address a, I UInt32) -> Address b
-gep = binop (\a b -> IR.gep a [constInt 32 0, b])
+gep = binop (\a b -> IR.gep a [intOperand 32 0, b])
 
-constInt :: Word32 -> Integer -> AST.Operand
-constInt bits = AST.ConstantOperand . AST.Int bits
+intOperand :: Word32 -> Integer -> AST.Operand
+intOperand bits = AST.ConstantOperand . AST.Int bits
 
 field :: (Ty a, Ty b) => Integer -> Address a -> Address b
-field i r = gep (r, I $ pure $ constInt 32 i)
+field i r = gep (r, I $ pure $ intOperand 32 i)
 
 tyStruct :: [AST.Type] -> AST.Type
 tyStruct = AST.StructureType False
@@ -351,14 +352,14 @@ enum :: Ty a => Integer -> I a
 enum i = f Proxy
   where
     f :: Ty a => Proxy a -> I a
-    f prxy = I $ pure $ constInt (fromIntegral $ sizeof prxy) i
+    f prxy = I $ pure $ intOperand (fromIntegral $ sizeof prxy) i
 
 injectTag :: (Ty a) => Integer -> Address a -> I ()
 injectTag i (x :: Address a) = I $ do
   -- evaluate x
   a <- unI x
-  tag <- IR.gep a [constInt 32 0, constInt 32 0]
-  IR.store tag 0 (constInt (variantTagBits t) i)
+  tag <- IR.gep a [intOperand 32 0, intOperand 32 0]
+  IR.store tag 0 (intOperand (variantTagBits t) i)
   return voidOperand
   where
     t = tyLLVM (Proxy :: Proxy (Addr a))
@@ -377,7 +378,7 @@ inject i (x :: Address a, y :: I b) = I $ do
 
 getVariantValueAddr :: Ty a => Proxy a -> AST.Operand -> M AST.Operand
 getVariantValueAddr prxy a = do
-  uval <- IR.gep a [constInt 32 0, constInt 32 1]
+  uval <- IR.gep a [intOperand 32 0, intOperand 32 1]
   IR.bitcast uval (tyLLVM prxy)
 
 variantTagBits :: AST.Type -> Word32
@@ -438,14 +439,16 @@ operator = curry
 -- IR.function
 -- IR.extern
 -- IR.global
--- IR.globalStringPtr
 -- IR.typedef
 
-h_get_char :: Size sz => I Handle -> I (Char_ sz) -- BAL: use different ones base on the size
+h_get_char :: Size sz => I Handle -> I (Char_ sz) -- BAL: use different ones based on the size
 h_get_char = extern "fgetc"
 
-h_put_char :: Size sz => (I (Char_ sz), I Handle) -> I () -- BAL: use different ones base on the size
+h_put_char :: Size sz => (I (Char_ sz), I Handle) -> I () -- BAL: use different ones based on the size
 h_put_char = extern "fputc"
+
+h_put_string :: (I String_, I Handle) -> I ()
+h_put_string = extern "fputs"
 
 globalRef :: AST.Type -> AST.Name -> AST.Operand
 globalRef x y = AST.ConstantOperand (AST.GlobalReference x y)
@@ -590,10 +593,20 @@ bitop g x = f Proxy
       a <- unI x
       g a (tyLLVM p)
 
--- data String_
+data String_
 
--- stringLit :: String -> I String_
--- stringLit s = I $ IR.globalStringPtr s undefined
+instance Ty String_ where
+  tyLLVM _ = tyLLVM (Proxy :: Proxy (Addr (Char_ Size8)))
+  sizeof _ = sizeof (Proxy :: Proxy (Addr (Char_ Size8)))
+
+-- BAL: IR.globalStringPtr seems to be broken(?)
+string :: String -> I String_
+string s = I $ do
+  n <- IR.freshName "str_"
+  a <- IR.global n
+    (AST.ArrayType (genericLength s + 1) AST.i8)
+    (AST.Array AST.i8 [AST.Int 8 (fromIntegral $ fromEnum c) | c <- s ++ "\0"])
+  IR.bitcast a (tyLLVM (Proxy :: Proxy String_))
 
 bitcast :: (Ty a, Ty b) => I a -> I b
 bitcast = bitop IR.bitcast

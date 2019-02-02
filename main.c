@@ -12,6 +12,7 @@ typedef struct {
   long int x;
 } MyStruct2;
 
+extern void hello_world();
 extern int powi(int, int);
 extern int squared(int);
 extern void inc(int*);
@@ -103,5 +104,6 @@ int main(int argc, char**argv)
   add3AtLoc(&myInt);
   printf("myInt = %d\n", myInt);
 
+  hello_world();
   return 0;
 }

@@ -2,6 +2,7 @@
 Char = /char 8
 Handle = /address (/unsigned 32)
 RealWorld = /unsigned 1
+String = /string
 
 stdin: Handle
 stdout: Handle
@@ -9,6 +10,7 @@ stderr: Handle
 
 a = #"a"
 b: Char = #"b"
+s: String = "hello, world"
 
 fst: (Char, Char) -> Char = \(x,_) => x
 foo: Char -> Char = \_ => fst (#"z",#"z")
@@ -24,6 +26,13 @@ get-char: RealWorld -> Char = \_ => h-get-char stdin
 h-put-char: (Char, Handle) -> ()
 put-char: Char -> () = h-put-char (,stdout)
 
+h-put-string: (String, Handle) -> ()
+put-string: String -> () = h-put-string (,stdout)
+
 char-io-test: RealWorld -> () = \w => /do
   put-char (get-char w)
   put-char #"!"
+
+hello-world: RealWorld -> () = \_ => /do
+  put-string (s)
+  put-string ("hello, world")
