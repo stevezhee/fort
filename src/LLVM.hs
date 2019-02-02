@@ -38,7 +38,18 @@ import qualified LLVM.IRBuilder                   as IR
 import           LLVM.Pretty
 import           Prelude                          hiding (sequence, subtract, truncate, until)
 
-type M a = IR.IRBuilderT (State St) a
+type M a = IR.IRBuilderT (IR.ModuleBuilderT (State St)) a
+
+mkFun :: M AST.Global -> (AST.Global, ([AST.Global], [AST.Definition]))
+mkFun x = (fun{ AST.basicBlocks = patchPhis st bs0 }, (externs st, defs))
+  where
+    builder :: IR.ModuleBuilderT (State St) (AST.Global, [AST.BasicBlock])
+    builder = IR.runIRBuilderT IR.emptyIRBuilder x
+
+    stM :: State St ((AST.Global, [AST.BasicBlock]), [AST.Definition])
+    stM = IR.runModuleBuilderT IR.emptyModuleBuilder builder
+
+    (((fun, bs0), defs), st) = runState stM initSt
 
 data IntNum a sz = IntNum a sz deriving Show
 data Char_ sz = Char_ sz deriving Show
@@ -85,15 +96,10 @@ codegen fn xs = do
 mkModule :: [M AST.Global] -> AST.Module
 mkModule xs = AST.defaultModule
     { AST.moduleDefinitions =
-        let (funs, externals) = unzip $ map mkFun xs
-        in map AST.GlobalDefinition (nub (concat externals) ++ funs)
+        let (funs, bs) = unzip $ map mkFun xs
+        in let (externals, defs) = unzip bs
+        in concat defs ++ map AST.GlobalDefinition (nub (concat externals) ++ funs)
     }
-
-mkFun :: M AST.Global -> (AST.Global, [AST.Global])
-mkFun x = (fun{ AST.basicBlocks = patchPhis st bs0 }, externs st)
-  where
-    ((fun, bs0), st) =
-      runState (IR.runIRBuilderT IR.emptyIRBuilder x) initSt
 
 initSt :: St
 initSt = St M.empty M.empty (return ()) []
@@ -427,6 +433,13 @@ store (x,y) = I $ do
 
 operator :: ((a, b) -> c) -> a -> b -> c
 operator = curry
+
+-- BAL: these could come in handy...
+-- IR.function
+-- IR.extern
+-- IR.global
+-- IR.globalStringPtr
+-- IR.typedef
 
 h_get_char :: Size sz => I Handle -> I (Char_ sz) -- BAL: use different ones base on the size
 h_get_char = extern "fgetc"

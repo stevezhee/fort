@@ -1,8 +1,11 @@
 flags: {}
 packages:
 - .
+
 extra-deps:
-- llvm-hs-pretty-0.4.0.0
-- llvm-hs-6.2.0
-- llvm-hs-pure-6.2.0
-resolver: lts-11.0
+- llvm-hs-pretty-0.6.1.0
+- llvm-hs-7.0.1
+- llvm-hs-pure-7.0.0
+- lexer-applicative-2.1.0.2
+
+resolver: nightly-2018-12-17

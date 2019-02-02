@@ -1,7 +1,6 @@
 - get dependencies in makefile correct
 - pretty printer for .ll
 - make builds faster
-- get up to date on latest llvm-hs
 - there must be a faster way to do installs
 - pretty print Haskell code (both written and generated)
 - add git hooks for pretty printing and hlint
@@ -22,6 +21,7 @@
 - generate convience functions for variant `/case`s
 
 done:
+- get up to date on latest llvm-hs
 - add all the llvm arithmetic operators
 - add the llvm `bitcast` operator and some of the other non-arithmetic ones
 - add constraints to the arithmetic operators so that they are (constrained) polymorphic

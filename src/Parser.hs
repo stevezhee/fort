@@ -168,6 +168,7 @@ pPrim =
   (CharL <$> pCharLit) <|>
   (IntL <$> pIntLit)
 
+hasCharLitPrefix :: String -> Bool
 hasCharLitPrefix = isPrefixOf "#\""
 
 pCharLit :: P r (L Char)
