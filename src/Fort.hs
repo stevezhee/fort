@@ -151,7 +151,7 @@ ppToken = ppLoc
 ppCon :: Con -> Doc x
 ppCon = ppToken
 ppOp :: Op -> Doc x
-ppOp = ppToken
+ppOp = pretty . canonicalizeOp . unLoc
 ppVar :: Var -> Doc x
 ppVar = pretty . canonicalizeName . unLoc
 
@@ -159,6 +159,11 @@ canonicalizeName :: String -> String
 canonicalizeName = map f
   where
     f c = if c == '-' then '_' else c -- '-' is semantically identical to '_'
+
+canonicalizeOp :: String -> String
+canonicalizeOp = concatMap f
+  where
+    f c = if c == '|' then "||" else [c] -- avoid haskell syntax conflict
 
 ppDecls :: FilePath -> [Decl] -> Doc x
 ppDecls fn xs = vcat $
@@ -186,7 +191,7 @@ ppDecls fn xs = vcat $
   , ""
   , "main :: IO ()"
   , "main" <+> "=" <+> "Prim.codegen" <+> pretty (show fn) <>
-    ppListV [ "Prim.unTFunc" <+> ppFuncVar v | Just v <- map mFuncVar xs ]
+    ppListV [ "Prim.unTFunc" <+> ppFuncVar v | v <- catMaybes (map isFuncDecl xs) ]
   , ""
   ] ++
   map ppHasClass (allFieldDecls xs) ++
@@ -381,17 +386,21 @@ tyVars = sort . nub . go
 stringifyName :: L String -> Doc x
 stringifyName = pretty . show . canonicalizeName . show . ppToken
 
-mFuncVar :: Decl -> Maybe Var
-mFuncVar x = case x of
+isFuncDecl :: Decl -> Maybe Var
+isFuncDecl x = case x of
   ExprDecl (ED (v,_) e) -> case e of
-    Prim{} -> Nothing
-    _ -> Just v
+    Lam{} -> Just v
+    _ -> Nothing
   _ -> Nothing
 
 ppExprDecl :: Bool -> [String] -> ExprDecl -> Doc x
 ppExprDecl isTopLevel labels (ED (v,t) e) = case e of
-  Prim a | isTopLevel -> lhs <+> "=" <+> ppPrim a
-  Prim a -> "let" <+> lhs <+> "=" <+> ppPrim a
+  Prim a
+    | isTopLevel -> lhs <+> "=" <+> ppPrim a
+    | otherwise -> "let" <+> lhs <+> "=" <+> ppPrim a
+  App{}
+    | isTopLevel -> lhs <+> "=" <+> ppExpr e
+    | otherwise -> "let" <+> lhs <+> "=" <+> ppExpr e
   Lam a _
     | isTopLevel -> vcat
         [ lhs <+> "=" <+> "Prim.call" <+> ppFuncVar v
