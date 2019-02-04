@@ -1,5 +1,6 @@
 .stack-work/
 generated/
+mk/
 fort.cabal
 *~
 *.o
@@ -9,3 +10,7 @@ fort.cabal
 *.keep
 *.ll
 *.fort.hs
+*.swp
+config.log
+config.status
+settings
