@@ -12,6 +12,8 @@ typedef struct {
   long int x;
 } MyStruct2;
 
+extern void reverse_n(int,int []);
+extern int fannkuch(int []);
 extern void hello_world();
 extern int powi(int, int);
 extern int squared(int);
@@ -22,21 +24,39 @@ extern void foo_struct(MyStruct*, MyStruct2*);
 extern void char_io_test(int);
 extern void foo_2dim_array(int[2][3]);
 extern void add3AtLoc(int*);
-/* int getChar() */
-/* { */
-/*   int c = fgetc(stdin); */
-/*   if (c == EOF){ */
-/*     exit(ferror(stdin)); */
-/*   } */
-/*   return c; */
-/* } */
-/* void putChar(int c) */
-/* { */
-/*   int r = fputc(c, stdout); */
-/*   if (r == EOF){ */
-/*     exit(ferror(stdout)); */
-/*   } */
-/* } */
+
+void h_put_uint(unsigned int x, FILE *h)
+{
+  if (x == 0)
+    {
+      fputc('0',h);
+      return;
+    }
+
+  char buf[11];
+  buf[10] = '\0';
+  int idx = 10;
+
+  while (x > 0) // faster way to do this? (eliminate divisions)
+    {
+      idx--;
+      buf[idx] = '0' + x % 10;
+      x /= 10;
+    }
+  fputs(&buf[idx], h);
+}
+
+void h_put_sint(int x, FILE *h)
+{
+  if (x < 0)
+    {
+      fputc('-', h);
+      h_put_uint((unsigned int)(-x), h);
+    } else
+    {
+      h_put_uint((unsigned int)(x), h);
+    }
+}
 
 FILE* g_stdin;
 FILE* g_stdout;
@@ -44,6 +64,11 @@ FILE* g_stderr;
 
 int main(int argc, char**argv)
 {
+  h_put_sint(42, stdout);
+  printf("\n");
+  h_put_sint(-42, stdout);
+  printf("\n");
+
   g_stdin = stdin;
   g_stdout = stdout;
   g_stderr = stderr;
@@ -105,5 +130,16 @@ int main(int argc, char**argv)
   printf("myInt = %d\n", myInt);
 
   hello_world();
+  printf("\n");
+
+  int perm[] = {4,2,1,5,3};
+  printf("flips: %d\n", fannkuch(perm));
+  for(i=0; i < 5; ++i)
+    {
+      printf("%d,",perm[i]);
+    }
+  printf("\n");
+  /* 228 */
+  /* Pfannkuchen(7) = 16 */
   return 0;
 }

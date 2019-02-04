@@ -22,12 +22,11 @@ qux: Char -> Char = \_ => fst (c,d)
 
 h-get-char: Handle -> Char
 get-char: RealWorld -> Char = \_ => h-get-char stdin
+h-put: (a, Handle) -> ()
 
-h-put-char: (Char, Handle) -> ()
-put-char: Char -> () = h-put-char (,stdout)
+put-char: Char -> () = h-put (,stdout)
 
-h-put-string: (String, Handle) -> ()
-put-string: String -> () = h-put-string (,stdout)
+put-string: String -> () = h-put (,stdout)
 
 char-io-test: RealWorld -> () = \w => /do
   put-char (get-char w)
