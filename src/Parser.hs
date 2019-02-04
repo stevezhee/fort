@@ -37,10 +37,7 @@ pBind :: P r a -> P r a
 pBind p = p <* reserved "="
 
 reservedWords :: [String]
-reservedWords = ["\\", "=", "=>", "->", ":", "/where", "/if", "/case", "/of", "/do", "/record", "/variant", "/signed", "/unsigned", "/address", "/char", "/string", "/array", ",", ";", "{", "}", "[", "]", "(", ")"]
-
-pTuple :: ([a] -> b) -> P r a -> P r b
-pTuple f p = f <$> parens (sepMany (reserved ",") p)
+reservedWords = ["\\", "=", "=>", "->", ":", "/where", "/let", "/if", "/case", "/of", "/do", "/record", "/variant", "/signed", "/unsigned", "/address", "/char", "/string", "/array", ",", ";", "{", "}", "[", "]", "(", ")"]
 
 parens :: P r a -> P r a
 parens = between "(" ")"
@@ -55,6 +52,12 @@ between :: String -> String -> P r a -> P r a
 between a b p = reserved a *> p <* reserved b
 
 type P r a = Prod r String Token a
+
+pTuple :: ([a] -> b) -> P r a -> P r b
+pTuple f p = f <$> parens (sepMany (reserved ",") p)
+
+pSomeTuple :: ([a] -> b) -> P r a -> P r b
+pSomeTuple f p = f <$> parens (sepSome (reserved ",") p)
 
 grammar :: Grammar r (P r [Decl])
 grammar = mdo
@@ -97,6 +100,7 @@ grammar = mdo
     pLamE
   pLamE <- rule $
     (Lam <$> pLam pPat <*> pLamE <?> "lambda expression") <|>
+    (Let <$> (reserved "/let" *> pExprDecl) <?> "let binding") <|>
     pAppE
   pAppE <- rule $
     (mkApp <$> pAppE <*> pKeywordE <?> "application") <|>
@@ -111,7 +115,8 @@ grammar = mdo
     pE0
   pE0 <- rule $
     (Record <$> blockList pExprDecl <?> "record") <|>
-    (Tuple <$> parens (sepMany (reserved ",") (optional pExpr)) <?> "tuple") <|>
+    (pSomeTuple Tuple (optional pExpr) <?> "tuple") <|>
+    -- ^ pSomeTuple is needed because the expr is optional
     (Prim <$> pPrim)
   pPat <- rule $
     (VarP <$> pVar <*> pOptionalAscription <?> "var pattern") <|>

@@ -17,8 +17,10 @@
 - use type families instead of functional dependencies?
 - n-dimensional tuples
 - polymorphic containers (arrays, tuples, variants, records)
-- make bools their own type
+- make bools a variant type
 - generate convience functions for variant `/case`s
+- generate output functions for each datatype
+- create `volatile` type builtin
 
 done:
 - get up to date on latest llvm-hs

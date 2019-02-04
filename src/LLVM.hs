@@ -10,8 +10,6 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE MultiParamTypeClasses  #-}
 
-{-# OPTIONS_GHC -fno-warn-missing-methods #-}
-
 module LLVM where
 
 import qualified Control.Monad                    as Monad
@@ -24,7 +22,6 @@ import           Data.Monoid
 import           Data.Proxy
 import           Data.String
 import qualified Data.Text.Lazy                   as T
-import           Data.Word
 import           Fort                             (neededBitsList, readError)
 import qualified LLVM.AST                         as AST
 import qualified LLVM.AST.Instruction
@@ -51,8 +48,10 @@ mkFun x = (fun{ AST.basicBlocks = patchPhis st bs0 }, (externs st, defs))
 
     (((fun, bs0), defs), st) = runState stM initSt
 
-data IntNum a sz = IntNum a sz deriving Show
-data Char_ sz = Char_ sz deriving Show
+data IntNum a sz -- BAL: make these two separate types
+data Signed -- BAL: replace IntNum with this
+data Unsigned -- BAL: replace IntNum with this
+data Char_ sz
 
 type INum a sz = I (IntNum a sz)
 
@@ -71,8 +70,6 @@ char c = f Proxy
 iConstInt :: Size sz => Integer -> Proxy sz -> I a
 iConstInt i prxy = I $ pure $ intOperand (fromIntegral $ size prxy) i
 
-data Signed
-data Unsigned
 data T a = T
 
 newtype I a = I{ unI :: M AST.Operand }
@@ -213,13 +210,97 @@ jump x e = do
   return T
 
 class Ty a where
-  tyLLVM :: Proxy a -> AST.Type
-  sizeof :: Proxy a -> Word64
+  tyFort :: Proxy a -> Type
 
-sequence :: [I ()] -> I ()
-sequence xs = I $ do
-  Monad.sequence_ $ map unI xs
-  return voidOperand
+data Type
+  = TyChar Integer
+  | TySigned Integer
+  | TyUnsigned Integer
+  | TyString
+  | TyAddress Type
+  | TyArray Integer Type
+  | TyTuple [Type]
+  | TyRecord [(String, Type)]
+  | TyVariant [(String, Type)]
+  | TyEnum [String]
+  deriving Show
+
+tyLLVM :: Ty a => Proxy a -> AST.Type
+tyLLVM prxy = go (tyFort prxy)
+  where
+    go x = case x of
+      TyChar sz     -> tyInt sz
+      TySigned sz   -> tyInt sz
+      TyUnsigned sz -> tyInt sz
+      TyString      -> go tyStringToTyAddress
+      TyAddress a   -> AST.ptr (go a)
+      TyArray sz a  -> AST.ArrayType (fromInteger sz) (go a)
+      TyTuple []    -> AST.void
+      TyTuple bs    -> AST.StructureType False $ map go bs
+      TyRecord bs   -> go $ tyRecordToTyTuple bs
+      TyVariant bs  -> go $ tyVariantToTyTuple bs
+      TyEnum bs     -> go $ tyEnumToTyUnsigned bs
+
+tyRecordToTyTuple :: [(String, Type)] -> Type
+tyRecordToTyTuple bs = TyTuple $ map snd bs
+
+tyVariantToTyTuple :: [(String, Type)] -> Type
+tyVariantToTyTuple bs = TyTuple
+  [ tyEnumToTyUnsigned bs
+  , maximumBy (\a b -> compare (sizeFort a) (sizeFort b)) $ map snd bs
+  ]
+
+tyEnumToTyUnsigned :: [a] -> Type
+tyEnumToTyUnsigned bs = TyUnsigned (neededBitsList bs)
+
+tyStringToTyAddress :: Type
+tyStringToTyAddress = TyAddress (TyChar 8)
+
+sizeFort :: Type -> Integer
+sizeFort x = case x of
+  TyChar sz     -> sz
+  TySigned sz   -> sz
+  TyUnsigned sz -> sz
+  TyString      -> sizeFort $ tyStringToTyAddress
+  TyAddress _   -> 64 -- BAL: architecture dependent
+  TyArray sz a  -> sz * sizeFort a
+  TyTuple bs    -> sum $ map sizeFort bs
+  TyRecord bs   -> sizeFort $ tyRecordToTyTuple bs
+  TyVariant bs  -> sizeFort $ tyVariantToTyTuple bs
+  TyEnum bs     -> sizeFort $ tyEnumToTyUnsigned bs
+
+sizeof :: Ty a => Proxy a -> Integer
+sizeof = sizeFort . tyFort
+
+h_put  :: Ty a => (I a, I Handle) -> I ()
+h_put (a :: I a, h) = hPutTy (tyFort (Proxy :: Proxy a)) (a,h)
+
+hPutTy :: Ty a => Type -> (I a, I Handle) -> I ()
+hPutTy t (x, h) = case t of
+  TyChar{}     -> extern "fputc" (x,h)
+  -- ^ BAL: use different implementation based on the encoding
+  TyUnsigned{} -> extern "h_put_uint" (x,h)
+  -- ^ implement natively in fort to support any size
+  TySigned{}   -> extern "h_put_sint" (x,h)
+  -- ^ implement natively in fort to support any size
+  TyString     -> extern "fputs" (x,h)
+  -- TyArray sz a -> undefined -- for sz (hPutTy h a)
+  _            -> error $ "h_put not implemented for this type:" ++ show t
+
+let_ :: I a -> (I a -> M (T (I b))) -> M (T (I b))
+let_ x f = do
+  a <- unI x
+  f (I $ pure a)
+
+eval :: I a -> M (T (I b))
+eval x = do
+  _ <- unI x
+  return T
+
+sequence :: [M (T (I a))] -> M (T (I a))
+sequence xs = do
+  Monad.sequence_ xs
+  return T
 
 voidOperand :: AST.Operand
 voidOperand = AST.ConstantOperand $ AST.Undef AST.void
@@ -233,12 +314,15 @@ binop f (x, y) = I $ do
 arithop :: (AST.Operand -> AST.Operand -> M AST.Operand) -> (I a, I a) -> I a
 arithop = binop
 
+unit :: I ()
+unit = I $ return $ unreachable "void"
+
 ret :: Ty a => I a -> M (T (I a))
 ret (x :: I a) = do
   a <- unI x
   case () of
     () | tyLLVM (Proxy :: Proxy a) == AST.void -> IR.retVoid
-    _                                              -> IR.ret a
+    _                                          -> IR.ret a
   return T
 
 call :: (Args a, Ty b) => TFunc a b -> (a -> I b)
@@ -262,7 +346,7 @@ func n ns (f :: Args a => a -> M (T (I b))) = TFunc ((ft, fn), do
     fn = AST.mkName n
     ft = funTy (Proxy :: Proxy a) (Proxy :: Proxy b)
 
-class Size a where size :: Proxy a -> Word64
+class Size a where size :: Proxy a -> Integer
 
 data Size1
 data Size8
@@ -275,24 +359,22 @@ instance Size Size32 where size _ = 32
 type UInt32 = IntNum Unsigned Size32
 type Bool_ = IntNum Unsigned Size1
 
-instance Size sz => Ty (IntNum a sz) where
-  tyLLVM = tyInt . fromIntegral . sizeof
-  sizeof _ = size (Proxy :: Proxy sz)
+instance Size sz => Ty (IntNum Unsigned sz) where
+  tyFort _ = TyUnsigned (size (Proxy :: Proxy sz))
+
+instance Size sz => Ty (IntNum Signed sz) where
+  tyFort _ = TySigned (size (Proxy :: Proxy sz))
 
 instance Size sz => Ty (Char_ sz) where
-  tyLLVM = tyInt . fromIntegral . sizeof
-  sizeof _ = size (Proxy :: Proxy sz)
+  tyFort _ = TyChar (size (Proxy :: Proxy sz))
 
-
--- instance Ty Bool where tyLLVM _ = tyInt 1 -- BAL: make bool a non-numeric type
+-- instance Ty Bool where tyLLVM _ = tyInt 1 -- BAL: make bool a variant type
 
 instance Ty a => Ty (Addr a) where
-  tyLLVM _ = AST.ptr (tyLLVM (Proxy :: Proxy a))
-  sizeof _ = 64 -- BAL: architecture dependent
+  tyFort _ = TyAddress (tyFort (Proxy :: Proxy a))
 
 instance Ty () where
-  tyLLVM _ = AST.void
-  sizeof _ = 0
+  tyFort _ = TyTuple []
 
 unop :: (AST.Operand -> M AST.Operand) -> I a -> I b
 unop f x = I $ do
@@ -300,8 +382,7 @@ unop f x = I $ do
   f a
 
 instance (Size sz, Ty a) => Ty (Array sz a) where
-  tyLLVM _ = AST.ArrayType (size (Proxy :: Proxy sz)) (tyLLVM (Proxy :: Proxy a))
-  sizeof _ = size (Proxy :: Proxy sz) * sizeof (Proxy :: Proxy a)
+  tyFort _ = TyArray (size (Proxy :: Proxy sz)) (tyFort (Proxy :: Proxy a))
 
 index :: (Address (Array sz a), I UInt32) -> Address a -- BAL: index type should be tied to the size of the array
 index = gep
@@ -309,33 +390,15 @@ index = gep
 gep :: (Address a, I UInt32) -> Address b
 gep = binop (\a b -> IR.gep a [intOperand 32 0, b])
 
-intOperand :: Word32 -> Integer -> AST.Operand
-intOperand bits = AST.ConstantOperand . AST.Int bits
+intOperand :: Integer -> Integer -> AST.Operand
+intOperand bits = AST.ConstantOperand . AST.Int (fromInteger bits)
 
 field :: (Ty a, Ty b) => Integer -> Address a -> Address b
 field i r = gep (r, I $ pure $ intOperand 32 i)
 
-tyStruct :: [AST.Type] -> AST.Type
-tyStruct = AST.StructureType False
-
-tyVariant :: [(AST.Type, Word64)] -> AST.Type
-tyVariant xs = tyStruct
-  [ tyInt (neededBitsList xs)
-  , fst $ maximumBy (\a b -> compare (snd a) (snd b)) xs
-  ]
-
-tyVariantSize :: [Word64] -> Word64
-tyVariantSize xs = neededBitsList xs + maximum xs
-
 class (Ty a, Ty b) => Caseable a b | a -> b where
   caseof :: I a -> I b
   altConstant :: Proxy a -> String -> AST.Constant
-
-tyAndSize :: Ty a => Proxy a -> (AST.Type, Word64)
-tyAndSize prxy = (tyLLVM prxy, sizeof prxy)
-
-tyEnum :: Ty a => Proxy a -> AST.Type
-tyEnum = tyInt . fromIntegral . sizeof
 
 unsafeCon :: Ty b => (I (Addr b) -> M c) -> (I (Addr a) -> M c)
 unsafeCon (f :: I (Addr b) -> M c) = \x -> do
@@ -381,12 +444,12 @@ getVariantValueAddr prxy a = do
   uval <- IR.gep a [intOperand 32 0, intOperand 32 1]
   IR.bitcast uval (tyLLVM prxy)
 
-variantTagBits :: AST.Type -> Word32
+variantTagBits :: AST.Type -> Integer
 variantTagBits x = case x of
-  AST.PointerType (AST.StructureType _ [AST.IntegerType a,  _]) _ -> a
+  AST.PointerType (AST.StructureType _ [AST.IntegerType a,  _]) _ -> toInteger a
   _ -> error $ "variantTagBits:unexpected type:" ++ show x
 
-instance (Size sz) => Caseable (IntNum a sz) (IntNum a sz) where
+instance (Size sz, Ty (IntNum a sz)) => Caseable (IntNum a sz) (IntNum a sz) where
   caseof = id
   altConstant _ s =
     AST.Int (fromIntegral $ size (Proxy :: Proxy sz)) (readError "integer pattern" s)
@@ -414,8 +477,8 @@ case_ (x :: I a) ys = mdo
       _ <- y
       return (altConstant (Proxy :: Proxy a) s, altlbl)
 
-tyInt :: Word32 -> AST.Type
-tyInt = AST.IntegerType
+tyInt :: Integer -> AST.Type
+tyInt = AST.IntegerType . fromInteger
 
 data Array sz a = Array sz a deriving Show
 
@@ -443,12 +506,6 @@ operator = curry
 
 h_get_char :: Size sz => I Handle -> I (Char_ sz) -- BAL: use different ones based on the size
 h_get_char = extern "fgetc"
-
-h_put_char :: Size sz => (I (Char_ sz), I Handle) -> I () -- BAL: use different ones based on the size
-h_put_char = extern "fputc"
-
-h_put_string :: (I String_, I Handle) -> I ()
-h_put_string = extern "fputs"
 
 globalRef :: AST.Type -> AST.Name -> AST.Operand
 globalRef x y = AST.ConstantOperand (AST.GlobalReference x y)
@@ -596,8 +653,7 @@ bitop g x = f Proxy
 data String_
 
 instance Ty String_ where
-  tyLLVM _ = tyLLVM (Proxy :: Proxy (Addr (Char_ Size8)))
-  sizeof _ = sizeof (Proxy :: Proxy (Addr (Char_ Size8)))
+  tyFort _ = TyString
 
 -- BAL: IR.globalStringPtr seems to be broken(?)
 string :: String -> I String_
@@ -611,13 +667,13 @@ string s = I $ do
 bitcast :: (Ty a, Ty b) => I a -> I b
 bitcast = bitop IR.bitcast
 
-truncate :: (Size aSz, Size bSz) => INum a aSz -> INum b bSz
+truncate :: (Ty (IntNum a aSz), Ty (IntNum b bSz)) => INum a aSz -> INum b bSz
 truncate = bitop IR.trunc
 
-sign_extend :: (Size aSz, Size bSz) => INum a aSz -> INum a bSz
+sign_extend :: (Ty (IntNum a aSz), Ty (IntNum a bSz)) => INum a aSz -> INum a bSz
 sign_extend = bitop IR.sext
 
-zero_extend :: (Size aSz, Size bSz) => INum a aSz -> INum a bSz
+zero_extend :: (Ty (IntNum a aSz), Ty (IntNum a bSz)) => INum a aSz -> INum a bSz
 zero_extend = bitop IR.zext
 
 -- not supported (yet?)

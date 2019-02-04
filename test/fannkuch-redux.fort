@@ -1,0 +1,57 @@
+;; types
+Int = /unsigned 32
+Perm = /address (/array 5 Int) ;; BAL: make this configurable
+Bool = /unsigned 1 ;; BAL: should be variant type
+
+;; primitives
+add: (Int, Int) -> Int
++ = add
+
+subtract: (Int, Int) -> Int
+- = subtract
+
+greater-than-or-equals: (Int, Int) -> Bool
+>= = greater-than-or-equals
+
+store: (/address a, a) -> ()
+.= = store
+
+load: /address a -> a
+;; BAL: support unary operators @ = load
+
+index: (/address (/array sz a), Int) -> /address a
+# = index
+
+truncate: Int -> Bool
+
+;; code
+is-odd: Int -> Bool = truncate
+
+fannkuch: Perm -> Int = \p => go 0
+  /where
+    go: Int -> Int = \num-flips => /case load (p # 0) /of
+      1 = num-flips
+      _ = \i => /do
+        reverse-n (i, p)
+        go (num-flips + 1)
+
+;; BAL: try multiply version
+checksum: (Int, Int) -> Int = \(csum, n-flips) => /if
+  is-odd n-flips => csum - n-flips
+  _ => csum + n-flips ;; BAL: should be =
+  
+reverse-n: (Int, Perm) -> () = \(n,p) => go (0,n - 1)
+  /where
+    go: (Int, Int) -> () = \(l,r) => /if
+      l >= r => ()
+      _ => /do
+        swap (p # l, p # r)
+        go (l + 1, r - 1)
+
+swap: (/address Int, /address Int) -> () = \(p,q) => /do
+  /let temp = load p ;; do we need the /let keyword?
+  p .= (load q) ;; BAL: shouldn't need these parens
+  q .= temp
+
+;; asdf = foreach p in permutations() /do
+;;   fankuch p
