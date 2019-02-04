@@ -14,7 +14,7 @@ greater-than-or-equals: (Int, Int) -> Bool
 >= = greater-than-or-equals
 
 store: (/address a, a) -> ()
-.= = store
+:= = store
 
 load: /address a -> a
 ;; BAL: support unary operators @ = load
@@ -49,9 +49,9 @@ reverse-n: (Int, Perm) -> () = \(n,p) => go (0,n - 1)
         go (l + 1, r - 1)
 
 swap: (/address Int, /address Int) -> () = \(p,q) => /do
-  /let temp = load p ;; do we need the /let keyword?
-  p .= (load q) ;; BAL: shouldn't need these parens
-  q .= temp
+  /let temp = load p
+  p := (load q) ;; BAL: shouldn't need these parens
+  q := temp
 
 ;; asdf = foreach p in permutations() /do
 ;;   fankuch p

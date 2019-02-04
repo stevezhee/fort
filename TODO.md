@@ -21,6 +21,7 @@
 - generate convience functions for variant `/case`s
 - generate output functions for each datatype
 - create `volatile` type builtin
+- unary operators
 
 done:
 - get up to date on latest llvm-hs
