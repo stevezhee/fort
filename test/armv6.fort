@@ -1,0 +1,30 @@
+;; ┌┬┐┬ ┬┌─┐┌─┐┌─┐
+;;  │ └┬┘├─┘├┤ └─┐
+;;  ┴  ┴ ┴  └─┘└─┘
+
+UInt32 = /unsigned 32
+
+;; ┌─┐┌─┐┌─┐┬─┐┌─┐┌┬┐┌─┐┬─┐┌─┐
+;; │ │├─┘├┤ ├┬┘├─┤ │ │ │├┬┘└─┐
+;; └─┘┴  └─┘┴└─┴ ┴ ┴ └─┘┴└─└─┘
+
++ = add
+add: (UInt32, UInt32) -> UInt32
+
+<< = shift_left
+shift_left: (UInt32, UInt32) -> UInt32
+
+& = bitwise_and
+bitwise_and: (UInt32, UInt32) -> UInt32
+
+| = bitwise_or
+bitwise_or: (UInt32, UInt32) -> UInt32
+
+;; ┌─┐┌─┐┌┐┌┌─┐┌┬┐┌─┐┌┐┌┬┐┌─┐
+;; │  │ ││││└─┐ │ ├─┤││││ └─┐
+;; └─┘└─┘┘└┘└─┘ ┴ ┴ ┴┘└┘┴ └─┘
+
+periph_base: UInt32 = 1073741824 ;; 0x40000000
+cmu_base: UInt32 = periph_base + 209715200 ;; 0xc8000
+wdog_base: UInt32 = periph_base + 142606336 ;; 0x88000
+wdog_ctrl: UInt32 = wdog_base + 0 ;; TODO: volatile uint32
