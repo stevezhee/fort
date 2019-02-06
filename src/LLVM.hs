@@ -1,222 +1,155 @@
-{-# LANGUAGE FlexibleContexts       #-}
 {-# LANGUAGE FlexibleInstances      #-}
 {-# LANGUAGE OverloadedStrings      #-}
-{-# LANGUAGE RankNTypes             #-}
 {-# LANGUAGE RecursiveDo            #-}
 {-# LANGUAGE ScopedTypeVariables    #-}
-{-# LANGUAGE TupleSections          #-}
-{-# LANGUAGE UndecidableInstances   #-}
-
-{-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE MultiParamTypeClasses  #-}
 
 module LLVM where
 
-import qualified Control.Monad                    as Monad
-import           Control.Monad.Identity           hiding (sequence)
-import           Control.Monad.State              hiding (sequence)
-import           Data.ByteString.Short            (ShortByteString)
-import           Data.List
-import qualified Data.Map.Strict                  as M
-import           Data.Monoid
-import           Data.Proxy
-import           Data.String
-import qualified Data.Text.Lazy                   as T
-import           Fort                             (neededBitsList, readError)
-import qualified LLVM.AST                         as AST
-import qualified LLVM.AST.Instruction
-import qualified LLVM.AST.Constant                as AST
-import qualified LLVM.AST.Global                  as AST
-import qualified LLVM.AST.Global
-import qualified LLVM.AST.IntegerPredicate        as AST
-import qualified LLVM.AST.Type                    as AST
-import qualified LLVM.AST.Typed                   as AST
-import qualified LLVM.IRBuilder                   as IR
-import           LLVM.Pretty
-import           Prelude                          hiding (sequence, subtract, truncate, until)
+-- This is were the typed bindings for the generated code go. If something is
+-- LLVM related but not typed then it goes in Build.hs.
 
-type M a = IR.IRBuilderT (IR.ModuleBuilderT (State St)) a
+import Prelude hiding (subtract)
+import Build (M, unreachable)
+import Data.List
+import Data.Proxy
+import Data.String
+import Fort (neededBitsList)
+import LLVM.AST (Operand, Name)
+import LLVM.AST.Constant (Constant)
+import qualified Build as B
+import qualified LLVM.AST as AST
+import qualified LLVM.AST.IntegerPredicate as AST
+import qualified LLVM.AST.Type as AST
+import qualified LLVM.IRBuilder        as IR
+import qualified Data.ByteString.Short as S
+import Control.Monad
 
-mkFun :: M AST.Global -> (AST.Global, ([AST.Global], [AST.Definition]))
-mkFun x = (fun{ AST.basicBlocks = patchPhis st bs0 }, (externs st, defs))
-  where
-    builder :: IR.ModuleBuilderT (State St) (AST.Global, [AST.BasicBlock])
-    builder = IR.runIRBuilderT IR.emptyIRBuilder x
+tt :: IO ()
+tt = B.dbgCodegen $ mdo
+  let foo = call foo_func
+  foo_func :: Func (I UInt32) UInt32 <- func "foo" ["x"] $ \x -> mdo
+    start_lbl <- label "foo" [] $ \() ->
+      if_ (equals (x, int 0))
+        (jump bar (x, int 42))
+        (ret $ add (int 1, x))
+    bar <- label "bar" ["a", "b"] $ \(a,b) ->
+      if_ (equals (a, int 0))
+        (ret $ add (a, b))
+        (jump bar (add (int 3, a), add (int 4, b)))
+    jump start_lbl ()
+  let qux = call qux_func
+  nowarn qux
+  qux_func <- func "qux" [] $ \() -> mdo
+    ret $ foo (foo (int 12))
+  pure ()
 
-    stM :: State St ((AST.Global, [AST.BasicBlock]), [AST.Definition])
-    stM = IR.runModuleBuilderT IR.emptyModuleBuilder builder
+nowarn :: a -> M ()
+nowarn _ = pure ()
 
-    (((fun, bs0), defs), st) = runState stM initSt
-
-data IntNum a sz -- BAL: make these two separate types
-data Signed -- BAL: replace IntNum with this
-data Unsigned -- BAL: replace IntNum with this
-data Char_ sz
-
-type INum a sz = I (IntNum a sz)
-
-int :: Size sz => Integer -> I (IntNum a sz)
-int i = f Proxy
-  where
-    f :: Size sz => Proxy sz -> I (IntNum a sz)
-    f = iConstInt i
-
-char :: Size sz => Char -> I (Char_ sz)
-char c = f Proxy
-  where
-    f :: Size sz => Proxy sz -> I (Char_ sz)
-    f = iConstInt (toInteger $ fromEnum c)
-
-iConstInt :: Size sz => Integer -> Proxy sz -> I a
-iConstInt i prxy = I $ pure $ intOperand (fromIntegral $ size prxy) i
-
+newtype Func a b = Func{ unFunc :: Operand }
+newtype Label a b = Label{ unLabel :: Name }
 data T a = T
 
-newtype I a = I{ unI :: M AST.Operand }
-newtype TFunc a b = TFunc{ unTFunc :: ((AST.Type, AST.Name), M AST.Global) }
-newtype TLabel a b = TLabel{ unTLabel :: AST.Name }
+mkT :: M a -> M (T b)
+mkT m = m >> pure T
 
--- BAL: now that we are using ModuleBuilderT this can probably be simplified
-data St = St
-  { outPhis :: M.Map AST.Name [([AST.Operand], AST.Name)]
-  , inPhis  :: M.Map AST.Name [AST.Name]
-  , funBody :: M ()
-  , externs :: [AST.Global]
-  }
+ret :: I a -> M (T a)
+ret = mkT . B.ret . unI
 
-codegen :: [Char] -> [(a, M AST.Global)] -> IO ()
-codegen fn xs = do
-  let m = mkModule $ map snd xs
-  let oFile = "generated/" ++ fn ++ ".ll"
-  writeFile oFile $ T.unpack $ ppllvm m
+jump :: (Args a, Ty b) => Label a b -> a -> M (T b)
+jump (Label n) a = mkT $ B.jump n (argOperands a)
 
+call :: (Args a, Ty b) => Func a b -> a -> I b
+call (Func n) a = I $ B.call n (argOperands a)
 
-mkModule :: [M AST.Global] -> AST.Module
-mkModule xs = AST.defaultModule
-    { AST.moduleDefinitions =
-        let (funs, bs) = unzip $ map mkFun xs
-        in let (externals, defs) = unzip bs
-        in concat defs ++ map AST.GlobalDefinition (nub (concat externals) ++ funs)
-    }
+label :: (Args a, Ty b) => Name -> [S.ShortByteString] -> (a -> M (T b)) -> M (Label a b)
+label n xs (f :: a -> M (T b)) =
+  Label <$> B.label n (zip (tysLLVM (Proxy :: Proxy a)) xs) (void . f . paramOperands)
 
-initSt :: St
-initSt = St M.empty M.empty (return ()) []
+func :: (Args a, Ty b) => Name -> [IR.ParameterName] -> (a -> M (T b)) -> M (Func a b)
+func n xs (f :: a -> M (T b)) = Func <$> B.func n
+  (zip (tysLLVM (Proxy :: Proxy a)) xs)
+  (tyLLVM (Proxy :: Proxy b))
+  (void . f . paramOperands)
 
-blockNm :: ShortByteString -> ShortByteString
-blockNm s = s <> "_"
+if_ :: Ty a => I Bool_ -> M (T a) -> M (T a) -> M (T a)
+if_ (I x) f g = mkT $ B.if_ x (void f) (void g)
 
-block :: ShortByteString -> M AST.Name
-block = IR.named IR.block . blockNm
+case_ :: Ty a => I a -> (I a -> M (T a)) -> [(String, I a -> M (T a))] -> M (T a)
+case_ (I x :: I a) f0 ys0 = mkT $ case tyFort (Proxy :: Proxy a) of
+  TyAddress (TyVariant bs) ->
+    B.mapVariant x f [ (constTag (map fst bs) s, (fromString s, g)) | (s,g) <- ys ]
 
-subBlock :: ShortByteString -> M AST.Name
-subBlock s = do
-  lbl <- currentBlock
-  IR.named IR.block (lbl <> s)
-
-currentBlock :: M ShortByteString
-currentBlock = do
-  lbl <- IR.currentBlock
-  case lbl of
-    AST.Name a   -> return a
-    AST.UnName{} -> unreachable "currentBlock"
-
-addPhisFromTo :: ([AST.Operand], AST.Name) -> AST.Name -> M ()
-addPhisFromTo v k = do
-  modify' $ \st -> st{ outPhis = M.insertWith (++) k [v] (outPhis st) }
-  return ()
-
-patchPhis :: St -> [AST.BasicBlock] -> [AST.BasicBlock]
-patchPhis st = map f
+  TyChar        -> enumF (B.constChar . read) "character"
+  TySigned sz   -> enumF (B.constInt sz . read) "signed integer"
+  TyUnsigned sz -> enumF (B.constInt sz . read) "unsigned integer"
+  TyEnum bs     -> enumF (constTag bs) "enum"
+  TyAddress{} -> errorF "addresses"
+  TyTuple{}   -> errorF "tuples"
+  TyRecord{}  -> errorF "records"
+  TyString{}  -> errorF "strings"
+  TyArray{}   -> errorF "arrays"
+  TyVariant{} -> errorF "variants" -- must be an address to a variant (see above)
   where
-    f (AST.BasicBlock nm instrs term) = AST.BasicBlock nm (phis ++ instrs) term
-      where
-        phis = [ n AST.:= mkPhi (AST.typeOf p) ps | (n, ps@((p,_):_)) <- zip ins $ joinPhiValues outs ]
-        outs = maybe [] id $ M.lookup nm $ outPhis st
-        ins  = maybe [] id $ M.lookup nm $ inPhis st
+    f :: M Operand -> M ()
+    f = void . f0 . I
+    ys :: [(String, M Operand -> M ())]
+    ys =  [ (s, void . g . I) | (s,g) <- ys0 ]
+    errorF msg = error $ "unable to case on " ++ msg
+    enumF toC msg = B.mapEnum x f [ (toC s, (fromString s, g (unreachable ("case_:" ++ msg)))) | (s,g) <- ys ]
 
-mkPhi :: AST.Type -> [(AST.Operand, AST.Name)] -> AST.Instruction
-mkPhi t ps = AST.Phi t ps []
+let_ :: I a -> (I a -> M b) -> M b
+let_ x f = do
+  a <- unI x
+  f (I $ pure a)
 
-joinPhiValues :: [([AST.Operand], AST.Name)] -> [[(AST.Operand, AST.Name)]]
-joinPhiValues xs = transpose [ [ (b, c) | b <- bs ] | (bs, c) <- xs ]
+int :: Ty a => Integer -> I a
+int i = withProxy $ \proxy -> case tyFort proxy of
+  TySigned sz -> I $ pure $ B.int sz i
+  TyUnsigned sz -> I $ pure $ B.int sz i
+  t -> error $ "expected int type, but got " ++ show t
 
-if_ :: I Bool_ -> M a -> M a -> M a
-if_ x y z = mdo
-  v <- unI x
-  IR.condBr v truelbl falselbl
-  truelbl <- subBlock "t"
-  _ <- y
-  falselbl <- subBlock "f"
-  z
+class Size a where size :: Proxy a -> Integer
+class Ty a where tyFort :: Proxy a -> Type
 
-freshVar :: Ty a => ShortByteString -> M (I a)
-freshVar x = f Proxy
-  where
-    f :: Ty a => Proxy a -> M (I a)
-    f p = do
-      n <- IR.freshName x
-      return $ I $ pure $ AST.LocalReference (tyLLVM p) n
-
-evalArgs :: Args a => a -> M [AST.Operand]
-evalArgs = Monad.sequence . unArgs
+-- BAL: Note on arguments:  Right now we are just doing tupled args but the same strategy should work for records (enabling us to omit constructing the record).  A similar strategy should work for variants where we construct different "versions" of the function based on the variant types (again allowing us to omit construction of the variant).  Care will need to be taken so that code can be shared in the case of variants.  Perhaps this would be very much like church/mogensen-scott encoding(?)
 
 class Args a where
-  freshArgs :: [ShortByteString] -> M a
-  unArgs :: a -> [M AST.Operand]
-  tyArgs :: Proxy a -> [AST.Type]
+  tysFort :: Proxy a -> [Type]
+  paramOperands :: [M Operand] -> a
+  argOperands :: a -> [M Operand]
+
+instance Args () where
+  tysFort _ = []
+  paramOperands [] = ()
+  paramOperands _ = unreachable "paramOperands"
+  argOperands () = []
 
 instance Ty a => Args (I a) where
-  freshArgs [a] = freshVar a
-  freshArgs _ = unreachable "freshArgs"
-  unArgs a = [unI a]
-  tyArgs (_ :: Proxy (I a)) = [tyLLVM (Proxy :: Proxy a)]
+  tysFort _ = [tyFort (Proxy :: Proxy a)]
+  paramOperands [x] = I x
+  paramOperands _ = unreachable "paramOperands"
+  argOperands (I x) = [x]
 
 instance (Ty a, Ty b) => Args (I a, I b) where
-  freshArgs [a, b] = (,) <$> freshVar a <*> freshVar b
-  freshArgs _ = unreachable "freshArgs"
-  unArgs (a, b) = [unI a, unI b]
-  tyArgs (_ :: Proxy (I a, I b)) = [tyLLVM (Proxy :: Proxy a), tyLLVM (Proxy :: Proxy b)]
+  tysFort _ = [tyFort (Proxy :: Proxy a), tyFort (Proxy :: Proxy b)]
+  paramOperands [x,y] = (I x, I y)
+  paramOperands _ = unreachable "paramOperands"
+  argOperands (I x, I y) = [x,y]
 
 instance (Ty a, Ty b, Ty c) => Args (I a, I b, I c) where
-  freshArgs [a,b,c] = (,,) <$> freshVar a <*> freshVar b <*> freshVar c
-  freshArgs _ = unreachable "freshArgs"
-  unArgs (a, b, c) = [unI a, unI b, unI c]
-  tyArgs (_ :: Proxy (I a, I b, I c)) = [tyLLVM (Proxy :: Proxy a), tyLLVM (Proxy :: Proxy b), tyLLVM (Proxy :: Proxy c)]
+  tysFort _ = [tyFort (Proxy :: Proxy a), tyFort (Proxy :: Proxy b), tyFort (Proxy :: Proxy c)]
+  paramOperands [x,y,z] = (I x, I y, I z)
+  paramOperands _ = unreachable "paramOperands"
+  argOperands (I x, I y, I z) = [x,y,z]
 
-unreachable :: String -> a
-unreachable s = error $ "unreachable:" ++ s
-
-label :: Args a => ShortByteString -> [ShortByteString] -> (a -> M (T (I b))) -> M (TLabel a (I b))
-label nm ns f = do
-  let k = AST.Name (blockNm nm) -- BAL:unsafe, assert(?) at least
-  e <- freshArgs ns
-  bs <- evalArgs e
-  modify' $ \st -> st
-    { inPhis = M.insert k [ v | AST.LocalReference _ v <- bs ] (inPhis st)
-    , funBody = do
-        _ <- block nm
-        _ <- f e
-        funBody st
-    }
-  return $ TLabel k
-
-jump :: (Args a, Ty b) => TLabel a (I b) -> a -> M (T (I b))
-jump x e = do
-  let targ = unTLabel x
-  lbl <- IR.currentBlock
-  bs <- evalArgs e
-  addPhisFromTo (bs, lbl) targ
-  IR.br targ
-  return T
-
-class Ty a where
-  tyFort :: Proxy a -> Type
+newtype I a = I{ unI :: M Operand }
 
 data Type
-  = TyChar Integer
+  = TyChar
+  | TyString
   | TySigned Integer
   | TyUnsigned Integer
-  | TyString
   | TyAddress Type
   | TyArray Integer Type
   | TyTuple [Type]
@@ -225,13 +158,107 @@ data Type
   | TyEnum [String]
   deriving Show
 
+data Char_
+data String_
+data Signed sz
+data Unsigned sz
+data Addr a
+data Array sz a
+data Bool_
+
+data Size32
+instance Size Size32 where size _ = 32
+
+type UInt32 = Unsigned Size32
+type Handle = Addr UInt32
+
+instance Ty () where tyFort _ = TyTuple []
+instance Ty Bool_ where tyFort _ = TyEnum ["False","True"]
+instance Ty Char_ where tyFort _ = TyChar
+instance Ty String_ where tyFort _ = TyString
+instance Size sz => Ty (Signed sz) where tyFort _ = TySigned (size (Proxy :: Proxy sz))
+instance Size sz => Ty (Unsigned sz) where tyFort _ = TyUnsigned (size (Proxy :: Proxy sz))
+instance Ty a => Ty (Addr a) where tyFort _  = TyAddress (tyFort (Proxy :: Proxy a))
+instance (Size sz, Ty a) => Ty (Array sz a) where
+  tyFort _ = TyArray (size (Proxy :: Proxy sz)) (tyFort (Proxy :: Proxy a))
+
+global :: Ty a => Name -> I a
+global n = withProxy $ \proxy -> I (B.global (tyLLVM proxy) n)
+
+withProxy :: Ty a => (Proxy a -> I a) -> I a
+withProxy (f :: Proxy a -> I a) = f (Proxy :: Proxy a)
+
+extern :: (Args a, Ty b) => Name -> a -> I b
+extern n (_ :: a) = withProxy $ \proxy -> I (B.extern n (tysLLVM (Proxy :: Proxy a)) (tyLLVM proxy))
+
+tysLLVM :: Args a => Proxy a -> [AST.Type]
+tysLLVM = map toTyLLVM . tysFort
+
+integerTag :: [String] -> String -> Integer
+integerTag tgs tg = case lookup tg $ zip tgs [0..] of
+  Just i -> i
+  Nothing -> error $ "unexpected tag:" ++ show (tg, tgs)
+
+constTag :: [String] -> String -> Constant
+constTag tgs tg = B.mkTag (neededBitsList tgs) $ integerTag tgs tg
+
+h_put :: Ty a => (I a, I Handle) -> I ()
+h_put (I x :: I a, h) = I (hPutTy h (tyFort (Proxy :: Proxy a)) x >> pure B.voidOperand)
+
+-- BAL: these ad-hoc polymorphic functions will generate mounds of code. At
+-- least generate monomorphic functions so that when code is called with the
+-- same type it will be shared.
+hPutTy :: I Handle -> Type -> M Operand -> M ()
+hPutTy h = go
+  where
+    go :: Type -> M Operand -> M ()
+    go ty x = case ty of
+      TyChar       -> void $ unI $ h_put_char (I x, h)
+      TyString     -> void $ unI $ h_put_string (I x, h)
+      TySigned{}   -> void $ unI $ h_put_sint (I x, h)
+      TyUnsigned{} -> void $ unI $ h_put_uint (I x, h)
+      -- BAL: the integer printers need to upcast to the closest bigger type and
+      -- call the appropriately sized printing function
+
+      TyEnum bs    -> B.mapEnum x (\_ -> pure ()) [ (constTag bs s, (fromString s, putS s)) | s <- bs ]
+
+      TyAddress t -> case t of
+        TyArray sz t1 -> delim "[" "]" $ B.mapArray sz x (sep ", " $ go (TyAddress t1))
+        TyTuple ts    -> delim "(" ")" $ B.mapTuple x [ sep ", " $ go (TyAddress ta) | ta <- ts ]
+        TyRecord bs   -> delim "{" "}" $ B.mapRecord x [ sep ", " $ go (TyAddress ta) | ta <- map snd bs ]
+        TyVariant bs  -> delim "(" ")" $ B.mapVariant x (\_ -> pure ())
+          [ let aTy = TyAddress ta in
+              (constTag (map fst bs) s,
+                (fromString s, sep s (go aTy . (B.bitcast (toTyLLVM aTy)))))
+          | (s, ta) <- bs ]
+        _ -> B.mapAddress x (go t)
+
+      TyArray{}   -> errF "array"
+      TyTuple{}   -> errF "tuple"
+      TyRecord{}  -> errF "record"
+      TyVariant{} -> errF "variant"
+      where
+        errF msg = error $ "unable to directly print " ++ msg ++ "(need an address)"
+        delim l r f = putS l >> f >> putS r
+        sep s f = \p -> f p >> putS s
+        putS = go TyString . B.mkString
+
+output :: Ty a => I a -> I ()
+output a = h_put (a, stdout)
+
+store :: Ty a => (I (Addr a), I a) -> I ()
+store = binop B.store
+
 tyLLVM :: Ty a => Proxy a -> AST.Type
-tyLLVM prxy = go (tyFort prxy)
+tyLLVM = toTyLLVM . tyFort
+
+toTyLLVM :: Type -> AST.Type
+toTyLLVM = go
   where
     go x = case x of
-      TyChar sz     -> tyInt sz
-      TySigned sz   -> tyInt sz
-      TyUnsigned sz -> tyInt sz
+      TyChar        -> B.tyInt 8
+      TySigned sz   -> B.tyInt sz
+      TyUnsigned sz -> B.tyInt sz
       TyString      -> go tyStringToTyAddress
       TyAddress a   -> AST.ptr (go a)
       TyArray sz a  -> AST.ArrayType (fromInteger sz) (go a)
@@ -254,266 +281,133 @@ tyEnumToTyUnsigned :: [a] -> Type
 tyEnumToTyUnsigned bs = TyUnsigned (neededBitsList bs)
 
 tyStringToTyAddress :: Type
-tyStringToTyAddress = TyAddress (TyChar 8)
+tyStringToTyAddress = TyAddress TyChar
 
-sizeFort :: Type -> Integer
-sizeFort x = case x of
-  TyChar sz     -> sz
-  TySigned sz   -> sz
-  TyUnsigned sz -> sz
-  TyString      -> sizeFort $ tyStringToTyAddress
-  TyAddress _   -> 64 -- BAL: architecture dependent
-  TyArray sz a  -> sz * sizeFort a
-  TyTuple bs    -> sum $ map sizeFort bs
-  TyRecord bs   -> sizeFort $ tyRecordToTyTuple bs
-  TyVariant bs  -> sizeFort $ tyVariantToTyTuple bs
-  TyEnum bs     -> sizeFort $ tyEnumToTyUnsigned bs
+operator :: ((a, b) -> c) -> a -> b -> c
+operator = curry
 
-sizeof :: Ty a => Proxy a -> Integer
-sizeof = sizeFort . tyFort
+arithop :: Ty a => (Operand -> Operand -> M Operand) -> (I a, I a) -> I a
+arithop f (x :: I a, y) = case tyFort (Proxy :: Proxy a) of
+  TySigned{}   -> binop f (x,y)
+  TyUnsigned{} -> binop f (x,y)
+  t -> error $ "unable to perform arithmetic on values of type:" ++ show t
 
-h_put  :: Ty a => (I a, I Handle) -> I ()
-h_put (a :: I a, h) = hPutTy (tyFort (Proxy :: Proxy a)) (a,h)
+signedArithop :: Ty a =>
+  (Operand -> Operand -> M Operand) ->
+  (Operand -> Operand -> M Operand) ->
+  (I a, I a) -> I a
+signedArithop f g (x :: I a, y) = case tyFort (Proxy :: Proxy a) of
+  TySigned{}   -> binop f (x,y)
+  TyUnsigned{} -> binop g (x,y)
+  t -> error $ "unable to perform arithmetic on values of type:" ++ show t
 
-hPutTy :: Ty a => Type -> (I a, I Handle) -> I ()
-hPutTy t (x, h) = case t of
-  TyChar{}     -> extern "fputc" (x,h)
-  -- ^ BAL: use different implementation based on the encoding
-  TyUnsigned{} -> extern "h_put_uint" (x,h)
-  -- ^ implement natively in fort to support any size
-  TySigned{}   -> extern "h_put_sint" (x,h)
-  -- ^ implement natively in fort to support any size
-  TyString     -> extern "fputs" (x,h)
-  -- TyArray sz a -> undefined -- for sz (hPutTy h a)
-  _            -> error $ "h_put not implemented for this type:" ++ show t
+cmpop :: Ty a => AST.IntegerPredicate -> (I a, I a) -> I Bool_
+cmpop p (x :: I a, y) =
+  let ok = binop (IR.icmp p) (x,y) in
+  case tyFort (Proxy :: Proxy a) of
+    TyChar       -> ok
+    TySigned{}   -> ok
+    TyUnsigned{} -> ok
+    t -> error $ "unable to compare values of type:" ++ show t
 
-let_ :: I a -> (I a -> M (T (I b))) -> M (T (I b))
-let_ x f = do
+signedCmpop :: Ty a => AST.IntegerPredicate -> AST.IntegerPredicate -> (I a, I a) -> I Bool_
+signedCmpop p q (x :: I a, y) =
+  case tyFort (Proxy :: Proxy a) of
+    TyChar       -> binop (IR.icmp p) (x,y)
+    TyUnsigned{} -> binop (IR.icmp p) (x,y)
+    TySigned{}   -> binop (IR.icmp q) (x,y)
+    t -> error $ "unable to compare values of type:" ++ show t
+
+bitop :: (Ty a, Ty b) => (Operand -> AST.Type -> M Operand) -> I a -> I b
+bitop f x = withProxy $ \proxy ->
+  let ok = unop (flip f (tyLLVM proxy)) x in
+  case tyFort proxy of
+    TySigned{}   -> ok
+    TyUnsigned{} -> ok
+    t -> error $ "unable to perform bit operations on values of type:" ++ show t
+
+unop :: (Ty a, Ty b) => (Operand -> M Operand) -> I a -> I b
+unop f x = I $ do
   a <- unI x
-  f (I $ pure a)
+  f a
 
-eval :: I a -> M (T (I b))
-eval x = do
-  _ <- unI x
-  return T
-
-sequence :: [M (T (I a))] -> M (T (I a))
-sequence xs = do
-  Monad.sequence_ xs
-  return T
-
-voidOperand :: AST.Operand
-voidOperand = AST.ConstantOperand $ AST.Undef AST.void
-
-binop :: (AST.Operand -> AST.Operand -> M AST.Operand) -> (I a, I b) -> I c
+binop :: (Ty a, Ty b, Ty c) => (Operand -> Operand -> M Operand) -> (I a, I b) -> I c
 binop f (x, y) = I $ do
   a <- unI x
   b <- unI y
   f a b
 
-arithop :: (AST.Operand -> AST.Operand -> M AST.Operand) -> (I a, I a) -> I a
-arithop = binop
+index :: (Size sz, Ty a) => (I (Addr (Array sz a)), I UInt32) -> I (Addr a)
+index = binop B.idx
 
-unit :: I ()
-unit = I $ return $ unreachable "void"
+load :: Ty a => I (Addr a) -> I a
+load = unop B.load
 
-ret :: Ty a => I a -> M (T (I a))
-ret (x :: I a) = do
-  a <- unI x
-  case () of
-    () | tyLLVM (Proxy :: Proxy a) == AST.void -> IR.retVoid
-    _                                          -> IR.ret a
-  return T
-
-call :: (Args a, Ty b) => TFunc a b -> (a -> I b)
-call f a = I $ do
-  bs <- evalArgs a
-  irCall (fst $ unTFunc f) bs
-
--- BAL: now that we are using ModuleBuilderT this can probably be simplified
-func :: (Args a, Ty b) => String -> [ShortByteString] -> (a -> M (T (I b))) -> TFunc a b
-func n ns (f :: Args a => a -> M (T (I b))) = TFunc ((ft, fn), do
-  e  <- freshArgs ns
-  bs <- evalArgs e
-  _  <- block "start"
-  _  <- f e
-  m  <- gets funBody
-  m
-  return $ (funDefaults fn ft)
-    { AST.parameters = ([ AST.Parameter t v [] | AST.LocalReference t v <- bs ], False)
-    })
-  where
-    fn = AST.mkName n
-    ft = funTy (Proxy :: Proxy a) (Proxy :: Proxy b)
-
-class Size a where size :: Proxy a -> Integer
-
-data Size1
-data Size8
-data Size32
-
-instance Size Size1 where size _ = 1
-instance Size Size8 where size _ = 8
-instance Size Size32 where size _ = 32
-
-type UInt32 = IntNum Unsigned Size32
-type Bool_ = IntNum Unsigned Size1
-
-instance Size sz => Ty (IntNum Unsigned sz) where
-  tyFort _ = TyUnsigned (size (Proxy :: Proxy sz))
-
-instance Size sz => Ty (IntNum Signed sz) where
-  tyFort _ = TySigned (size (Proxy :: Proxy sz))
-
-instance Size sz => Ty (Char_ sz) where
-  tyFort _ = TyChar (size (Proxy :: Proxy sz))
-
--- instance Ty Bool where tyLLVM _ = tyInt 1 -- BAL: make bool a variant type
-
-instance Ty a => Ty (Addr a) where
-  tyFort _ = TyAddress (tyFort (Proxy :: Proxy a))
-
-instance Ty () where
-  tyFort _ = TyTuple []
-
-unop :: (AST.Operand -> M AST.Operand) -> I a -> I b
-unop f x = I $ do
-  a <- unI x
-  f a
-
-instance (Size sz, Ty a) => Ty (Array sz a) where
-  tyFort _ = TyArray (size (Proxy :: Proxy sz)) (tyFort (Proxy :: Proxy a))
-
-index :: (Address (Array sz a), I UInt32) -> Address a -- BAL: index type should be tied to the size of the array
-index = gep
-
-gep :: (Address a, I UInt32) -> Address b
-gep = binop (\a b -> IR.gep a [intOperand 32 0, b])
-
-intOperand :: Integer -> Integer -> AST.Operand
-intOperand bits = AST.ConstantOperand . AST.Int (fromInteger bits)
-
-field :: (Ty a, Ty b) => Integer -> Address a -> Address b
-field i r = gep (r, I $ pure $ intOperand 32 i)
-
-class (Ty a, Ty b) => Caseable a b | a -> b where
-  caseof :: I a -> I b
-  altConstant :: Proxy a -> String -> AST.Constant
-
-unsafeCon :: Ty b => (I (Addr b) -> M c) -> (I (Addr a) -> M c)
-unsafeCon (f :: I (Addr b) -> M c) = \x -> do
-  a <- unI x
-  p <- getVariantValueAddr (Proxy :: Proxy (Addr b)) a
-  f $ I $ pure $ p
-
-altCon :: [String] -> String -> AST.Constant
-altCon xs s = AST.Int (neededBitsList xs) $ case lookup s $ zip xs [0 .. ] of
-  Nothing -> error $ "unexpected alt tag:" ++ s
-  Just i -> i
-
-enum :: Ty a => Integer -> I a
-enum i = f Proxy
-  where
-    f :: Ty a => Proxy a -> I a
-    f prxy = I $ pure $ intOperand (fromIntegral $ sizeof prxy) i
-
-injectTag :: (Ty a) => Integer -> Address a -> I ()
-injectTag i (x :: Address a) = I $ do
-  -- evaluate x
-  a <- unI x
-  tag <- IR.gep a [intOperand 32 0, intOperand 32 0]
-  IR.store tag 0 (intOperand (variantTagBits t) i)
-  return voidOperand
-  where
-    t = tyLLVM (Proxy :: Proxy (Addr a))
-
-inject :: (Ty a, Ty b) => Integer -> (Address a, I b) -> I ()
-inject i (x :: Address a, y :: I b) = I $ do
-  -- evaluate x
-  a <- unI x
-  -- tag
-  _ <- unI $ injectTag i (I (pure a) :: Address a)
-  -- value
-  c <- unI y
-  val <- getVariantValueAddr (Proxy :: Proxy (Addr b)) a
-  IR.store val 0 c
-  return voidOperand
-
-getVariantValueAddr :: Ty a => Proxy a -> AST.Operand -> M AST.Operand
-getVariantValueAddr prxy a = do
-  uval <- IR.gep a [intOperand 32 0, intOperand 32 1]
-  IR.bitcast uval (tyLLVM prxy)
-
-variantTagBits :: AST.Type -> Integer
-variantTagBits x = case x of
-  AST.PointerType (AST.StructureType _ [AST.IntegerType a,  _]) _ -> toInteger a
-  _ -> error $ "variantTagBits:unexpected type:" ++ show x
-
-instance (Size sz, Ty (IntNum a sz)) => Caseable (IntNum a sz) (IntNum a sz) where
-  caseof = id
-  altConstant _ s =
-    AST.Int (fromIntegral $ size (Proxy :: Proxy sz)) (readError "integer pattern" s)
-
-instance (Size sz) => Caseable (Char_ sz) (Char_ sz) where
-  caseof = id
-  altConstant _ s =
-    AST.Int (fromIntegral $ size (Proxy :: Proxy sz)) (toInteger $ fromEnum (readError "character pattern" s :: Char))
-
-
--- BAL: pass the default in
-case_ :: Caseable a b => I a -> [(String, I a -> M (T (I c)))] -> M (T (I c))
-case_ (x :: I a) ys = mdo
-  v <- unI x
-  let e :: I a = I $ pure v
-  lbl <- currentBlock
-  b <- unI $ caseof e
-  IR.switch b (snd $ last alts) (init alts)
-  alts <- mapM (g lbl) [ (s, f e) | (s, f) <- ys ]
-  return T
-  where
-    g :: ShortByteString -> (String, M (T (I b))) -> M (AST.Constant, AST.Name)
-    g lbl (s, y) = do
-      altlbl <- IR.named IR.block (lbl <> "alt_" <> fromString s)
-      _ <- y
-      return (altConstant (Proxy :: Proxy a) s, altlbl)
-
-tyInt :: Integer -> AST.Type
-tyInt = AST.IntegerType . fromInteger
-
-data Array sz a = Array sz a deriving Show
-
-type Address a = I (Addr a)
-data Addr a = Addr a deriving Show
-
-load :: Ty a => Address a -> I a
-load = unop (flip IR.load 0)
-
-store :: Ty a => (Address a, I a) -> I ()
-store (x,y) = I $ do
-  a <- unI x
-  b <- unI y
-  IR.store a 0 b
-  return voidOperand
-
-operator :: ((a, b) -> c) -> a -> b -> c
-operator = curry
-
--- BAL: these could come in handy...
--- IR.function
--- IR.extern
--- IR.global
--- IR.typedef
-
-h_get_char :: Size sz => I Handle -> I (Char_ sz) -- BAL: use different ones based on the size
+h_get_char :: I Handle -> I Char_
 h_get_char = extern "fgetc"
 
-globalRef :: AST.Type -> AST.Name -> AST.Operand
-globalRef x y = AST.ConstantOperand (AST.GlobalReference x y)
+h_put_char :: (I Char_, I Handle) -> I ()
+h_put_char = extern "fputc"
 
-irCall :: (AST.Type, AST.Name) -> [AST.Operand] -> M AST.Operand
-irCall (t, v) ts = IR.call (globalRef t v) $ map (,[]) ts
+h_put_string :: (I String_, I Handle) -> I ()
+h_put_string = extern "fputs"
 
-type Handle = Addr (IntNum Unsigned Size32)
+h_put_uint :: (I (Unsigned Size32), I Handle) -> I ()
+h_put_uint = extern "h_put_uint"
+
+h_put_sint :: (I (Signed Size32), I Handle) -> I ()
+h_put_sint = extern "h_put_sint"
+
+add :: Ty a => (I a, I a) -> I a
+add = arithop IR.add
+
+subtract :: Ty a => (I a, I a) -> I a
+subtract = arithop IR.sub
+
+multiply :: Ty a => (I a, I a) -> I a
+multiply = arithop IR.mul
+
+divide :: Ty a => (I a, I a) -> I a
+divide = signedArithop IR.udiv IR.sdiv
+
+remainder :: Ty a => (I a, I a) -> I a
+remainder = signedArithop IR.urem B.srem
+
+equals :: Ty a => (I a, I a) -> I Bool_
+equals = cmpop AST.EQ
+
+not_equals :: Ty a => (I a, I a) -> I Bool_
+not_equals = cmpop AST.NE
+
+greater_than :: Ty a => (I a, I a) -> I Bool_
+greater_than = signedCmpop AST.UGT AST.SGT
+
+greater_than_or_equals :: Ty a => (I a, I a) -> I Bool_
+greater_than_or_equals = signedCmpop AST.UGE AST.SGE
+
+less_than :: Ty a => (I a, I a) -> I Bool_
+less_than = signedCmpop AST.ULT AST.SLT
+
+less_than_or_equals :: Ty a => (I a, I a) -> I Bool_
+less_than_or_equals = signedCmpop AST.ULE AST.SLE
+
+bitwise_and :: Ty a => (I a, I a) -> I a
+bitwise_and = arithop IR.and
+
+bitwise_or :: Ty a => (I a, I a) -> I a
+bitwise_or = arithop IR.or
+
+bitwise_xor :: Ty a => (I a, I a) -> I a
+bitwise_xor = arithop IR.xor
+
+arithmetic_shift_right :: Ty a => (I a, I a) -> I a
+arithmetic_shift_right = arithop IR.ashr
+
+logical_shift_right :: Ty a => (I a, I a) -> I a
+logical_shift_right = arithop IR.lshr
+
+shift_left :: Ty a => (I a, I a) -> I a
+shift_left = arithop IR.shl
 
 stdin :: I Handle
 stdin = global "g_stdin"
@@ -524,157 +418,32 @@ stdout = global "g_stdout"
 stderr :: I Handle
 stderr = global "g_stderr"
 
-addExtern :: AST.Global -> M ()
-addExtern d = modify $ \st -> st{ externs = d : externs st }
-
-global :: Ty a => AST.Name -> I a
-global n = f Proxy
-  where
-    f :: Ty a => Proxy a -> I a
-    f p = I $ do
-      let ty = tyLLVM p
-      addExtern $ globalDefaults n ty
-      IR.load (AST.ConstantOperand $ AST.GlobalReference (AST.ptr ty) n) 0
-
-globalDefaults :: AST.Name -> AST.Type -> LLVM.AST.Global.Global
-globalDefaults n t = AST.globalVariableDefaults
-  { AST.name = n
-  , LLVM.AST.Global.type' = t
-  , AST.isConstant = True
-  }
-
-extern :: (Args a, Ty b) => AST.Name -> a -> I b
-extern n (xs :: a) = f Proxy
-  where
-    f :: Ty b => Proxy b -> I b
-    f p = I $ do
-      bs <- evalArgs xs
-      let t = funTy (Proxy :: Proxy a) p
-      addExtern $ funDefaults n t
-      irCall (t, n) bs
-
-funTy :: (Args a, Ty b) => Proxy a -> Proxy b -> AST.Type
-funTy x y = AST.FunctionType
-  { AST.resultType = tyLLVM y
-  , AST.argumentTypes = tyArgs x
-  , AST.isVarArg = False
-  }
-
-funDefaults :: AST.Name -> AST.Type -> AST.Global
-funDefaults n ft = AST.functionDefaults
-    { AST.returnType = AST.resultType ft
-    , AST.name = n
-    , AST.parameters = ([ AST.Parameter t "" [] | t <- AST.argumentTypes ft ], False)
-    }
-
-class Number a where
-  add :: (a, a) -> a
-  subtract :: (a, a) -> a
-  multiply :: (a, a) -> a
-  divide :: (a, a) -> a
-  remainder :: (a, a) -> a
-
-cmpop :: (AST.Operand -> AST.Operand -> M AST.Operand) -> (I a, I a) -> I Bool_
-cmpop = binop
-
-class Equal a where
-  equals :: (a, a) -> I Bool_
-  not_equals :: (a, a) -> I Bool_
-
-class Ordered a where
-  greater_than :: (a, a) -> I Bool_
-  greater_than_or_equals :: (a, a) -> I Bool_
-  less_than :: (a, a) -> I Bool_
-  less_than_or_equals :: (a, a) -> I Bool_
-
-instance Equal (INum a sz) where
-  equals = cmpop (IR.icmp AST.EQ)
-  not_equals = cmpop (IR.icmp AST.NE)
-
-instance Ordered (INum Unsigned sz) where
-  greater_than = cmpop (IR.icmp AST.UGT)
-  greater_than_or_equals = cmpop (IR.icmp AST.UGE)
-  less_than = cmpop (IR.icmp AST.ULT)
-  less_than_or_equals = cmpop (IR.icmp AST.ULE)
-
-instance Equal (I (Char_ sz)) where
-  equals = cmpop (IR.icmp AST.EQ)
-  not_equals = cmpop (IR.icmp AST.NE)
-
-instance Ordered (I (Char_ sz)) where
-  greater_than = cmpop (IR.icmp AST.SGT)
-  greater_than_or_equals = cmpop (IR.icmp AST.SGE)
-  less_than = cmpop (IR.icmp AST.SLT)
-  less_than_or_equals = cmpop (IR.icmp AST.SLE)
-
-instance Number (INum Signed sz) where
-  add = arithop IR.add
-  subtract = arithop IR.sub
-  multiply = arithop IR.mul
-  divide = arithop IR.sdiv
-  remainder = arithop srem
-    where
-      -- BAL: llvm-hs missing IR.srem(?)
-      srem a b = IR.emitInstr (AST.typeOf a) $ LLVM.AST.Instruction.SRem a b []
-
-instance Number (INum Unsigned sz) where
-  add = arithop IR.add
-  subtract = arithop IR.sub
-  multiply = arithop IR.mul
-  divide = arithop IR.udiv
-  remainder = arithop IR.urem
-
-bitwise_and :: (INum a sz, INum a sz) -> INum a sz
-bitwise_and = arithop IR.and
-
-bitwise_or :: (INum a sz, INum a sz) -> INum a sz
-bitwise_or = arithop IR.or
-
-bitwise_xor :: (INum a sz, INum a sz) -> INum a sz
-bitwise_xor = arithop IR.xor
-
-arithmetic_shift_right :: (INum a sz, INum a sz) -> INum a sz
-arithmetic_shift_right = arithop IR.ashr
-
-logical_shift_right :: (INum a sz, INum a sz) -> INum a sz
-logical_shift_right = arithop IR.lshr
-
-shift_left :: (INum a sz, INum a sz) -> INum a sz
-shift_left = arithop IR.shl
-
-bitop :: (Ty a, Ty b) => (AST.Operand -> AST.Type -> M AST.Operand) -> I a -> I b
-bitop g x = f Proxy
-  where
-    f :: Ty b => Proxy b -> I b
-    f p = I $ do
-      a <- unI x
-      g a (tyLLVM p)
-
-data String_
-
-instance Ty String_ where
-  tyFort _ = TyString
-
--- BAL: IR.globalStringPtr seems to be broken(?)
-string :: String -> I String_
-string s = I $ do
-  n <- IR.freshName "str_"
-  a <- IR.global n
-    (AST.ArrayType (genericLength s + 1) AST.i8)
-    (AST.Array AST.i8 [AST.Int 8 (fromIntegral $ fromEnum c) | c <- s ++ "\0"])
-  IR.bitcast a (tyLLVM (Proxy :: Proxy String_))
-
 bitcast :: (Ty a, Ty b) => I a -> I b
 bitcast = bitop IR.bitcast
 
-truncate :: (Ty (IntNum a aSz), Ty (IntNum b bSz)) => INum a aSz -> INum b bSz
+truncate :: (Ty a, Ty b) => I a -> I b
 truncate = bitop IR.trunc
 
-sign_extend :: (Ty (IntNum a aSz), Ty (IntNum a bSz)) => INum a aSz -> INum a bSz
+sign_extend :: (Ty a, Ty b) => I a -> I b
 sign_extend = bitop IR.sext
 
-zero_extend :: (Ty (IntNum a aSz), Ty (IntNum a bSz)) => INum a aSz -> INum a bSz
+zero_extend :: (Ty a, Ty b) => I a -> I b
 zero_extend = bitop IR.zext
+
+-- BAL: this should be computing the size for variants, but it's not right because of TyAddress
+-- BAL: write sizeOf :: AST.Type -> Integer in Build.hs and use that
+sizeFort :: Type -> Integer
+sizeFort x = case x of
+  TyChar        -> 8
+  TySigned sz   -> sz
+  TyUnsigned sz -> sz
+  TyString      -> sizeFort tyStringToTyAddress
+  TyAddress _   -> 64 -- BAL: architecture dependent
+  TyArray sz a  -> sz * sizeFort a
+  TyTuple bs    -> sum $ map sizeFort bs
+  TyRecord bs   -> sizeFort $ tyRecordToTyTuple bs
+  TyVariant bs  -> sizeFort $ tyVariantToTyTuple bs
+  TyEnum bs     -> sizeFort $ tyEnumToTyUnsigned bs
 
 -- not supported (yet?)
 -- alloca :: Type -> Maybe I a -> Word32 -> I a

@@ -196,7 +196,7 @@ ppDecls fn xs = vcat $
   , ""
   , "main :: IO ()"
   , "main" <+> "=" <+> "Prim.codegen" <+> pretty (show fn) <>
-    ppListV [ "Prim.unTFunc" <+> ppFuncVar v | Just v <- map mFuncVar xs ]
+    ppListV [ "Prim.tfuncBody" <+> ppFuncVar v | Just v <- map mFuncVar xs ]
   , ""
   ] ++
   map ppHasClass (allFieldDecls xs) ++

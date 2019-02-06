@@ -29,6 +29,7 @@ library:
     - Eval
     - Parser
     - LLVM
+    - Build
   dependencies:
     - mtl
     - lexer-applicative
@@ -44,6 +45,9 @@ library:
     - text
     - prettyprinter
     - prettyprinter-ansi-terminal
+    - unordered-containers
+    - hashable
+    - filepath
 
 executables:
   fort-exe:

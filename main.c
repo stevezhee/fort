@@ -27,35 +27,12 @@ extern void add3AtLoc(int*);
 
 void h_put_uint(unsigned int x, FILE *h)
 {
-  if (x == 0)
-    {
-      fputc('0',h);
-      return;
-    }
-
-  char buf[11];
-  buf[10] = '\0';
-  int idx = 10;
-
-  while (x > 0) // faster way to do this? (eliminate divisions)
-    {
-      idx--;
-      buf[idx] = '0' + x % 10;
-      x /= 10;
-    }
-  fputs(&buf[idx], h);
+  fprintf(h, "%u", x);
 }
 
 void h_put_sint(int x, FILE *h)
 {
-  if (x < 0)
-    {
-      fputc('-', h);
-      h_put_uint((unsigned int)(-x), h);
-    } else
-    {
-      h_put_uint((unsigned int)(x), h);
-    }
+  fprintf(h, "%d", x);
 }
 
 FILE* g_stdin;

@@ -244,8 +244,8 @@ parseAndCodeGen fn = do
       case (asts, unconsumed rpt) of
         ([ast], []) -> do
           putStrLn "; it parsed!"
-          let oFile = "generated/" ++ fn ++ ".hs"
-          writeFile oFile $ show $ ppDecls fn ast
+          let oFile = fn ++ ".hs"
+          writeFile oFile $ show (ppDecls fn ast) ++ "\n"
           -- return (Just ast)
           -- print $ pp $ mkModule fn ast
         (_, []) -> do

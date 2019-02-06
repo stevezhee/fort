@@ -4,13 +4,21 @@ Handle = /address (/unsigned 32)
 RealWorld = /unsigned 1
 String = /string
 
+;; primitives
 stdin: Handle
 stdout: Handle
 stderr: Handle
 
+h-get-char: Handle -> Char
+h-put: (a, Handle) -> ()
+
+;; constants
+
 a = #"a"
 b: Char = #"b"
 s: String = "hello, world"
+
+;; functions
 
 fst: (Char, Char) -> Char = \(x,_) => x
 foo: Char -> Char = \_ => fst (#"z",#"z")
@@ -19,10 +27,7 @@ qux: Char -> Char = \_ => fst (c,d)
   /where
     c = #"c"
     d: Char = #"d"
-
-h-get-char: Handle -> Char
 get-char: RealWorld -> Char = \_ => h-get-char stdin
-h-put: (a, Handle) -> ()
 
 put-char: Char -> () = h-put (,stdout)
 

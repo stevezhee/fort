@@ -18,7 +18,7 @@ divide: (Int, Int) -> Int
 ;; & = bitwise-and
 ;; bitwise-and: (Int, Int) -> Int
 
-truncate: Int -> Bool
+truncate: a -> b
 
 ;; code
 is-odd: Int -> Bool = truncate

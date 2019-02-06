@@ -22,7 +22,7 @@ load: /address a -> a
 index: (/address (/array sz a), Int) -> /address a
 # = index
 
-truncate: Int -> Bool
+truncate: a -> b
 
 ;; code
 is-odd: Int -> Bool = truncate
