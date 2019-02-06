@@ -157,6 +157,15 @@ ppOp = pretty . canonicalizeOp . unLoc
 ppVar :: Var -> Doc x
 ppVar = pretty . canonicalizeName . unLoc
 
+canonicalizeOp :: String -> String
+canonicalizeOp = concatMap f
+  where
+    f c = case c of
+      ':' -> "^:"
+      '^' -> "^^"
+      '|' -> "||"
+      _   -> [c]
+
 canonicalizeName :: String -> String
 canonicalizeName = map f
   where
@@ -440,24 +449,17 @@ ppType x = case x of
   TyTuple []  -> "()"
   TyTuple bs  -> ppTuple $ map ppType bs
   TyNone      -> "()" -- BAL: need to remove TyNone
-  TyLam{}     -> error $ "ppType:" ++ show x
-  TyRecord{}  -> error $ "ppType:" ++ show x
   TyVar a     -> ppVar a
-  TyVariant{} -> error $ "ppType:" ++ show x
+  _           -> error $ "ppType:" ++ show x
 
 ppExpr :: Expr -> Doc x
 ppExpr x = case x of
-  Prim a -> ppPrim a
-  App a b -> parens (ppExpr a <+> ppExpr b)
+  Prim a   -> ppPrim a
+  App a b  -> parens (ppExpr a <+> ppExpr b)
   Tuple bs -> ppTuple $ map (maybe mempty ppExpr) bs
-  Lam a b -> "\\" <> ppPat a <+> "->" <+> "mdo" <> line <> indent 2 (ppTerm [] b) -- ppTerm [] x -- BAL: this isn't correct.  Need the labels at least...
+  Lam a b  -> "\\" <> ppPat a <+> "->" <+> "mdo" <> line <> indent 2 (ppTerm [] b) -- ppTerm [] x -- BAL: this isn't correct.  Need the labels at least...
   Ascription a b -> parens (ppAscription (ppExpr a) b)
-  Where{} -> error $ "ppExpr:" ++ show x -- BAL: ppTerm?
-  If{} -> error $ "ppExpr:" ++ show x -- BAL: ppTerm?
-  Sequence{} -> error $ "ppExpr:" -- BAL: ppTerm?
-  Record{} -> error $ "ppExpr:" ++ show x
-  Case{} -> error $ "ppExpr:" ++ show x
-  Let{} -> error $ "ppExpr:" ++ show x
+  _ -> error $ "ppExpr:" ++ show x
 
 ppProxy :: Type -> Doc x
 ppProxy t = parens ("Proxy :: Proxy" <+> parens (ppType t))
