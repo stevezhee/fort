@@ -32,9 +32,11 @@ srem :: Operand -> Operand -> M Operand
 srem a b = IR.emitInstr (typeOf a) $ SRem a b []
 
 codegen :: FilePath -> M () -> IO ()
-codegen file = codegenF (T.writeFile oFile) file
+codegen file m = do
+  codegenF (T.writeFile oFile) file m
+  putStrLn $ "generated LLVM " ++ oFile ++ "!"
   where
-    oFile = replaceExtension file ".ll"
+    oFile = file ++ ".ll"
 
 dbgCodegen :: M () -> IO ()
 dbgCodegen = codegenF T.putStrLn "debug.fort"
@@ -68,8 +70,7 @@ label lbl xs f = do
 
 func :: Name -> [(Type, IR.ParameterName)] -> Type -> ([M Operand] -> M ()) -> M Operand
 func n params t f = lift $ IR.function n params t $ \vs -> do
-  _ <- block "start"
-  jump n []
+  _ <- block "Start"
   f $ map pure vs
   resolveJumps
 

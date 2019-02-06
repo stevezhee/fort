@@ -37,7 +37,7 @@ pBind :: P r a -> P r a
 pBind p = p <* reserved "="
 
 reservedWords :: [String]
-reservedWords = ["\\", "=", "=>", "->", ":", "/where", "/let", "/if", "/case", "/of", "/do", "/record", "/variant", "/signed", "/unsigned", "/address", "/char", "/string", "/array", ",", ";", "{", "}", "[", "]", "(", ")"]
+reservedWords = ["\\", "=", "=>", "->", ":", "/where", "/let", "/if", "/case", "/of", "/do", "/record", "/variant", "/signed", "/unsigned", "/address", "/char", "/bool", "/string", "/array", ",", ";", "{", "}", "[", "]", "(", ")"]
 
 parens :: P r a -> P r a
 parens = between "(" ")"
@@ -78,6 +78,7 @@ grammar = mdo
     (pure TyChar <* reserved "/char") <|>
     (pure TyString <* reserved "/string") <|>
     (pure TySigned <* reserved "/signed") <|>
+    (pure TyBool <* reserved "/bool") <|>
     (pure TyAddress <* reserved "/address") <|>
     (pure TyArray <* reserved "/array") <|>
     (TyCon <$> pCon <?> "type constructor") <|>
@@ -243,9 +244,11 @@ parseAndCodeGen fn = do
       let (asts, rpt) = fullParses (parser grammar) toks
       case (asts, unconsumed rpt) of
         ([ast], []) -> do
-          putStrLn "; it parsed!"
+          putStrLn "it parsed!"
           let oFile = fn ++ ".hs"
           writeFile oFile $ show (ppDecls fn ast) ++ "\n"
+          putStrLn "it generated Haskell code!"
+          putStrLn $ "output written to " ++ oFile
           -- return (Just ast)
           -- print $ pp $ mkModule fn ast
         (_, []) -> do

@@ -24,25 +24,37 @@ import qualified LLVM.IRBuilder        as IR
 import qualified Data.ByteString.Short as S
 import Control.Monad
 
+codegen :: FilePath -> M () -> IO ()
+codegen = B.codegen
+
 tt :: IO ()
 tt = B.dbgCodegen $ mdo
   let foo = call foo_func
   foo_func :: Func (I UInt32) UInt32 <- func "foo" ["x"] $ \x -> mdo
-    start_lbl <- label "foo" [] $ \() ->
-      if_ (equals (x, int 0))
-        (jump bar (x, int 42))
-        (ret $ add (int 1, x))
+    r <- if_ (equals (x, int 0))
+      (jump bar (x, int 42))
+      (ret $ add (int 1, x))
     bar <- label "bar" ["a", "b"] $ \(a,b) ->
       if_ (equals (a, int 0))
         (ret $ add (a, b))
         (jump bar (add (int 3, a), add (int 4, b)))
-    jump start_lbl ()
+    endT r
   let qux = call qux_func
   nowarn qux
   qux_func <- func "qux" [] $ \() -> mdo
     ret $ foo (foo (int 12))
-  pure ()
+  end
 
+-- This just unifies the type of the function body with the function. Also
+-- ensures that the last line of an mdo isn't a bind.
+endT :: T a -> M (T a)
+endT _ = pure T
+
+-- Ensures that the last line of an mdo isn't a bind.
+end :: Monad m => m ()
+end = pure ()
+
+-- Eliminates unused binding warning.
 nowarn :: a -> M ()
 nowarn _ = pure ()
 
@@ -56,13 +68,13 @@ mkT m = m >> pure T
 ret :: I a -> M (T a)
 ret = mkT . B.ret . unI
 
-jump :: (Args a, Ty b) => Label a b -> a -> M (T b)
+jump :: (Args a, Ty b) => Label a (I b) -> a -> M (T b)
 jump (Label n) a = mkT $ B.jump n (argOperands a)
 
 call :: (Args a, Ty b) => Func a b -> a -> I b
 call (Func n) a = I $ B.call n (argOperands a)
 
-label :: (Args a, Ty b) => Name -> [S.ShortByteString] -> (a -> M (T b)) -> M (Label a b)
+label :: (Args a, Ty b) => Name -> [S.ShortByteString] -> (a -> M (T b)) -> M (Label a (I b))
 label n xs (f :: a -> M (T b)) =
   Label <$> B.label n (zip (tysLLVM (Proxy :: Proxy a)) xs) (void . f . paramOperands)
 
@@ -324,6 +336,8 @@ bitop f x = withProxy $ \proxy ->
   case tyFort proxy of
     TySigned{}   -> ok
     TyUnsigned{} -> ok
+    TyEnum{}     -> ok
+    TyChar{}     -> ok
     t -> error $ "unable to perform bit operations on values of type:" ++ show t
 
 unop :: (Ty a, Ty b) => (Operand -> M Operand) -> I a -> I b

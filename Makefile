@@ -1,3 +1,6 @@
+.SUFFIXES:
+.PRECIOUS: %.fort.hs %.fort.ll %.fort.s %.fort.o
+
 TEST_DIR=test
 HS_FILES=$(shell find src -name \*.hs) $(shell find app -name \*.hs)
 FORT_FILES=$(wildcard $(TEST_DIR)/*.fort)
@@ -21,14 +24,16 @@ all: # coverage run
 %.fort.hs: %.fort $(HS_FILES)
 	stack runghc -- -isrc app/Main.hs $<
 
-# $(GEN_PATH)/%.fort.ll: $(GEN_PATH)/%.fort.hs $(HS_FILES) | $(GEN_PATH)
-# 	stack runghc -- -isrc $<
+%.fort.ll: %.fort.hs
+	stack runghc -- -isrc $<
 
-# $(GEN_PATH)/%.fort.s: $(GEN_PATH)/%.fort.ll | $(GEN_PATH)
-# 	llc $^
+%.fort.s: %.fort.ll
+	llc $<
+	@echo generated asm $@!
 
-# $(GEN_PATH)/%.fort.o: $(GEN_PATH)/%.fort.s | $(GEN_PATH)
-# 	clang -o $@ -c $^
+%.fort.o: %.fort.s
+	clang -o $@ -c $^
+	@echo generated object file $@!
 
 # $(OUT_FILE): main.c $(GEN_O_FILES)
 # 	clang -lc $^
@@ -43,4 +48,6 @@ clean:
 	rm -f a.out
 	rm test/*.ll
 	rm test/*.s
+	rm test/*.o
+	rm test/*.fort.hs
 # 	rm -f $(GEN_PATH)/*.*

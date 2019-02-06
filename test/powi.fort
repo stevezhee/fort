@@ -1,6 +1,6 @@
 ;; types
 Int  = /signed 32
-Bool = /unsigned 1
+Bool = /bool
 
 ;; primitives
 == = equals
