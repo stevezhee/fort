@@ -186,16 +186,17 @@ ppDecls fn xs = vcat $
   [ "{-# LANGUAGE OverloadedStrings #-}"
   , "{-# LANGUAGE RecursiveDo #-}"
   , "{-# LANGUAGE ScopedTypeVariables #-}"
-  , "{-# LANGUAGE RankNTypes #-}" -- BAL: needed?
   , ""
   , "{-# OPTIONS_GHC -fno-warn-missing-signatures #-}"
   , ""
-  , "import Prelude (($), IO)"
+  , "import Prelude (undefined)"
+  , "import qualified Data.Proxy as P"
+  , "import qualified Prelude"
   , "import qualified LLVM as Prim"
   , ""
-  , "main :: IO ()"
-  , "main" <+> "=" <+> "Prim.codegen" <+> pretty (show fn) <+> "$ mdo" <> line <>
-      (indent 2 $ vcat (map (ppDecl nameTbl) ds ++ ["Prim.end"]))
+  , "main :: Prelude.IO ()"
+  , "main" <+> "=" <+> "Prim.codegen" <+> pretty (show fn) <+> parens ("mdo" <> line <>
+      (indent 2 $ vcat (map (ppDecl nameTbl) ds ++ ["Prim.end"])))
   , ""
   ] ++
   map ppTopDecl tds ++
@@ -215,7 +216,7 @@ nameAndType x = case x of
 
 ppSize :: Int -> Doc x
 ppSize i
-  | i `elem` [32] = "type" <+> sizeCon <+> "= Prim." <> sizeCon
+  | i `elem` [32,64] = "type" <+> sizeCon <+> "= Prim." <> sizeCon
   | otherwise = vcat
     [ "data" <+> sizeCon
     , ppInstance "Prim.Size" [sizeCon] ["size _ =" <+> pretty i]
@@ -266,7 +267,9 @@ ppTopDecl x = case x of
         [ "tyFort _ = Prim.TyRecord" <+> ppListV
             [ ppTuple [ stringifyName n, "Prim.tyFort" <+> ppProxy t ] | (n,t) <- bs ]
         ]
-    ]
+    ] ++
+    [ ppAscription (ppVar v) (TyFun (tyAddress $ TyCon a) (tyAddress t)) <+> "= Prim.field" <+> pretty i
+    | ((v,t), i) <- zip bs [0 :: Int ..]]
   TyDecl a (TyVariant bs)
     | isTyEnum bs -> vcat $
         [ "data" <+> ppCon a
@@ -317,7 +320,7 @@ ppUnsafeCon a (c, t) = vcat
 
 ppInject :: Pretty a => Con -> ((Con, Type), a) -> Doc x
 ppInject a ((c, TyNone), i) = vcat
-  [ pretty (conToVarName c) <+> "::" <+> ppType (toInstructionType (TyFun (TyTuple [tyAddress $ TyCon a]) (TyTuple [])))
+  [ pretty (conToVarName c) <+> "::" <+> ppType (toInstructionType (TyFun (tyAddress $ TyCon a) (TyTuple [])))
   , pretty (conToVarName c) <+> "= Prim.injectTag" <+> pretty i
   ]
 ppInject a ((c, t), i) = vcat
@@ -359,7 +362,7 @@ isSizeTyVar :: String -> Bool
 isSizeTyVar v = take 2 v == "sz" -- BAL: hacky way to determine that it's a Size TyVar
 
 tyAddress :: Type -> Type
-tyAddress = TyApp TyAddress
+tyAddress t = TyTuple [TyApp TyAddress t]
 
 tyVars :: Type -> [String]
 tyVars = sort . nub . go
@@ -400,11 +403,11 @@ ppExprDecl isTopLevel labels (ED (v,t) e) = case e of
     | isTopLevel -> vcat
         [ "let" <+> lhs <+> "=" <+> "Prim.call" <+> ppFuncVar v
         , ppFuncVar v <+> "<-" <+> "Prim.func" <+> stringifyName v <+>
-          stringifyPat a <+> "$" <+> parens (ppTerm labels e)
+          stringifyPat a <+> parens (ppTerm labels e)
         ]
     | otherwise ->
         ppLabelAscription (ppVar v) t <+> "<-" <+> "Prim.label" <+> stringifyName v <+>
-        stringifyPat a <+> "$" <+> parens (ppTerm (unLoc v : labels) e)
+        stringifyPat a <+> parens (ppTerm (unLoc v : labels) e)
   _ -> error $ "ppExprDecl:" ++ show e
   where
     lhs = ppAscription (ppVar v) t
@@ -425,6 +428,8 @@ ppLabelVar v = "label_" <> ppVar v
 
 ppType :: Type -> Doc x
 ppType x = case x of
+  TyApp TySigned (TySize a) | unLoc a > 64 -> error "maximum integer size is 64"
+  TyApp TyUnsigned (TySize a) | unLoc a > 64 -> error "maximum unsigned integer size is 64"
   TyApp a b   -> ppType a <+> ppType b
   TySigned    -> "Prim.Signed"
   TyUnsigned  -> "Prim.Unsigned"
@@ -447,12 +452,12 @@ ppExpr x = case x of
   Prim a   -> ppPrim a
   App a b  -> parens (ppExpr a <+> ppExpr b)
   Tuple bs -> ppTuple $ map (maybe mempty ppExpr) bs
-  Lam a b  -> "\\" <> ppPat a <+> "->" <+> "mdo" <> line <> indent 2 (ppTerm [] b) -- ppTerm [] x -- BAL: this isn't correct.  Need the labels at least...
+  -- Lam a b  -> "\\" <> ppPat a <+> "->" <+> ppTerm [] b -- ppTerm [] x -- BAL: this isn't correct.  Need the labels at least...
   Ascription a b -> parens (ppAscription (ppExpr a) b)
   _ -> error $ "ppExpr:" ++ show x
 
 ppProxy :: Type -> Doc x
-ppProxy t = parens ("Proxy :: Proxy" <+> parens (ppType t))
+ppProxy t = parens ("P.Proxy :: P.Proxy" <+> parens (ppType t))
 
 ppTerm :: [String] -> Expr -> Doc x
 ppTerm labels = go
@@ -473,22 +478,36 @@ ppTerm labels = go
         | isLabel a -> "Prim.jump" <+> ppVar a <+> ppExpr b
       App{} -> "Prim.ret" <+> parens (ppExpr x)
       Sequence bs -> ppSequence labels bs
-      Case a bs -> "Prim.case_" <+> ppExpr a <>
-        ppListV [ ppTuple [ppAltPat c, ppAltCon labels c e] | ((c,_t), e) <- bs ]
-      -- BAL: ^ put this type somewhere...
+      Case a bs -> "Prim.case_" <+> ppExpr a <+> parens (ppTerm labels dflt) <>
+        ppListV [ ppTuple [ppAltPat c, ppAltCon labels c e] | ((c,_t), e) <- alts ]
+        -- BAL: ^ put this type somewhere...
+        where
+          (dflt, alts) = getDefault bs
       Tuple [Nothing] -> "Prim.ret Prim.unit"
       _ -> error $ "ppTerm:" ++ show x
       where
         isLabel a = unLoc a `elem` labels
 
+getDefault :: [Alt] -> (Expr, [Alt])
+getDefault xs = case xs of
+  [] -> (noDflt, [])
+  _ | null [ () | ((DefaultP,_),_) <- bs ] -> (dflt, bs)
+    | otherwise -> error "default pattern not in last position"
+  where
+    dflt = case last xs of
+      ((DefaultP, TyNone),e) -> e
+      _                      -> noDflt
+    noDflt = Prim $ Var $ L NoLoc "Prim.noDefault"
+    bs = init xs
+
 ppAltCon :: [String] -> AltPat -> Expr -> Doc x
 ppAltCon labels x e = case x of
-  ConP c -> pretty (unsafeUnConName c) <+> parens (ppTerm labels e)
+  ConP c   -> pretty (unsafeUnConName c) <+> parens (ppTerm labels e)
   DefaultP -> parens (ppTerm labels e)
   _ -> "Prelude.const" <+> parens (ppTerm labels e)
 
 ppSequence :: [String] -> [Expr] -> Doc x
-ppSequence labels xs = vcat (go xs)
+ppSequence labels xs = "do" <> line <> indent 2 (vcat (go xs))
   where
     go [] = []
     go [b] = [ppTerm labels b]
@@ -504,7 +523,7 @@ unsafeUnConName c = "unsafe_" ++ unLoc c
 -- BAL: char, int, and string require default alt
 ppAltPat :: AltPat -> Doc x
 ppAltPat x = case x of
-  DefaultP  -> pretty (show ("default" :: String))
+  DefaultP  -> error "DefaultP"
   ConP c    -> pretty (show c)
   IntP i    -> pretty (show (show i))
   CharP c   -> pretty (show (show c))

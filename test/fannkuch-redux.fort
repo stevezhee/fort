@@ -1,7 +1,7 @@
 ;; types
 Int = /unsigned 32
 Perm = /address (/array 5 Int) ;; BAL: make this configurable
-Bool = /unsigned 1 ;; BAL: should be variant type
+Bool = /bool
 
 ;; primitives
 add: (Int, Int) -> Int
@@ -31,7 +31,7 @@ fannkuch: Perm -> Int = \p => go 0
   /where
     go: Int -> Int = \num-flips => /case load (p # 0) /of
       1 = num-flips
-      _ = \i => /do
+      \i => /do
         reverse-n (i, p)
         go (num-flips + 1)
 

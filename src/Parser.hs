@@ -38,7 +38,7 @@ pBind :: P r a -> P r a
 pBind p = p <* reserved "="
 
 reservedWords :: [String]
-reservedWords = ["\\", "=", "=>", "->", ":", "/where", "/let", "/if", "/case", "/of", "/do", "/record", "/variant", "/signed", "/unsigned", "/address", "/char", "/bool", "/string", "/array", ",", ";", "{", "}", "[", "]", "(", ")"]
+reservedWords = ["\\", "=", "=>", "->", ":", "/where", "/let", "/if", "/case", "/of", "/do", "/record", "/enum", "/signed", "/unsigned", "/address", "/char", "/bool", "/string", "/array", ",", ";", "{", "}", "[", "]", "(", ")"]
 
 parens :: P r a -> P r a
 parens = between "(" ")"
@@ -85,7 +85,7 @@ grammar = mdo
     (TyCon <$> pCon <?> "type constructor") <|>
     (TyVar <$> pVar <?> "type variable") <|>
     (TyRecord <$> (reserved "/record" *> blockList (pTypedVar (,))) <?> "record type") <|>
-    (TyVariant <$> (reserved "/variant" *> blockList pConOptionalAscription) <?> "variant type") <|>
+    (TyVariant <$> (reserved "/enum" *> blockList pConOptionalAscription) <?> "variant type") <|>
     (TySize <$> pSize <?> "sized type") <|>
     pTuple TyTuple pType <?> "tuple type"
   pAscription <- rule $ reserved ":" *> pType <?> "type ascription"
@@ -294,7 +294,7 @@ indentation toks@(t0:_) = go t0 [] toks
       | col < indentTop && not (col `elem` (1 : cols)) = error $ "unaligned indentation:" ++ show (locOf x)
       | col == indentTop && unLoc x == "/where" || col < indentTop = close
       | col == indentTop = sep
-      | unLoc x `elem` ["/of", "/where", "/if", "/do", "/record","/variant"] = open
+      | unLoc x `elem` ["/of", "/where", "/if", "/do", "/record","/enum"] = open
       | otherwise = adv
       where
         col = column (locOf x)

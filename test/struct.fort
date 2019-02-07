@@ -1,5 +1,5 @@
 ;; types
-Char = /char 8
+Char = /char
 Int = /signed 32
 Int64 = /signed 64
 
@@ -9,8 +9,8 @@ MyStruct = /record
   z: Int64
   
 MyStruct2 = /record
-  y: Int
-  x: Int64
+  a: Int
+  b: Int64
 
 ;; primitives
 
@@ -27,6 +27,6 @@ foo-struct: (/address MyStruct, /address MyStruct2) -> () = \(mystr, mystr2) => 
   z mystr := 42424242
   output mystr
   output mystr2
-  y mystr2 := 24
-  x mystr2 := 24242424
+  a mystr2 := 24
+  b mystr2 := 24242424
   output mystr2

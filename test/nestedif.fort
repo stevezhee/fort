@@ -1,6 +1,6 @@
 ;; types
-Char = /char 8
-Bool = /unsigned 1
+Char = /char
+Bool = /bool
 
 ;; primitives
 == = equals

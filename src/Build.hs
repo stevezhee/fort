@@ -16,6 +16,8 @@ import Data.String
 import LLVM.AST
 import LLVM.AST.Constant hiding (SRem)
 import LLVM.AST.Type
+import LLVM.AST.Global
+import LLVM.AST.Linkage
 import LLVM.AST.Typed
 import LLVM.Pretty
 import Prelude hiding (Ordering(..))
@@ -80,6 +82,9 @@ idx x y = IR.gep x [int 32 0, y]
 int :: Integer -> Integer -> Operand
 int bits = ConstantOperand . constInt bits
 
+unit :: M Operand
+unit = pure voidOperand
+
 char :: Integer -> Char -> Operand
 char bits c = int bits (toInteger $ fromEnum c)
 
@@ -135,7 +140,7 @@ mapTuple ::
   M ()
 mapTuple x ys = do
   p <- x
-  sequence_ [ f (idx p (int 32 i)) | (f, i) <- zip ys [0..] ]
+  sequence_ [ f (tupleIdx i p) | (f, i) <- zip ys [0..] ]
 
 mapRecord ::
   M Operand             -> -- ptr {,,,,}
@@ -143,11 +148,14 @@ mapRecord ::
   M ()
 mapRecord = mapTuple
 
+tupleIdx :: Integer -> Operand -> M Operand
+tupleIdx i p = idx p (int 32 i)
+
 tagIdx :: Operand -> M Operand
-tagIdx p = idx p (int 32 0)
+tagIdx = tupleIdx 0
 
 valIdx :: Operand -> M Operand
-valIdx p = idx p (int 32 1)
+valIdx = tupleIdx 1
 
 mkTag :: Integer -> Integer -> Constant
 mkTag bits = Int (fromInteger bits)
@@ -163,9 +171,6 @@ listArray :: [M Operand] -> M Operand -> M ()
 listArray xs y = do
   arrp <- y
   sequence_ [ store <$> (idx arrp (int 32 i)) <*> x | (i, x) <- zip [0..] xs ]
-
-field :: Integer -> M Operand -> M Operand
-field i x = x >>= \p -> idx p (int 32 i)
 
 inject :: Constant -> M Operand -> M Operand -> M ()
 inject tag x y = do
@@ -328,9 +333,16 @@ extern :: Name -> [Type] -> Type -> M Operand
 extern n xs y = do
   withStTable externs (\tbl -> modify' $ \st -> st{ externs = tbl }) n $ IR.extern n xs y
 
-global :: Type -> Name -> M Operand
-global ty n = withStTable globals (\tbl -> modify' $ \st -> st{ globals = tbl }) n $ do
-  IR.global n ty $ Undef ty
+-- externally defined globals
+global :: Name -> Type -> M Operand
+global n ty =
+  withStTable globals (\tbl -> modify' $ \st -> st{ globals = tbl }) n $ do
+    IR.emitDefn $ GlobalDefinition globalVariableDefaults
+      { name                  = n
+      , LLVM.AST.Global.type' = ty
+      , linkage               = External
+      }
+    pure $ ConstantOperand $ GlobalReference (ptr ty) n
 
 unreachable :: String -> a
 unreachable s = error $ "unreachable:" ++ s

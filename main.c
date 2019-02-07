@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 
 typedef struct {
   int x;
@@ -25,14 +26,14 @@ extern void char_io_test(int);
 extern void foo_2dim_array(int[2][3]);
 extern void add3AtLoc(int*);
 
-void h_put_uint(unsigned int x, FILE *h)
+void h_put_uint64(uint64_t x, FILE *h)
 {
-  fprintf(h, "%u", x);
+  fprintf(h, "%llu", x);
 }
 
-void h_put_sint(int x, FILE *h)
+void h_put_sint64(int64_t x, FILE *h)
 {
-  fprintf(h, "%d", x);
+  fprintf(h, "%lld", x);
 }
 
 FILE* g_stdin;
@@ -41,11 +42,6 @@ FILE* g_stderr;
 
 int main(int argc, char**argv)
 {
-  h_put_sint(42, stdout);
-  printf("\n");
-  h_put_sint(-42, stdout);
-  printf("\n");
-
   g_stdin = stdin;
   g_stdout = stdout;
   g_stderr = stderr;

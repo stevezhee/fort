@@ -34,7 +34,7 @@ tt :: IO ()
 tt = B.dbgCodegen $ mdo
   let foo = call foo_func
   foo_func :: I (I UInt32 -> I UInt32) <- func "foo" ["x"] $ \x -> mdo
-    bar <- label "bar" ["a", "b"] $ \(a,b) ->
+    bar :: Label (I UInt32, I UInt32) (I UInt32) <- label "bar" ["a", "b"] $ \(a,b) ->
       if_ (equals (a, int 0))
         (ret $ add (a, b))
         (jump bar (add (int 3, a), add (int 4, b)))
@@ -76,12 +76,12 @@ eval (I x ) = x >>= pure . I . pure
 jump :: (Args a, Ty b) => Label a (I b) -> a -> M (T b)
 jump (Label n) a = mkT $ B.jump n (argOperands a)
 
-call :: (Args a, Ty b) => I (a -> I b) -> a -> I b
-call (I x) a = I $ x >>= \n -> B.call n (argOperands a)
-
 label :: (Args a, Ty b) => Name -> [S.ShortByteString] -> (a -> M (T b)) -> M (Label a (I b))
 label n xs (f :: a -> M (T b)) =
   Label <$> B.label n (zip (tysLLVM (Proxy :: Proxy a)) xs) (void . f . paramOperands)
+
+call :: (Args a, Ty b) => I (a -> I b) -> a -> I b
+call (I x) a = I $ x >>= \n -> B.call n (argOperands a)
 
 func :: (Args a, Ty b) => Name -> [IR.ParameterName] -> (a -> M (T b)) -> M (I (a -> I b))
 func n xs (f :: a -> M (T b)) = do
@@ -94,7 +94,7 @@ func n xs (f :: a -> M (T b)) = do
 if_ :: Ty a => I Bool_ -> M (T a) -> M (T a) -> M (T a)
 if_ (I x) f g = mkT $ B.if_ x (void f) (void g)
 
-case_ :: Ty a => I a -> (I a -> M (T a)) -> [(String, I a -> M (T a))] -> M (T a)
+case_ :: (Ty a, Ty b) => I a -> (I a -> M (T b)) -> [(String, I a -> M (T b))] -> M (T b)
 case_ (I x :: I a) f0 ys0 = mkT $ case tyFort (Proxy :: Proxy a) of
   TyAddress (TyVariant bs) ->
     B.mapVariant x f [ (constTag (map fst bs) s, (fromString s, g)) | (s,g) <- ys ]
@@ -182,6 +182,9 @@ data Bool_
 data Size32
 instance Size Size32 where size _ = 32
 
+data Size64
+instance Size Size64 where size _ = 64
+
 type UInt32 = Unsigned Size32
 type Handle = Addr UInt32
 
@@ -200,7 +203,7 @@ global n = f Proxy
   where
     f :: Ty a => Proxy a -> I a
     f proxy = I $ do
-      v <- B.global (tyLLVM proxy) n
+      v <- B.global n (tyLLVM proxy)
       B.load v
 
 int :: Ty a => Integer -> I a
@@ -244,14 +247,25 @@ integerTag tgs tg = case lookup tg $ zip tgs [0..] of
 constTag :: [String] -> String -> Constant
 constTag tgs tg = B.mkTag (neededBitsList tgs) $ integerTag tgs tg
 
+unit :: I ()
+unit = I B.unit
+
+field :: (Ty a, Ty b) => Integer -> I (Addr a) -> I (Addr b)
+field i = unop (B.tupleIdx i)
+
 h_put :: Ty a => (I a, I Handle) -> I ()
-h_put (I x :: I a, h) = I (hPutTy h (tyFort (Proxy :: Proxy a)) x >> pure B.voidOperand)
+h_put (I x :: I a, h) = I (hPutTy h (tyFort (Proxy :: Proxy a)) x >> B.unit)
 
 char :: Char -> I Char_
 char = I . B.mkChar
 
 string :: String -> I String_
 string = I . B.mkString
+
+sextTo64 :: Integer -> M Operand -> M Operand
+sextTo64 sz x
+  | sz == 64 = x
+  | otherwise = x >>= \a -> IR.sext a AST.i64
 
 -- BAL: these ad-hoc polymorphic functions will generate mounds of code. At
 -- least generate monomorphic functions so that when code is called with the
@@ -261,12 +275,10 @@ hPutTy h = go
   where
     go :: Type -> M Operand -> M ()
     go ty x = case ty of
-      TyChar       -> void $ unI $ h_put_char (I x, h)
-      TyString     -> void $ unI $ h_put_string (I x, h)
-      TySigned{}   -> void $ unI $ h_put_sint (I x, h)
-      TyUnsigned{} -> void $ unI $ h_put_uint (I x, h)
-      -- BAL: the integer printers need to upcast to the closest bigger type and
-      -- call the appropriately sized printing function
+      TyChar        -> void $ unI $ h_put_char (I x, h)
+      TyString      -> void $ unI $ h_put_string (I x, h)
+      TySigned sz   -> void $ unI $ h_put_sint64 (I $ sextTo64 sz x, h)
+      TyUnsigned sz -> void $ unI $ h_put_uint64 (I $ sextTo64 sz x, h)
 
       TyEnum bs    -> B.mapEnum x (\_ -> pure ()) [ (constTag bs s, (fromString s, putS s)) | s <- bs ]
 
@@ -392,11 +404,11 @@ h_put_char = extern "fputc"
 h_put_string :: (I String_, I Handle) -> I ()
 h_put_string = extern "fputs"
 
-h_put_uint :: (I (Unsigned Size32), I Handle) -> I ()
-h_put_uint = extern "h_put_uint"
+h_put_uint64 :: (I (Unsigned Size64), I Handle) -> I ()
+h_put_uint64 = extern "h_put_uint64"
 
-h_put_sint :: (I (Signed Size32), I Handle) -> I ()
-h_put_sint = extern "h_put_sint"
+h_put_sint64 :: (I (Signed Size64), I Handle) -> I ()
+h_put_sint64 = extern "h_put_sint64"
 
 add :: Ty a => (I a, I a) -> I a
 add = arithop IR.add
