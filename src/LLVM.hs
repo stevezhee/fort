@@ -287,7 +287,7 @@ hPutTy h t0 x0 = go t0 x0 >> putS "\n"
       TyAddress t -> case t of
         TyArray sz t1 -> delim "[" "]" $ B.mapArray sz x (sep ", " $ go (TyAddress t1))
         TyTuple ts    -> delim "(" ")" $ B.mapTuple x [ sep ", " $ go (TyAddress ta) | ta <- ts ]
-        TyRecord bs   -> delim "{" "}" $ B.mapRecord x [ sep ", " $ go (TyAddress ta) | ta <- map snd bs ]
+        TyRecord bs   -> delim "{" "}" $ B.mapRecord x [ sep ", " $ putField fld (go (TyAddress ta)) | (fld, ta) <- bs ]
         TyVariant bs  -> delim "(" ")" $ B.mapVariant x (\_ -> pure ())
           [ let aTy = TyAddress ta in
               (constTag (map fst bs) s,
@@ -299,6 +299,7 @@ hPutTy h t0 x0 = go t0 x0 >> putS "\n"
       TyTuple{}   -> errF "tuple"
       TyRecord{}  -> errF "record"
       TyVariant{} -> errF "variant"
+    putField fld f = \p -> putS fld >> putS " = " >> f p
     putS = go TyString . B.mkString
     delim l r f = putS l >> f >> putS r
     errF msg = error $ "unable to directly print " ++ msg ++ "(need an address)"
