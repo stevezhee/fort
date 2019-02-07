@@ -1,7 +1,7 @@
 ;; types
 Int = /signed 32
-Bool = /unsigned 1
-Char = /char 8
+Bool = /bool
+Char = /char
 
 ;; primitives
 load: /address a -> a
@@ -11,12 +11,12 @@ load: /address a -> a
 int-case: Int -> Int = \x => /case x /of
   42 = 0
   24 = x
-  _ = \_ => 1 ;; BAL: should be \_ => 1
+  \_ => 1 ;; BAL: should be \_ => 1
 
 ;; character
 char-case: Char -> Char = \x => /case x /of
   #"a" = #"b"
-  _ = \c => c
+  \c => c
 
 ;; enum
 Color = /variant
@@ -27,7 +27,7 @@ Color = /variant
 enum-case: Color -> Color = \c => /case c /of
   Red = green
   Green = red
-  _ = \_ => blue ;; BAL: should be \_ => blue
+  \_ => blue ;; BAL: should be \_ => blue
 
 ;; variant
 Either = /variant

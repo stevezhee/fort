@@ -129,9 +129,11 @@ data Expr
   | Record [ExprDecl]
   | Tuple [Maybe Expr]
   | Ascription Expr Type
-  | Case Expr [((Alt,Type),Expr)]
+  | Case Expr [Alt]
   -- BAL: ? | Terminator Terminator -- BAL: break this apart from expr
   deriving Show
+
+type Alt = ((AltPat, Type), Expr)
 
 data Pat
   = VarP Var Type
@@ -146,7 +148,7 @@ data Prim
   | Op Op
   deriving Show
 
-data Alt
+data AltPat
   = DefaultP
   | ConP Con
   | IntP (L Int)
@@ -472,14 +474,14 @@ ppTerm labels = go
       App{} -> "Prim.ret" <+> parens (ppExpr x)
       Sequence bs -> ppSequence labels bs
       Case a bs -> "Prim.case_" <+> ppExpr a <>
-        ppListV [ ppTuple [ppAlt c, ppAltCon labels c e] | ((c,_t), e) <- bs ]
+        ppListV [ ppTuple [ppAltPat c, ppAltCon labels c e] | ((c,_t), e) <- bs ]
       -- BAL: ^ put this type somewhere...
       Tuple [Nothing] -> "Prim.ret Prim.unit"
       _ -> error $ "ppTerm:" ++ show x
       where
         isLabel a = unLoc a `elem` labels
 
-ppAltCon :: [String] -> Alt -> Expr -> Doc x
+ppAltCon :: [String] -> AltPat -> Expr -> Doc x
 ppAltCon labels x e = case x of
   ConP c -> pretty (unsafeUnConName c) <+> parens (ppTerm labels e)
   DefaultP -> parens (ppTerm labels e)
@@ -500,8 +502,8 @@ unsafeUnConName c = "unsafe_" ++ unLoc c
 
 -- BAL: error if default alt not in last position
 -- BAL: char, int, and string require default alt
-ppAlt :: Alt -> Doc x
-ppAlt x = case x of
+ppAltPat :: AltPat -> Doc x
+ppAltPat x = case x of
   DefaultP  -> pretty (show ("default" :: String))
   ConP c    -> pretty (show c)
   IntP i    -> pretty (show (show i))

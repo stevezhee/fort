@@ -19,7 +19,6 @@ import LLVM.AST.Type
 import LLVM.AST.Typed
 import LLVM.Pretty
 import Prelude hiding (Ordering(..))
-import System.FilePath
 import qualified Data.ByteString.Short as S
 import qualified Data.HashMap.Strict   as HMS
 import qualified Data.Text.Lazy     as T

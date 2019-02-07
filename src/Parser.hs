@@ -1,5 +1,6 @@
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RecursiveDo #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 
 module Parser
   ( parseAndCodeGen
@@ -91,10 +92,13 @@ grammar = mdo
   pOptionalAscription <- rule $ pAscription <|> pure TyNone
   pVarOptionalAscription <- rule ((,) <$> pVar <*> pOptionalAscription)
   pConOptionalAscription <- rule ((,) <$> pCon <*> pOptionalAscription)
-  pAltOptionalAscription <- rule ((,) <$> pAlt <*> pOptionalAscription)
+  pAltPatOptionalAscription <- rule ((,) <$> pAltPat <*> pOptionalAscription)
   pExprDecl <- rule $ ED <$> pBind pVarOptionalAscription <*> pExpr
-  pCaseDecl <- rule $ (,) <$> pBind pAltOptionalAscription <*> pExpr
-
+  pDefaultPat <- rule $
+    ((DefaultP,TyNone),) <$> (Lam <$> pLam pPat <*> pLamE <?> "default pattern")
+  pAlt <- rule $
+    ((,) <$> pBind pAltPatOptionalAscription <*> pExpr) <|>
+    pDefaultPat
   let pIfAlt = (,) <$> pExpr <*> (reserved "=>" *> pExpr)
   pExpr <- rule $
     (mkWhere <$> pLamE <*> (reserved "/where" *> blockList pExprDecl) <?> "where clause") <|>
@@ -108,7 +112,7 @@ grammar = mdo
     pKeywordE
   pKeywordE <- rule $
     (Sequence <$> (reserved "/do" *> blockList pExpr) <?> "do block") <|>
-    (Case <$> (reserved "/case" *> pExpr <* reserved "/of") <*> blockList pCaseDecl <?> "case expression") <|>
+    (Case <$> (reserved "/case" *> pExpr <* reserved "/of") <*> blockList pAlt <?> "case expression") <|>
     (mkIf <$> (reserved "/if" *> blockList pIfAlt) <?> "if expression") <|>
     pAscriptionE
   pAscriptionE <- rule $
@@ -193,9 +197,8 @@ pIntLit = (\s -> useLoc (readError msg $ unLoc s) s) <$> satisfy isInt <?> msg
   where
     msg = "integer literal"
 
-pAlt :: P r Alt
-pAlt =
-  const DefaultP <$> satisfy (== "_") <|>
+pAltPat :: P r AltPat
+pAltPat =
   ConP <$> pCon <|>
   IntP <$> pIntLit <|>
   CharP <$> pCharLit <|>
