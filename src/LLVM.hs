@@ -70,8 +70,8 @@ mkT m = m >> pure T
 ret :: I a -> M (T a)
 ret = mkT . B.ret . unI
 
-eval :: I a -> M (I a)
-eval (I x ) = x >>= pure . I . pure
+eval :: I a -> M ()
+eval (I x) = void x
 
 jump :: (Args a, Ty b) => Label a (I b) -> a -> M (T b)
 jump (Label n) a = mkT $ B.jump n (argOperands a)
@@ -206,6 +206,14 @@ global n = f Proxy
       v <- B.global n (tyLLVM proxy)
       B.load v
 
+enum :: Ty a => Integer -> I a
+enum i = f Proxy
+  where
+    f :: Ty a => Proxy a -> I a
+    f proxy = case tyFort proxy of
+      TyEnum bs -> I $ pure $ B.int (neededBitsList bs) i
+      t -> error $ "expected enum type, but got " ++ show t
+
 int :: Ty a => Integer -> I a
 int i = f Proxy
   where
@@ -282,7 +290,8 @@ hPutTy h t0 x0 = go t0 x0 >> putS "\n"
       TySigned sz   -> void $ unI $ h_put_sint64 (I $ sextTo64 sz x, h)
       TyUnsigned sz -> void $ unI $ h_put_uint64 (I $ sextTo64 sz x, h)
 
-      TyEnum bs    -> B.mapEnum x (\_ -> pure ()) [ (constTag bs s, (fromString s, putS s)) | s <- bs ]
+      TyEnum bs    -> B.mapEnum x (\_ -> pure ())
+        [ (constTag bs s, (fromString s, putS s)) | s <- bs ]
 
       TyAddress t -> case t of
         TyArray sz t1 -> delim "[" "]" $ B.mapArray sz x (sep ", " $ go (TyAddress t1))

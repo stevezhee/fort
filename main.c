@@ -25,6 +25,7 @@ extern void foo_struct(MyStruct*, MyStruct2*);
 extern void char_io_test();
 extern void foo_2dim_array(int[2][3]);
 extern void add3AtLoc(int*);
+extern void enum_foo(int);
 
 void h_put_uint64(uint64_t x, FILE *h)
 {
@@ -104,6 +105,9 @@ int main(int argc, char**argv)
 
   int perm[] = {4,2,1,5,3};
   printf("flips: %d\n", fannkuch(perm));
+
+  enum_foo(0);
+
   for(i=0; i < 5; ++i)
     {
       printf("%d,",perm[i]);
