@@ -56,6 +56,7 @@ toInstructionType :: Type -> Type
 toInstructionType = go
   where
     go x = case x of
+      TyFun a@(TyTuple []) b -> TyFun a (go b)
       TyFun a b -> TyFun (go a) (go b)
       TyTuple [a] -> go a
       TyTuple bs@(_:_) -> TyTuple $ map go bs
