@@ -21,12 +21,10 @@ output: a -> ()
 
 ;; code
 foo-struct: (/address MyStruct, /address MyStruct2) -> () = \(mystr, mystr2) => /do
-  output mystr
   x mystr := 42
   y mystr := #"c"
   z mystr := 42424242
   output mystr
-  output mystr2
   a mystr2 := 24
   b mystr2 := 24242424
   output mystr2

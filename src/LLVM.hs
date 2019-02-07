@@ -271,12 +271,14 @@ sextTo64 sz x
 -- least generate monomorphic functions so that when code is called with the
 -- same type it will be shared.
 hPutTy :: I Handle -> Type -> M Operand -> M ()
-hPutTy h = go
+hPutTy h t0 x0 = go t0 x0 >> putS "\n"
   where
     go :: Type -> M Operand -> M ()
     go ty x = case ty of
       TyChar        -> void $ unI $ h_put_char (I x, h)
       TyString      -> void $ unI $ h_put_string (I x, h)
+      -- TyChar        -> void $ delim "'" "'" $ unI $ h_put_char (I x, h)
+      -- TyString      -> void $ delim "\"" "\"" $ unI $ h_put_string (I x, h)
       TySigned sz   -> void $ unI $ h_put_sint64 (I $ sextTo64 sz x, h)
       TyUnsigned sz -> void $ unI $ h_put_uint64 (I $ sextTo64 sz x, h)
 
@@ -297,11 +299,10 @@ hPutTy h = go
       TyTuple{}   -> errF "tuple"
       TyRecord{}  -> errF "record"
       TyVariant{} -> errF "variant"
-      where
-        errF msg = error $ "unable to directly print " ++ msg ++ "(need an address)"
-        delim l r f = putS l >> f >> putS r
-        sep s f = \p -> f p >> putS s
-        putS = go TyString . B.mkString
+    putS = go TyString . B.mkString
+    delim l r f = putS l >> f >> putS r
+    errF msg = error $ "unable to directly print " ++ msg ++ "(need an address)"
+    sep s f = \p -> f p >> putS s
 
 output :: Ty a => I a -> I ()
 output a = h_put (a, stdout)

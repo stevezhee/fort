@@ -1,6 +1,7 @@
 {-# LANGUAGE FlexibleContexts       #-}
 {-# LANGUAGE OverloadedStrings      #-}
 {-# LANGUAGE RecursiveDo            #-}
+{-# LANGUAGE ScopedTypeVariables    #-}
 {-# LANGUAGE TupleSections          #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
@@ -71,7 +72,7 @@ label lbl xs f = do
 
 func :: Name -> [(Type, IR.ParameterName)] -> Type -> ([M Operand] -> M ()) -> M Operand
 func n params t f = lift $ IR.function n params t $ \vs -> do
-  _ <- block "S.0"
+  _ <- block "JumpStart"
   IR.br "Start"
   f $ map pure vs
   resolveJumps
@@ -320,7 +321,9 @@ mkString :: String -> M Operand
 mkString s = do
   a <- withStTable strings (\tbl -> modify' $ \st -> st{ strings = tbl }) s $ do
     pre <- gets filepath
-    n <- IR.freshName (fromString pre <> ".str_")
+    let h :: S.ShortByteString = fromString $ show $ hash (pre <> fromString s)
+    -- hash seems like overkill here.  IR.freshName not working?
+    n <- IR.freshName ("str" <> h)
     IR.global n
       (ArrayType (genericLength s + 1) i8)
       (Array i8 [Int 8 (fromIntegral $ fromEnum c) | c <- s ++ "\0"])
