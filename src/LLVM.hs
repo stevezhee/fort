@@ -33,7 +33,7 @@ startBlock = void $ B.block "Start"
 tt :: IO ()
 tt = B.dbgCodegen $ mdo
   let foo = call foo_func
-  foo_func :: Func (I UInt32) (I UInt32) <- func "foo" ["x"] $ \x -> mdo
+  foo_func :: I (I UInt32 -> I UInt32) <- func "foo" ["x"] $ \x -> mdo
     bar <- label "bar" ["a", "b"] $ \(a,b) ->
       if_ (equals (a, int 0))
         (ret $ add (a, b))
@@ -61,7 +61,6 @@ end = pure ()
 nowarn :: a -> M ()
 nowarn _ = pure ()
 
-newtype Func a b = Func{ unFunc :: Operand }
 newtype Label a b = Label{ unLabel :: Name }
 data T a = T
 
@@ -77,18 +76,20 @@ eval (I x ) = x >>= pure . I . pure
 jump :: (Args a, Ty b) => Label a (I b) -> a -> M (T b)
 jump (Label n) a = mkT $ B.jump n (argOperands a)
 
-call :: (Args a, Ty b) => Func a (I b) -> a -> I b
-call (Func n) a = I $ B.call n (argOperands a)
+call :: (Args a, Ty b) => I (a -> I b) -> a -> I b
+call (I x) a = I $ x >>= \n -> B.call n (argOperands a)
 
 label :: (Args a, Ty b) => Name -> [S.ShortByteString] -> (a -> M (T b)) -> M (Label a (I b))
 label n xs (f :: a -> M (T b)) =
   Label <$> B.label n (zip (tysLLVM (Proxy :: Proxy a)) xs) (void . f . paramOperands)
 
-func :: (Args a, Ty b) => Name -> [IR.ParameterName] -> (a -> M (T b)) -> M (Func a (I b))
-func n xs (f :: a -> M (T b)) = Func <$> B.func n
-  (zip (tysLLVM (Proxy :: Proxy a)) xs)
-  (tyLLVM (Proxy :: Proxy b))
-  (void . f . paramOperands)
+func :: (Args a, Ty b) => Name -> [IR.ParameterName] -> (a -> M (T b)) -> M (I (a -> I b))
+func n xs (f :: a -> M (T b)) = do
+  nm <- B.func n
+    (zip (tysLLVM (Proxy :: Proxy a)) xs)
+    (tyLLVM (Proxy :: Proxy b))
+    (void . f . paramOperands)
+  pure $ I (pure nm)
 
 if_ :: Ty a => I Bool_ -> M (T a) -> M (T a) -> M (T a)
 if_ (I x) f g = mkT $ B.if_ x (void f) (void g)
@@ -217,7 +218,7 @@ extern n (x :: a) = f Proxy Proxy
     f :: (Args a, Ty b) => Proxy a -> Proxy b -> I b
     f (proxy0 :: Proxy a) (proxy :: Proxy b) = I $ do
       v <- B.extern n (tysLLVM proxy0) (tyLLVM proxy)
-      unI $ call (Func v :: Func a (I b)) x
+      unI $ call (I (pure v) :: I  (a -> I b)) x
 
 bitop :: (Ty a, Ty b) => (Operand -> AST.Type -> M Operand) -> I a -> I b
 bitop f x = g Proxy
