@@ -27,18 +27,21 @@ import Control.Monad
 codegen :: FilePath -> M () -> IO ()
 codegen = B.codegen
 
+startBlock :: M ()
+startBlock = void $ B.block "Start"
+
 tt :: IO ()
 tt = B.dbgCodegen $ mdo
   let foo = call foo_func
-  foo_func :: Func (I UInt32) UInt32 <- func "foo" ["x"] $ \x -> mdo
-    r <- if_ (equals (x, int 0))
-      (jump bar (x, int 42))
-      (ret $ add (int 1, x))
+  foo_func :: Func (I UInt32) (I UInt32) <- func "foo" ["x"] $ \x -> mdo
     bar <- label "bar" ["a", "b"] $ \(a,b) ->
       if_ (equals (a, int 0))
         (ret $ add (a, b))
         (jump bar (add (int 3, a), add (int 4, b)))
-    endT r
+    startBlock
+    if_ (equals (x, int 0))
+      (jump bar (x, int 42))
+      (ret $ add (int 1, x))
   let qux = call qux_func
   nowarn qux
   qux_func <- func "qux" [] $ \() -> mdo
@@ -47,8 +50,8 @@ tt = B.dbgCodegen $ mdo
 
 -- This just unifies the type of the function body with the function. Also
 -- ensures that the last line of an mdo isn't a bind.
-endT :: T a -> M (T a)
-endT _ = pure T
+-- endT :: T a -> M (T a)
+-- endT _ = pure T
 
 -- Ensures that the last line of an mdo isn't a bind.
 end :: Monad m => m ()
@@ -68,17 +71,20 @@ mkT m = m >> pure T
 ret :: I a -> M (T a)
 ret = mkT . B.ret . unI
 
+eval :: I a -> M (I a)
+eval (I x ) = x >>= pure . I . pure
+
 jump :: (Args a, Ty b) => Label a (I b) -> a -> M (T b)
 jump (Label n) a = mkT $ B.jump n (argOperands a)
 
-call :: (Args a, Ty b) => Func a b -> a -> I b
+call :: (Args a, Ty b) => Func a (I b) -> a -> I b
 call (Func n) a = I $ B.call n (argOperands a)
 
 label :: (Args a, Ty b) => Name -> [S.ShortByteString] -> (a -> M (T b)) -> M (Label a (I b))
 label n xs (f :: a -> M (T b)) =
   Label <$> B.label n (zip (tysLLVM (Proxy :: Proxy a)) xs) (void . f . paramOperands)
 
-func :: (Args a, Ty b) => Name -> [IR.ParameterName] -> (a -> M (T b)) -> M (Func a b)
+func :: (Args a, Ty b) => Name -> [IR.ParameterName] -> (a -> M (T b)) -> M (Func a (I b))
 func n xs (f :: a -> M (T b)) = Func <$> B.func n
   (zip (tysLLVM (Proxy :: Proxy a)) xs)
   (tyLLVM (Proxy :: Proxy b))
@@ -114,12 +120,6 @@ let_ :: I a -> (I a -> M b) -> M b
 let_ x f = do
   a <- unI x
   f (I $ pure a)
-
-int :: Ty a => Integer -> I a
-int i = withProxy $ \proxy -> case tyFort proxy of
-  TySigned sz -> I $ pure $ B.int sz i
-  TyUnsigned sz -> I $ pure $ B.int sz i
-  t -> error $ "expected int type, but got " ++ show t
 
 class Size a where size :: Proxy a -> Integer
 class Ty a where tyFort :: Proxy a -> Type
@@ -195,13 +195,42 @@ instance (Size sz, Ty a) => Ty (Array sz a) where
   tyFort _ = TyArray (size (Proxy :: Proxy sz)) (tyFort (Proxy :: Proxy a))
 
 global :: Ty a => Name -> I a
-global n = withProxy $ \proxy -> I (B.global (tyLLVM proxy) n)
+global n = f Proxy
+  where
+    f :: Ty a => Proxy a -> I a
+    f proxy = I $ do
+      v <- B.global (tyLLVM proxy) n
+      B.load v
 
-withProxy :: Ty a => (Proxy a -> I a) -> I a
-withProxy (f :: Proxy a -> I a) = f (Proxy :: Proxy a)
+int :: Ty a => Integer -> I a
+int i = f Proxy
+  where
+    f :: Ty a => Proxy a -> I a
+    f proxy = case tyFort proxy of
+      TySigned sz -> I $ pure $ B.int sz i
+      TyUnsigned sz -> I $ pure $ B.int sz i
+      t -> error $ "expected int type, but got " ++ show t
 
 extern :: (Args a, Ty b) => Name -> a -> I b
-extern n (_ :: a) = withProxy $ \proxy -> I (B.extern n (tysLLVM (Proxy :: Proxy a)) (tyLLVM proxy))
+extern n (x :: a) = f Proxy Proxy
+  where
+    f :: (Args a, Ty b) => Proxy a -> Proxy b -> I b
+    f (proxy0 :: Proxy a) (proxy :: Proxy b) = I $ do
+      v <- B.extern n (tysLLVM proxy0) (tyLLVM proxy)
+      unI $ call (Func v :: Func a (I b)) x
+
+bitop :: (Ty a, Ty b) => (Operand -> AST.Type -> M Operand) -> I a -> I b
+bitop f x = g Proxy
+  where
+    g :: Ty b => Proxy b -> I b
+    g proxy =
+      case tyFort proxy of
+        TySigned{}   -> ok
+        TyUnsigned{} -> ok
+        TyEnum{}     -> ok
+        TyChar{}     -> ok
+        t -> error $ "unable to perform bit operations on values of type:" ++ show t
+      where ok = unop (flip f (tyLLVM proxy)) x
 
 tysLLVM :: Args a => Proxy a -> [AST.Type]
 tysLLVM = map toTyLLVM . tysFort
@@ -216,6 +245,12 @@ constTag tgs tg = B.mkTag (neededBitsList tgs) $ integerTag tgs tg
 
 h_put :: Ty a => (I a, I Handle) -> I ()
 h_put (I x :: I a, h) = I (hPutTy h (tyFort (Proxy :: Proxy a)) x >> pure B.voidOperand)
+
+char :: Char -> I Char_
+char = I . B.mkChar
+
+string :: String -> I String_
+string = I . B.mkString
 
 -- BAL: these ad-hoc polymorphic functions will generate mounds of code. At
 -- least generate monomorphic functions so that when code is called with the
@@ -329,16 +364,6 @@ signedCmpop p q (x :: I a, y) =
     TyUnsigned{} -> binop (IR.icmp p) (x,y)
     TySigned{}   -> binop (IR.icmp q) (x,y)
     t -> error $ "unable to compare values of type:" ++ show t
-
-bitop :: (Ty a, Ty b) => (Operand -> AST.Type -> M Operand) -> I a -> I b
-bitop f x = withProxy $ \proxy ->
-  let ok = unop (flip f (tyLLVM proxy)) x in
-  case tyFort proxy of
-    TySigned{}   -> ok
-    TyUnsigned{} -> ok
-    TyEnum{}     -> ok
-    TyChar{}     -> ok
-    t -> error $ "unable to perform bit operations on values of type:" ++ show t
 
 unop :: (Ty a, Ty b) => (Operand -> M Operand) -> I a -> I b
 unop f x = I $ do

@@ -183,6 +183,7 @@ ppDecls fn xs = vcat $
   [ "{-# LANGUAGE OverloadedStrings #-}"
   , "{-# LANGUAGE RecursiveDo #-}"
   , "{-# LANGUAGE ScopedTypeVariables #-}"
+  , "{-# LANGUAGE RankNTypes #-}" -- BAL: needed?
   , ""
   , "{-# OPTIONS_GHC -fno-warn-missing-signatures #-}"
   , ""
@@ -298,8 +299,9 @@ ppDecl :: [(String, Type)] -> Decl -> Doc x
 ppDecl tbl x = case x of
   OpDecl a b -> case lookup (unLoc b) tbl of
     Nothing -> error $ "unknown operator binding" ++ show (a,b)
-    Just t ->
-      "let" <+> ppAscription (parens (ppOp a)) (typeToOperatorType t) <+> "= Prim.operator" <+> ppVar b
+    Just t -> "let" <> line <> indent 2 (vcat
+      [ ppAscription (parens (ppOp a)) (typeToOperatorType t)
+      , parens (ppOp a) <+> "= Prim.operator" <+> ppVar b ])
   ExprDecl a -> ppExprDecl True [] a
   _ -> mempty
 
@@ -455,9 +457,10 @@ ppTerm labels = go
     go :: Expr -> Doc x
     go x = case x of
       Where a bs -> vcat $
-        ["_r <-" <+> ppTerm lbls a] ++
         map (ppExprDecl False lbls) bs ++
-        ["Prim.endT _r"]
+        [ "Prim.startBlock"
+        , ppTerm lbls a
+        ]
         where
           lbls = map edLabel bs
       Lam a b -> "\\" <> ppPat a <+> "->" <+> "mdo" <> line <> indent 2 (go b)
@@ -482,7 +485,7 @@ ppAltCon labels x e = case x of
   _ -> "Prelude.const" <+> parens (ppTerm labels e)
 
 ppSequence :: [String] -> [Expr] -> Doc x
-ppSequence labels xs = parens ("Prim.sequence" <> ppListV (go xs))
+ppSequence labels xs = vcat (go xs)
   where
     go [] = []
     go [b] = [ppTerm labels b]

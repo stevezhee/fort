@@ -1,7 +1,6 @@
 ;; types
-Char = /char 8
+Char = /char
 Handle = /address (/unsigned 32)
-RealWorld = /unsigned 1
 String = /string
 
 ;; primitives
@@ -20,23 +19,23 @@ s: String = "hello, world"
 
 ;; functions
 
-fst: (Char, Char) -> Char = \(x,_) => x
 foo: Char -> Char = \_ => fst (#"z",#"z")
 bar: Char -> Char = \_ => fst (a,b : Char)
-qux: Char -> Char = \_ => fst (c,d)
-  /where
-    c = #"c"
-    d: Char = #"d"
-get-char: RealWorld -> Char = \_ => h-get-char stdin
-
+get-char: () -> Char = \() => h-get-char stdin
 put-char: Char -> () = h-put (,stdout)
 
 put-string: String -> () = h-put (,stdout)
 
-char-io-test: RealWorld -> () = \w => /do
+char-io-test: () -> () = \w => /do
   put-char (get-char w)
   put-char #"!"
 
-hello-world: RealWorld -> () = \_ => /do
+hello-world: () -> () = \_ => /do
   put-string (s)
   put-string ("hello, world")
+
+fst: (Char, Char) -> Char = \(x,_) => x
+qux: Char -> Char = \_ => fst (c,d)
+  /where
+    c = #"c"
+    d: Char = #"d"

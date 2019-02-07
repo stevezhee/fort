@@ -70,7 +70,8 @@ label lbl xs f = do
 
 func :: Name -> [(Type, IR.ParameterName)] -> Type -> ([M Operand] -> M ()) -> M Operand
 func n params t f = lift $ IR.function n params t $ \vs -> do
-  _ <- block "Start"
+  _ <- block "S.0"
+  IR.br "Start"
   f $ map pure vs
   resolveJumps
 
@@ -325,8 +326,8 @@ voidPtrTy :: Type
 voidPtrTy = ptr i8
 
 extern :: Name -> [Type] -> Type -> M Operand
-extern n xs y = withStTable externs (\tbl -> modify' $ \st -> st{ externs = tbl }) n $ do
-  IR.extern n xs y
+extern n xs y = do
+  withStTable externs (\tbl -> modify' $ \st -> st{ externs = tbl }) n $ IR.extern n xs y
 
 global :: Type -> Name -> M Operand
 global ty n = withStTable globals (\tbl -> modify' $ \st -> st{ globals = tbl }) n $ do
