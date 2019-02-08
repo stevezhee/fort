@@ -77,14 +77,11 @@ func n params t f = lift $ IR.function n params t $ \vs -> do
   f $ map pure vs
   resolveJumps
 
-idx :: (IR.MonadIRBuilder m, IR.MonadModuleBuilder m) => Operand -> Operand -> m Operand
+idx :: Operand -> Operand -> M Operand
 idx x y = IR.gep x [int 32 0, y]
 
 int :: Integer -> Integer -> Operand
 int bits = ConstantOperand . constInt bits
-
-unit :: M Operand
-unit = pure voidOperand
 
 char :: Integer -> Char -> Operand
 char bits c = int bits (toInteger $ fromEnum c)
@@ -108,15 +105,29 @@ blockLabel = do
     Name a   -> return a
     UnName{} -> error "currentBlock: inside unnamed block"
 
-if_ :: M Operand -> M () -> M () -> M ()
-if_ x y z = mdo
+jump :: Type -> Name -> [M Operand] -> M Operand
+jump t x ys = do
+  lbl <- IR.currentBlock
+  bs <- sequence ys
+  modify' $ \st -> st{ jumpArgs = HMS.insertWith (++) x [(bs,lbl)] (jumpArgs st) }
+  IR.br x
+  pure $ undefOperand t
+
+if_ :: M Operand -> M Operand -> M Operand -> M Operand
+if_ x t f = mdo
   v <- x
   lbl <- blockLabel
+
   IR.condBr v truelbl falselbl
+
   truelbl <- block (lbl <> "_true")
-  y
+  tval <- t
+
   falselbl <- block (lbl <> "_false")
-  z
+  fval <- f
+
+  donelbl <- block (lbl <> "_if_done")
+  phi [(tval, truelbl),(fval,falselbl)]
 
 load :: Operand -> M Operand
 load = flip IR.load 0
@@ -124,39 +135,121 @@ load = flip IR.load 0
 store :: Operand -> Operand -> M Operand
 store x y = IR.store x 0 y >> return voidOperand
 
-voidOperand :: Operand
-voidOperand = ConstantOperand $ Undef void
+unit :: M Operand
+unit = pure voidOperand
 
-mapAddress ::
-  M Operand           -> -- ptr prim
-  (M Operand -> M ()) -> -- prim -> M ()
-  M ()
-mapAddress x f = do
+voidOperand :: Operand
+voidOperand = undefOperand void
+
+undefOperand :: Type -> Operand
+undefOperand = ConstantOperand . Undef
+
+reduceAddress ::
+  M Operand                -> -- ptr prim
+  (M Operand -> M Operand) -> -- prim -> b
+  M Operand -- b
+reduceAddress x f = do
   p <- x >>= load
   f (pure p)
 
 mapTuple ::
-  M Operand             -> -- ptr (,,,)
-  [(M Operand -> M ())] -> -- [ptr a -> M (), ptr b -> M (), ...]
-  M ()
-mapTuple x ys = do
-  p <- x
-  sequence_ [ f (tupleIdx i p) | (f, i) <- zip ys [0..] ]
+  M Operand                  -> -- ptr (,,,)
+  [(M Operand -> M Operand)] -> -- [ptr 0th -> void, ptr 1st -> void, ...]
+  M Operand                     -- void
+mapTuple x zs = do
+  p  <- x
+  sequence_ [ f (tupleIdx i p) | (f, i) <- zip zs [0..] ]
+  unit
 
-mapRecord ::
-  M Operand             -> -- ptr {,,,,}
-  [(M Operand -> M ())] -> -- [ptr a -> M (), ptr b -> M (), ...]
-  M ()
-mapRecord = mapTuple
+reduceEnum ::
+  M Operand -> -- tag or int or char ...
+  (M Operand -> M Operand) -> -- default: operates on original value
+  [(Constant, (S.ShortByteString, M Operand))]  -> -- ^ [(0, ("0", M ())), (1, ("1", M ())), ...]
+  M Operand
+reduceEnum x f ys = mdo
+  lbl <- blockLabel
+  a <- x
+  IR.switch a dflt $ zip (map fst ys) $ map snd alts
+
+  -- alt blocks
+  let altBlock (s, g) = do
+        alt <- block (lbl <> "_" <> s)
+        v <- g
+        IR.br done
+        return (v, alt)
+  alts <- mapM altBlock $ map snd ys
+
+  -- default block
+  dflt <- block (lbl <> "_default")
+  vdflt <- f (pure a)
+  IR.br done
+
+  -- done block
+  done <- block (lbl <> "_done")
+  phi ((vdflt, dflt) : alts)
+
+-- phi that ignores unit values
+phi :: [(Operand, Name)] -> M Operand
+phi [] = unit
+phi xs@((x,_):_) = case typeOf x of
+  VoidType -> unit
+  _ -> IR.phi xs
+
+reduceVariant ::
+  M Operand                -> -- ptr (tag, t = max (a|b|...))
+  (M Operand -> M Operand) -> -- default: operates on original ptr
+  [(Constant, (S.ShortByteString, M Operand -> M Operand))] ->
+  -- ^ [("ATag", ptr t -> M ()), ("BTag", ptr t -> M ()), ...]
+  M Operand
+reduceVariant x f ys = do
+  p <- x
+  tag <- tagIdx p >>= load
+  val <- variantDataIdx p
+  reduceEnum (pure tag) (\_ -> f (pure p)) $
+    zip (map fst ys) [ (s, g (pure val)) | (s,g) <- map snd ys ]
+
+mapArray ::
+  Integer   ->           -- size
+  M Operand ->           -- ptr (array a)
+  (M Operand -> M Operand) -> -- ptr a -> void
+  M Operand              -- void
+mapArray sz x f = reduceArray sz x unit (\a _ -> f a)
+
+-- This does a forward traversal of an array. We should do backwards when
+-- possible as it is likely to be faster.
+reduceArray ::
+  Integer   -> -- size
+  M Operand -> -- ptr (array a)
+  M Operand -> -- b (starting value)
+  (M Operand -> M Operand -> M Operand) -> -- ptr a -> b -> b
+  M Operand -- b
+reduceArray 0 _ y _ = y
+reduceArray sz x y f = mdo
+  lbl  <- blockLabel
+  arrp <- x
+  b0  <- y
+  IR.br loop
+
+  -- loop body
+  loop <- block (lbl <> "_loop")
+  i <- phi [(int 32 0, Name lbl), (j, loop)]
+  b <- phi [(b0, Name lbl), (b1, loop)]
+  a <- idx arrp i
+  b1 <- f (pure a) (pure b)
+  j <- IR.add i (int 32 1)
+  IR.switch j loop [(Int 32 sz, done)]
+
+  -- loop done
+  done <- block (lbl <> "_loop_done")
+  return b1
+
+unreachable :: Type -> M Operand
+unreachable t = do
+  IR.unreachable
+  pure $ undefOperand t
 
 tupleIdx :: Integer -> Operand -> M Operand
 tupleIdx i p = idx p (int 32 i)
-
-tagIdx :: Operand -> M Operand
-tagIdx = tupleIdx 0
-
-valIdx :: Operand -> M Operand
-valIdx = tupleIdx 1
 
 mkTag :: Integer -> Integer -> Constant
 mkTag bits = Int (fromInteger bits)
@@ -173,73 +266,33 @@ listArray xs y = do
   arrp <- y
   sequence_ [ store <$> (idx arrp (int 32 i)) <*> x | (i, x) <- zip [0..] xs ]
 
-inject :: Constant -> M Operand -> M Operand -> M ()
-inject tag x y = do
-  p <- x
+injectTag :: Integer -> Operand -> M Operand
+injectTag tag p = do
   tagp <- tagIdx p
-  IR.store tagp 0 $ ConstantOperand tag
-  a <- y
-  pa <- bitcast (ptr (typeOf a)) (valIdx p)
+  case typeOf tagp of
+    PointerType (IntegerType bits) _ -> do
+      IR.store tagp 0 $ int (toInteger bits) tag
+      unit
+    t -> impossible $ "injectTag:" ++ show t
+
+variantDataAddr :: Type -> Operand -> M Operand
+variantDataAddr t p = bitcast (ptr t) (variantDataIdx p)
+
+inject :: Integer -> Operand -> Operand -> M Operand
+inject tag p a = do
+  injectTag tag p
+  pa <- variantDataAddr (typeOf a) p
   IR.store pa 0 a
+  unit
+
+tagIdx :: Operand -> M Operand
+tagIdx = tupleIdx 0
+
+variantDataIdx :: Operand -> M Operand
+variantDataIdx = tupleIdx 1
 
 bitcast :: Type -> M Operand -> M Operand
 bitcast t x = x >>= \a -> IR.bitcast a t
-
-mapEnum ::
-  M Operand                                -> -- tag or int or char ...
-  (M Operand -> M ())                      -> -- default: operates on original value
-  [(Constant, (S.ShortByteString, M ()))]  -> -- ^ [(0, ("0", M ())), (1, ("1", M ())), ...]
-  M ()
-mapEnum x f ys = mdo
-  lbl <- blockLabel
-  a <- x
-  IR.switch a dflt $ zip (map fst ys) alts
-  let altBlock (s, g) = do
-        alt <- block (lbl <> "_" <> s)
-        _ <- g
-        return alt
-  alts <- mapM altBlock $ map snd ys
-  dflt <- block (lbl <> "_default")
-  f (pure a)
-  return ()
-
-mapVariant ::
-  M Operand                                -> -- ptr (tag, t = max (a|b|...))
-  (M Operand -> M ())                      -> -- default: operates on original ptr
-  [(Constant, (S.ShortByteString, M Operand -> M ()))] ->
-  -- ^ [("ATag", ptr t -> M ()), ("BTag", ptr t -> M ()), ...]
-  M ()
-mapVariant x f ys = do
-  p <- x
-  tag <- tagIdx p >>= load
-  val <- valIdx p
-  mapEnum (pure tag) (\_ -> f (pure p)) $
-    zip (map fst ys) [ (s, g (pure val)) | (s,g) <- map snd ys ]
-
--- This does a forward traversal of an array. We should do backwards when
--- possible as it is likely to be faster.
-mapArray ::
-  Integer             -> -- size
-  M Operand           -> -- ptr (array a)
-  (M Operand -> M ()) -> -- ptr a -> M ()
-  M ()
-mapArray 0 _ _ = return ()
-mapArray sz x f = mdo
-  lbl  <- blockLabel
-  arrp <- x
-  IR.br loop
-
-  -- loop body
-  loop <- block (lbl <> "_loop")
-  i <- IR.phi [(int 32 0, Name lbl), (j, loop)]
-  a <- idx arrp i
-  f (pure a)
-  j <- IR.add i (int 32 1)
-  IR.switch j loop [(Int 32 sz, done)]
-
-  -- loop done
-  done <- block (lbl <> "_loop_done")
-  return ()
 
 type M a = IR.IRBuilderT (IR.ModuleBuilderT (State St)) a
 
@@ -263,7 +316,7 @@ patchBasicBlock argTbl paramTbl bb@(BasicBlock lbl instrs t) =
     (Just bs, Just ns) -> BasicBlock lbl (phis ++ instrs) t
      where
        phis = [ n := Phi (typeOf v) vs [] | (n, vs@((v,_):_)) <- zip ns bs ]
-    _ -> unreachable "patchBasicBlock"
+    _ -> impossible "patchBasicBlock"
 
 initSt :: FilePath -> St
 initSt = St HMS.empty HMS.empty HMS.empty HMS.empty HMS.empty
@@ -279,13 +332,6 @@ resolveJumps = do
 
 transposePhis :: [([Operand], Name)] -> [[(Operand, Name)]]
 transposePhis xs = transpose [ [ (b, c) | b <- bs ] | (bs, c) <- xs ]
-
-jump :: Name -> [M Operand] -> M ()
-jump x ys = do
-  lbl <- IR.currentBlock
-  bs <- sequence ys
-  modify' $ \st -> st{ jumpArgs = HMS.insertWith (++) x [(bs,lbl)] (jumpArgs st) }
-  IR.br x
 
 ret :: (IR.MonadIRBuilder m) => m Operand -> m ()
 ret x = do
@@ -327,10 +373,10 @@ mkString s = do
     IR.global n
       (ArrayType (genericLength s + 1) i8)
       (Array i8 [Int 8 (fromIntegral $ fromEnum c) | c <- s ++ "\0"])
-  IR.bitcast a voidPtrTy
+  IR.bitcast a charPtrTy
 
-voidPtrTy :: Type
-voidPtrTy = ptr i8
+charPtrTy :: Type
+charPtrTy = ptr i8
 
 extern :: Name -> [Type] -> Type -> M Operand
 extern n xs y = do
@@ -347,5 +393,5 @@ global n ty =
       }
     pure $ ConstantOperand $ GlobalReference (ptr ty) n
 
-unreachable :: String -> a
-unreachable s = error $ "unreachable:" ++ s
+impossible :: String -> a
+impossible s = error $ "the impossible happened:" ++ s

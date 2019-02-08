@@ -9,7 +9,7 @@ module LLVM where
 -- LLVM related but not typed then it goes in Build.hs.
 
 import Prelude hiding (subtract)
-import Build (M, unreachable)
+import Build (M, impossible)
 import Data.List
 import Data.Proxy
 import Data.String
@@ -33,15 +33,15 @@ startBlock = void $ B.block "Start"
 tt :: IO ()
 tt = B.dbgCodegen $ mdo
   let foo = call foo_func
-  foo_func :: I (I UInt32 -> I UInt32) <- func "foo" ["x"] $ \x -> mdo
+  foo_func :: Func (I UInt32) (I UInt32) <- func "foo" ["x"] $ \x -> mdo
     bar :: Label (I UInt32, I UInt32) (I UInt32) <- label "bar" ["a", "b"] $ \(a,b) ->
-      if_ (equals (a, int 0))
-        (ret $ add (a, b))
+      ret $ if_ (equals (a, int 0))
+        (add (a, b))
         (jump bar (add (int 3, a), add (int 4, b)))
     startBlock
-    if_ (equals (x, int 0))
+    ret $ if_ (equals (x, int 0))
       (jump bar (x, int 42))
-      (ret $ add (int 1, x))
+      (add (int 1, x))
   let qux = call qux_func
   nowarn qux
   qux_func <- func "qux" [] $ \() -> mdo
@@ -61,43 +61,59 @@ end = pure ()
 nowarn :: a -> M ()
 nowarn _ = pure ()
 
+newtype Func a b = Func{ unFunc :: Operand }
 newtype Label a b = Label{ unLabel :: Name }
-data T a = T
+data T a = T -- terminator
 
-mkT :: M a -> M (T b)
-mkT m = m >> pure T
+ret :: Ty a => I a -> M (T a)
+ret x = (B.ret $ unI x) >> pure T
 
-ret :: I a -> M (T a)
-ret = mkT . B.ret . unI
-
-eval :: I a -> M ()
+eval :: Ty a => I a -> M ()
 eval (I x) = void x
 
-jump :: (Args a, Ty b) => Label a (I b) -> a -> M (T b)
-jump (Label n) a = mkT $ B.jump n (argOperands a)
+unsafeCon :: (Ty a, Ty b, Ty c) => (I (Addr b) -> I c) -> I (Addr a) -> I c
+unsafeCon f = f . bitcast
+
+inject :: (Ty a, Ty b) => Integer -> (I (Addr a), I b) -> I ()
+inject i = binop (B.inject i)
+
+injectTag :: Ty a => Integer -> I (Addr a) -> I ()
+injectTag i = unop (B.injectTag i)
+
+unreachable :: Ty a => I a
+unreachable = f Proxy
+  where
+    f :: Ty a => Proxy a -> I a
+    f proxy = I $ B.unreachable (tyLLVM proxy)
+
+noDefault :: (Ty a, Ty b) => I a -> I b
+noDefault _ = unreachable
+
+jump :: (Args a, Ty b) => Label a (I b) -> a -> I b
+jump (x :: Label a (I b)) y = I $ B.jump (tyLLVM (Proxy :: Proxy b)) (unLabel x) (argOperands y)
 
 label :: (Args a, Ty b) => Name -> [S.ShortByteString] -> (a -> M (T b)) -> M (Label a (I b))
 label n xs (f :: a -> M (T b)) =
   Label <$> B.label n (zip (tysLLVM (Proxy :: Proxy a)) xs) (void . f . paramOperands)
 
-call :: (Args a, Ty b) => I (a -> I b) -> a -> I b
-call (I x) a = I $ x >>= \n -> B.call n (argOperands a)
+call :: (Args a, Ty b) => Func a (I b) -> a -> I b
+call x a = I $ B.call (unFunc x) (argOperands a)
 
-func :: (Args a, Ty b) => Name -> [IR.ParameterName] -> (a -> M (T b)) -> M (I (a -> I b))
+func :: (Args a, Ty b) => Name -> [IR.ParameterName] -> (a -> M (T b)) -> M (Func a (I b))
 func n xs (f :: a -> M (T b)) = do
   nm <- B.func n
     (zip (tysLLVM (Proxy :: Proxy a)) xs)
     (tyLLVM (Proxy :: Proxy b))
     (void . f . paramOperands)
-  pure $ I (pure nm)
+  pure $ Func nm
 
-if_ :: Ty a => I Bool_ -> M (T a) -> M (T a) -> M (T a)
-if_ (I x) f g = mkT $ B.if_ x (void f) (void g)
+if_ :: Ty a => I Bool_ -> I a -> I a -> I a
+if_ x t f = I $ B.if_ (unI x) (unI t) (unI f)
 
-case_ :: (Ty a, Ty b) => I a -> (I a -> M (T b)) -> [(String, I a -> M (T b))] -> M (T b)
-case_ (I x :: I a) f0 ys0 = mkT $ case tyFort (Proxy :: Proxy a) of
+case_ :: (Ty a, Ty b) => I a -> (I a -> I b) -> [(String, I a -> I b)] -> I b
+case_ (x :: I a) f0 ys0 = I $ case tyFort (Proxy :: Proxy a) of
   TyAddress (TyVariant bs) ->
-    B.mapVariant x f [ (constTag (map fst bs) s, (fromString s, g)) | (s,g) <- ys ]
+    B.reduceVariant (unI x) f [ (constTag (map fst bs) s, (fromString s, g)) | (s,g) <- ys ]
 
   TyChar        -> enumF (B.constChar . read) "character"
   TySigned sz   -> enumF (B.constInt sz . read) "signed integer"
@@ -110,12 +126,13 @@ case_ (I x :: I a) f0 ys0 = mkT $ case tyFort (Proxy :: Proxy a) of
   TyArray{}   -> errorF "arrays"
   TyVariant{} -> errorF "variants" -- must be an address to a variant (see above)
   where
-    f :: M Operand -> M ()
-    f = void . f0 . I
-    ys :: [(String, M Operand -> M ())]
-    ys =  [ (s, void . g . I) | (s,g) <- ys0 ]
+    f :: M Operand -> M Operand
+    f = unI . f0 . I
+    ys :: [(String, M Operand -> M Operand)]
+    ys =  [ (s, unI . g . I) | (s, g) <- ys0 ]
     errorF msg = error $ "unable to case on " ++ msg
-    enumF toC msg = B.mapEnum x f [ (toC s, (fromString s, g (unreachable ("case_:" ++ msg)))) | (s,g) <- ys ]
+    enumF :: (String -> Constant) -> String -> M Operand
+    enumF toC msg = B.reduceEnum (unI x) f [ (toC s, (fromString s, g (impossible ("case_:" ++ msg)))) | (s,g) <- ys ]
 
 let_ :: I a -> (I a -> M b) -> M b
 let_ x f = do
@@ -135,25 +152,25 @@ class Args a where
 instance Args () where
   tysFort _ = []
   paramOperands [] = ()
-  paramOperands _ = unreachable "paramOperands"
+  paramOperands _ = impossible "paramOperands"
   argOperands () = []
 
 instance Ty a => Args (I a) where
   tysFort _ = [tyFort (Proxy :: Proxy a)]
   paramOperands [x] = I x
-  paramOperands _ = unreachable "paramOperands"
+  paramOperands _ = impossible "paramOperands"
   argOperands (I x) = [x]
 
 instance (Ty a, Ty b) => Args (I a, I b) where
   tysFort _ = [tyFort (Proxy :: Proxy a), tyFort (Proxy :: Proxy b)]
   paramOperands [x,y] = (I x, I y)
-  paramOperands _ = unreachable "paramOperands"
+  paramOperands _ = impossible "paramOperands"
   argOperands (I x, I y) = [x,y]
 
 instance (Ty a, Ty b, Ty c) => Args (I a, I b, I c) where
   tysFort _ = [tyFort (Proxy :: Proxy a), tyFort (Proxy :: Proxy b), tyFort (Proxy :: Proxy c)]
   paramOperands [x,y,z] = (I x, I y, I z)
-  paramOperands _ = unreachable "paramOperands"
+  paramOperands _ = impossible "paramOperands"
   argOperands (I x, I y, I z) = [x,y,z]
 
 newtype I a = I{ unI :: M Operand }
@@ -229,7 +246,7 @@ extern n (x :: a) = f Proxy Proxy
     f :: (Args a, Ty b) => Proxy a -> Proxy b -> I b
     f (proxy0 :: Proxy a) (proxy :: Proxy b) = I $ do
       v <- B.extern n (tysLLVM proxy0) (tyLLVM proxy)
-      unI $ call (I (pure v) :: I  (a -> I b)) x
+      unI $ call (Func v :: Func a (I b)) x
 
 bitop :: (Ty a, Ty b) => (Operand -> AST.Type -> M Operand) -> I a -> I b
 bitop f x = g Proxy
@@ -241,6 +258,7 @@ bitop f x = g Proxy
         TyUnsigned{} -> ok
         TyEnum{}     -> ok
         TyChar{}     -> ok
+        TyAddress{}  -> ok
         t -> error $ "unable to perform bit operations on values of type:" ++ show t
       where ok = unop (flip f (tyLLVM proxy)) x
 
@@ -278,40 +296,41 @@ sextTo64 sz x
 -- BAL: these ad-hoc polymorphic functions will generate mounds of code. At
 -- least generate monomorphic functions so that when code is called with the
 -- same type it will be shared.
-hPutTy :: I Handle -> Type -> M Operand -> M ()
+hPutTy :: I Handle -> Type -> M Operand -> M Operand
 hPutTy h t0 x0 = go t0 x0 >> putS "\n"
   where
-    go :: Type -> M Operand -> M ()
+    go :: Type -> M Operand -> M Operand
     go ty x = case ty of
-      TyChar        -> void $ unI $ h_put_char (I x, h)
-      TyString      -> void $ unI $ h_put_string (I x, h)
-      -- TyChar        -> void $ delim "'" "'" $ unI $ h_put_char (I x, h)
-      -- TyString      -> void $ delim "\"" "\"" $ unI $ h_put_string (I x, h)
-      TySigned sz   -> void $ unI $ h_put_sint64 (I $ sextTo64 sz x, h)
-      TyUnsigned sz -> void $ unI $ h_put_uint64 (I $ sextTo64 sz x, h)
+      TyChar        -> delim "'" "'" $ unI $ h_put_char (I x, h)
+      TyString      -> unI $ h_put_string (I x, h)
+      -- BAL: stack overflow?? TyString      -> void $ delim "\"" "\"" $ unI $ h_put_string (I x, h)
+      TySigned sz   -> unI $ h_put_sint64 (I $ sextTo64 sz x, h)
+      TyUnsigned sz -> unI $ h_put_uint64 (I $ sextTo64 sz x, h)
 
-      TyEnum bs    -> B.mapEnum x (\_ -> pure ())
+      TyEnum bs    -> B.reduceEnum x (\_ -> B.unit)
         [ (constTag bs s, (fromString s, putS s)) | s <- bs ]
 
       TyAddress t -> case t of
         TyArray sz t1 -> delim "[" "]" $ B.mapArray sz x (sep ", " $ go (TyAddress t1))
         TyTuple ts    -> delim "(" ")" $ B.mapTuple x [ sep ", " $ go (TyAddress ta) | ta <- ts ]
-        TyRecord bs   -> delim "{" "}" $ B.mapRecord x [ sep ", " $ putField fld (go (TyAddress ta)) | (fld, ta) <- bs ]
-        TyVariant bs  -> delim "(" ")" $ B.mapVariant x (\_ -> pure ())
+        TyRecord bs   -> delim "{" "}" $ B.mapTuple x [ sep ", " $ putField fld (go (TyAddress ta)) | (fld, ta) <- bs ]
+        TyVariant bs  -> delim "(" ")" $ B.reduceVariant x (\_ -> B.unit)
           [ let aTy = TyAddress ta in
               (constTag (map fst bs) s,
                 (fromString s, sep s (go aTy . (B.bitcast (toTyLLVM aTy)))))
           | (s, ta) <- bs ]
-        _ -> B.mapAddress x (go t)
+        _ -> B.reduceAddress x (go t)
 
       TyArray{}   -> errF "array"
       TyTuple{}   -> errF "tuple"
       TyRecord{}  -> errF "record"
       TyVariant{} -> errF "variant"
-    putField fld f = \p -> putS fld >> putS " = " >> f p
+
     putS = go TyString . B.mkString
+    putField fld f = \p -> putS fld >> putS " = " >> f p
     delim l r f = putS l >> f >> putS r
     errF msg = error $ "unable to directly print " ++ msg ++ "(need an address)"
+    sep :: String -> (a -> M Operand) -> (a -> M Operand)
     sep s f = \p -> f p >> putS s
 
 output :: Ty a => I a -> I ()
@@ -514,7 +533,7 @@ sizeFort x = case x of
 -- extractValue :: I a -> [Word32] -> I a
 -- insertElement :: (I a, I a) -> I a -> I a
 -- insertValue :: I a -> I a -> [Word32] -> I a
--- unreachable :: M ()
+-- impossible :: M ()
 -- shuffleVector :: I a -> I a -> Constant -> I a
 -- inttoptr :: I a -> Type -> I a
 -- ptrtoint :: I a -> Type -> I a

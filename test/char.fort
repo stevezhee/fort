@@ -9,7 +9,7 @@ stdout: Handle
 stderr: Handle
 
 h-get-char: Handle -> Char
-h-put: (a, Handle) -> ()
+output: a -> ()
 
 ;; constants
 
@@ -19,22 +19,20 @@ s: String = "hello, world"
 
 ;; functions
 
-foo: Char -> Char = \_ => fst (#"z",#"z")
-bar: Char -> Char = \_ => fst (a,b : Char)
-get-char: () -> Char = \() => h-get-char stdin
-put-char: Char -> () = h-put (,stdout)
+char-foo: Char -> Char = \_ => fst (#"z",#"z")
+char-bar: Char -> Char = \_ => fst (a,b : Char)
 
-put-string: String -> () = h-put (,stdout)
+get-char: () -> Char = \() => h-get-char stdin
 
 char-io-test: () -> () = \w => /do
-  put-char (get-char w)
-  put-char #"!"
+  output (get-char w)
 
 hello-world: () -> () = \_ => /do
-  put-string (s)
-  put-string ("hello, world")
+  output (s)
+  output ("hi, again")
 
 fst: (Char, Char) -> Char = \(x,_) => x
+
 qux: Char -> Char = \_ => fst (c,d)
   /where
     c = #"c"

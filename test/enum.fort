@@ -32,17 +32,25 @@ enum-case: Color -> Color = \c => /case c /of
 
 enum-foo: Color -> () = \c => /do
   output green
-  ;; output c
-  ;; output (enum-case c)
+  output c ;; BAL: this is broken
+  output (enum-case c)
 
-;; ;; variant
-;; Either = /enum
-;;   Left: Char
-;;   Right: Int
+;; variant
+Either = /enum
+  Left: Char
+  Right: Int
+  
+either-case-0: /address Either -> Int = \x => /case x /of
+  Left = \_ => 1
+  Right = \_ => 2
 
-;; either-case: /address Either -> () = \x => /case x /of
-;;   Left = \a => left (x, load a)
-;;   Right = \b => right (x, load b)
+either-case-1: /address Either -> Int = \x => /case x /of
+  Left = \_ => 42
+  Right = \b => load b
+
+either-case: /address Either -> () = \x => /case x /of
+  Left = \a => left (x, load a)
+  Right = \b => right (x, load b)
 
 ;; ;; variant mixed
 ;; Optional = /enum

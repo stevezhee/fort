@@ -279,8 +279,8 @@ ppTopDecl x = case x of
         ] ++
         [ vcat [ pretty (conToVarName c) <+> ":: Prim.I" <+> ppCon a
                , pretty (conToVarName c) <+> "= Prim.enum" <+> pretty i
-               , pretty (unsafeUnConName c) <+> "= Prelude.const"
-               ] | ((c,_),i) <- alts ]
+               , ppUnsafeCon a (c,t)
+               ] | ((c,t),i) <- alts ]
 
     | otherwise -> vcat $
           [ "data" <+> ppCon a
@@ -312,9 +312,12 @@ ppDecl tbl x = case x of
   _ -> mempty
 
 ppUnsafeCon :: Con -> (Con,Type) -> Doc x
-ppUnsafeCon _ (c, TyNone) = pretty (unsafeUnConName c) <+> "= Prelude.const"
+ppUnsafeCon _ (c, TyNone) = vcat
+  [ pretty (unsafeUnConName c) <+> ":: (Prim.Ty a, Prim.Ty b) => Prim.I a -> (Prim.I b -> Prim.I a)"
+  , pretty (unsafeUnConName c) <+> "= Prelude.const"
+  ]
 ppUnsafeCon a (c, t) = vcat
-  [ pretty (unsafeUnConName c) <+> ":: (Prim.I (Prim.Addr " <> ppType t <> ") -> Prim.M c) -> (Prim.I (Prim.Addr (" <> ppCon a <> ")) -> Prim.M c)"
+  [ pretty (unsafeUnConName c) <+> ":: Prim.Ty a => (Prim.I (Prim.Addr " <> ppType t <> ") -> Prim.I a) -> (Prim.I (Prim.Addr (" <> ppCon a <> ")) -> Prim.I a)"
   , pretty (unsafeUnConName c) <+> "= Prim.unsafeCon"
   ]
 
@@ -452,7 +455,7 @@ ppExpr x = case x of
   Prim a   -> ppPrim a
   App a b  -> parens (ppExpr a <+> ppExpr b)
   Tuple bs -> ppTuple $ map (maybe mempty ppExpr) bs
-  -- Lam a b  -> "\\" <> ppPat a <+> "->" <+> ppTerm [] b -- ppTerm [] x -- BAL: this isn't correct.  Need the labels at least...
+  Lam a b  -> "\\" <> ppPat a <+> "->" <+> ppExpr b
   Ascription a b -> parens (ppAscription (ppExpr a) b)
   _ -> error $ "ppExpr:" ++ show x
 
@@ -467,19 +470,19 @@ ppTerm labels = go
       Where a bs -> vcat $
         map (ppExprDecl False lbls) bs ++
         [ "Prim.startBlock"
-        , ppTerm lbls a
+        , parens (ppTerm lbls a)
         ]
         where
           lbls = map edLabel bs
       Lam a b -> "\\" <> ppPat a <+> "->" <+> "mdo" <> line <> indent 2 (go b)
-      If a b c -> "Prim.if_" <+> ppExpr a <> line <> indent 2 (vcat [parens (go b), parens (go c)])
+      If a b c -> "Prim.ret" <+> parens ("Prim.if_" <+> ppExpr a <> line <> indent 2 (vcat [parens (ppExpr b), parens (ppExpr c)]))
       Prim a -> "Prim.ret" <+> ppPrim a
       App (Prim (Var a)) b
         | isLabel a -> "Prim.jump" <+> ppVar a <+> ppExpr b
       App{} -> "Prim.ret" <+> parens (ppExpr x)
       Sequence bs -> ppSequence labels bs
-      Case a bs -> "Prim.case_" <+> ppExpr a <+> parens (ppTerm labels dflt) <>
-        ppListV [ ppTuple [ppAltPat c, ppAltCon labels c e] | ((c,_t), e) <- alts ]
+      Case a bs -> "Prim.ret" <+> parens ("Prim.case_" <+> ppExpr a <+> parens (ppExpr dflt) <>
+        ppListV [ ppTuple [ppAltPat c, ppAltCon labels c e] | ((c,_t), e) <- alts ])
         -- BAL: ^ put this type somewhere...
         where
           (dflt, alts) = getDefault bs
@@ -502,9 +505,9 @@ getDefault xs = case xs of
 
 ppAltCon :: [String] -> AltPat -> Expr -> Doc x
 ppAltCon labels x e = case x of
-  ConP c   -> pretty (unsafeUnConName c) <+> parens (ppTerm labels e)
-  DefaultP -> parens (ppTerm labels e)
-  _ -> "Prelude.const" <+> parens (ppTerm labels e)
+  ConP c   -> pretty (unsafeUnConName c) <+> parens (ppExpr e)
+  DefaultP -> parens (ppExpr e)
+  _ -> "Prelude.const" <+> parens (ppExpr e)
 
 ppSequence :: [String] -> [Expr] -> Doc x
 ppSequence labels xs = "do" <> line <> indent 2 (vcat (go xs))
