@@ -122,9 +122,11 @@ if_ x t f = mdo
 
   truelbl <- block (lbl <> "_true")
   tval <- t
+  IR.br donelbl
 
   falselbl <- block (lbl <> "_false")
   fval <- f
+  IR.br donelbl
 
   donelbl <- block (lbl <> "_if_done")
   phi [(tval, truelbl),(fval,falselbl)]

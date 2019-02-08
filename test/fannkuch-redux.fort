@@ -6,6 +6,8 @@ Bool = /bool
 ;; primitives
 add: (Int, Int) -> Int
 + = add
+equals: (a, a) -> Bool
+== = equals
 
 subtract: (Int, Int) -> Int
 - = subtract
