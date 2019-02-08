@@ -308,7 +308,7 @@ ppDecl tbl x = case x of
     Just t -> "let" <> line <> indent 2 (vcat
       [ ppAscription (parens (ppOp a)) (typeToOperatorType t)
       , parens (ppOp a) <+> "= Prim.operator" <+> ppVar b ])
-  ExprDecl a -> ppExprDecl True [] a
+  ExprDecl a -> ppExprDecl True a
   _ -> mempty
 
 ppUnsafeCon :: Con -> (Con,Type) -> Doc x
@@ -399,18 +399,20 @@ mFuncVar x = case x of
     _ -> Just v
   _ -> Nothing
 
-ppExprDecl :: Bool -> [String] -> ExprDecl -> Doc x
-ppExprDecl isTopLevel labels (ED (v,t) e) = case e of
+ppExprDecl :: Bool -> ExprDecl -> Doc x
+ppExprDecl isTopLevel (ED (v,t) e) = case e of
   Prim a -> "let" <+> lhs <+> "=" <+> ppPrim a
   Lam a _
     | isTopLevel -> vcat
         [ "let" <+> lhs <+> "=" <+> "Prim.call" <+> ppFuncVar v
         , ppFuncVar v <+> "<-" <+> "Prim.func" <+> stringifyName v <+>
-          stringifyPat a <+> parens (ppTerm labels e)
+          stringifyPat a <+> parens (ppTerm e)
         ]
-    | otherwise ->
-        ppLabelAscription (ppVar v) t <+> "<-" <+> "Prim.label" <+> stringifyName v <+>
-        stringifyPat a <+> parens (ppTerm (unLoc v : labels) e)
+    | otherwise -> vcat
+        [ "let" <+> lhs <+> "=" <+> "Prim.jump" <+> ppLabelVar v 
+        , ppLabelAscription (ppLabelVar v) t <+> "<-" <+> "Prim.label" <+> stringifyName v <+>
+          stringifyPat a <+> parens (ppTerm e)
+        ]
   _ -> error $ "ppExprDecl:" ++ show e
   where
     lhs = ppAscription (ppVar v) t
@@ -454,42 +456,41 @@ ppExpr :: Expr -> Doc x
 ppExpr x = case x of
   Prim a   -> ppPrim a
   App a b  -> parens (ppExpr a <+> ppExpr b)
+  Tuple [] -> "Prim.unit"
+  Tuple [Nothing] -> "Prim.unit" -- BAL: The parser should remove these...
   Tuple bs -> ppTuple $ map (maybe mempty ppExpr) bs
   Lam a b  -> "\\" <> ppPat a <+> "->" <+> ppExpr b
   Ascription a b -> parens (ppAscription (ppExpr a) b)
+  Sequence a -> ppSequence a
   _ -> error $ "ppExpr:" ++ show x
 
 ppProxy :: Type -> Doc x
 ppProxy t = parens ("P.Proxy :: P.Proxy" <+> parens (ppType t))
 
-ppTerm :: [String] -> Expr -> Doc x
-ppTerm labels = go
+ppTerm :: Expr -> Doc x
+ppTerm = go
   where
     go :: Expr -> Doc x
     go x = case x of
       Where a bs -> vcat $
-        map (ppExprDecl False lbls) bs ++
+        map (ppExprDecl False) bs ++
         [ "Prim.startBlock"
-        , parens (ppTerm lbls a)
+        , parens (ppTerm a)
         ]
         where
           lbls = map edLabel bs
       Lam a b -> "\\" <> ppPat a <+> "->" <+> "mdo" <> line <> indent 2 (go b)
       If a b c -> "Prim.ret" <+> parens ("Prim.if_" <+> ppExpr a <> line <> indent 2 (vcat [parens (ppExpr b), parens (ppExpr c)]))
       Prim a -> "Prim.ret" <+> ppPrim a
-      App (Prim (Var a)) b
-        | isLabel a -> "Prim.jump" <+> ppVar a <+> ppExpr b
       App{} -> "Prim.ret" <+> parens (ppExpr x)
-      Sequence bs -> ppSequence labels bs
+      Sequence bs -> "Prim.ret" <+> parens (ppSequence bs)
       Case a bs -> "Prim.ret" <+> parens ("Prim.case_" <+> ppExpr a <+> parens (ppExpr dflt) <>
-        ppListV [ ppTuple [ppAltPat c, ppAltCon labels c e] | ((c,_t), e) <- alts ])
+        ppListV [ ppTuple [ppAltPat c, ppAltCon c e] | ((c,_t), e) <- alts ])
         -- BAL: ^ put this type somewhere...
         where
           (dflt, alts) = getDefault bs
       Tuple [Nothing] -> "Prim.ret Prim.unit"
       _ -> error $ "ppTerm:" ++ show x
-      where
-        isLabel a = unLoc a `elem` labels
 
 getDefault :: [Alt] -> (Expr, [Alt])
 getDefault xs = case xs of
@@ -503,21 +504,22 @@ getDefault xs = case xs of
     noDflt = Prim $ Var $ L NoLoc "Prim.noDefault"
     bs = init xs
 
-ppAltCon :: [String] -> AltPat -> Expr -> Doc x
-ppAltCon labels x e = case x of
+ppAltCon :: AltPat -> Expr -> Doc x
+ppAltCon x e = case x of
   ConP c   -> pretty (unsafeUnConName c) <+> parens (ppExpr e)
   DefaultP -> parens (ppExpr e)
   _ -> "Prelude.const" <+> parens (ppExpr e)
 
-ppSequence :: [String] -> [Expr] -> Doc x
-ppSequence labels xs = "do" <> line <> indent 2 (vcat (go xs))
+ppSequence :: [Expr] -> Doc x
+ppSequence xs = "Prim.sequence" <> ppListV (go xs)
   where
     go [] = []
-    go [b] = [ppTerm labels b]
+    go [b] = [ppExpr b]
     go (b:bs) = case b of
       Let (ED (v,t) e) ->
-        ["Prim.let_" <+> parens (ppExpr e) <+> parens ("\\" <> ppAscription (ppVar v) t <+> "->" <+> ppSequence labels bs)]
-      _ -> ("Prim.eval" <+> ppExpr b) : go bs
+        ["Prim.let_" <+> parens (ppExpr e) <+>
+           parens ("\\" <> ppAscription (ppVar v) t <+> "->" <+> ppSequence bs)]
+      _ -> ("Prim.unsafeCast" <+> ppExpr b) : go bs
 
 unsafeUnConName :: Con -> String
 unsafeUnConName c = "unsafe_" ++ unLoc c

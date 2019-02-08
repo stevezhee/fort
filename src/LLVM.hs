@@ -34,13 +34,14 @@ tt :: IO ()
 tt = B.dbgCodegen $ mdo
   let foo = call foo_func
   foo_func :: Func (I UInt32) (I UInt32) <- func "foo" ["x"] $ \x -> mdo
-    bar :: Label (I UInt32, I UInt32) (I UInt32) <- label "bar" ["a", "b"] $ \(a,b) ->
+    let bar = jump bar_lbl
+    bar_lbl :: Label (I UInt32, I UInt32) (I UInt32) <- label "bar" ["a", "b"] $ \(a,b) ->
       ret $ if_ (equals (a, int 0))
         (add (a, b))
-        (jump bar (add (int 3, a), add (int 4, b)))
+        (bar (add (int 3, a), add (int 4, b)))
     startBlock
     ret $ if_ (equals (x, int 0))
-      (jump bar (x, int 42))
+      (bar (x, int 42))
       (add (int 1, x))
   let qux = call qux_func
   nowarn qux
@@ -68,8 +69,8 @@ data T a = T -- terminator
 ret :: Ty a => I a -> M (T a)
 ret x = (B.ret $ unI x) >> pure T
 
-eval :: Ty a => I a -> M ()
-eval (I x) = void x
+unsafeCast :: (Ty a, Ty b) => I a -> I b
+unsafeCast (I x) = I x
 
 unsafeCon :: (Ty a, Ty b, Ty c) => (I (Addr b) -> I c) -> I (Addr a) -> I c
 unsafeCon f = f . bitcast
@@ -134,10 +135,15 @@ case_ (x :: I a) f0 ys0 = I $ case tyFort (Proxy :: Proxy a) of
     enumF :: (String -> Constant) -> String -> M Operand
     enumF toC msg = B.reduceEnum (unI x) f [ (toC s, (fromString s, g (impossible ("case_:" ++ msg)))) | (s,g) <- ys ]
 
-let_ :: I a -> (I a -> M b) -> M b
-let_ x f = do
+let_ :: (Ty a, Ty b) => I a -> (I a -> I b) -> I b
+let_ x f = I $ do
   a <- unI x
-  f (I $ pure a)
+  unI $ f (I $ pure a)
+
+sequence :: Ty a => [I a] -> I a
+sequence xs = I $ do
+  sequence_ $ map unI $ init xs
+  unI $ last xs
 
 class Size a where size :: Proxy a -> Integer
 class Ty a where tyFort :: Proxy a -> Type
