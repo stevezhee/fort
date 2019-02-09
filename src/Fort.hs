@@ -462,6 +462,7 @@ ppExpr x = case x of
   Lam a b  -> "\\" <> ppPat a <+> "->" <+> ppExpr b
   Ascription a b -> parens (ppAscription (ppExpr a) b)
   Sequence a -> ppSequence a
+  If a b c -> ppIf a b c
   _ -> error $ "ppExpr:" ++ show x
 
 ppProxy :: Type -> Doc x
@@ -480,7 +481,7 @@ ppTerm = go
         where
           lbls = map edLabel bs
       Lam a b -> "\\" <> ppPat a <+> "->" <+> "mdo" <> line <> indent 2 (go b)
-      If a b c -> "Prim.ret" <+> parens ("Prim.if_" <+> ppExpr a <> line <> indent 2 (vcat [parens (ppExpr b), parens (ppExpr c)]))
+      If a b c -> "Prim.ret" <+> ppIf a b c
       Prim a -> "Prim.ret" <+> ppPrim a
       App{} -> "Prim.ret" <+> parens (ppExpr x)
       Sequence bs -> "Prim.ret" <+> parens (ppSequence bs)
@@ -491,6 +492,8 @@ ppTerm = go
           (dflt, alts) = getDefault bs
       Tuple [Nothing] -> "Prim.ret Prim.unit"
       _ -> error $ "ppTerm:" ++ show x
+
+ppIf a b c = parens ("Prim.if_" <+> ppExpr a <> line <> indent 2 (vcat [parens (ppExpr b), parens (ppExpr c)]))
 
 getDefault :: [Alt] -> (Expr, [Alt])
 getDefault xs = case xs of

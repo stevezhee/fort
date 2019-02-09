@@ -62,14 +62,6 @@ execM file m =
       (IR.execIRBuilderT IR.emptyIRBuilder m))
     (initSt file)
 
-label :: Name -> [(Type, S.ShortByteString)] -> ([M Operand] -> M ()) -> M Name
-label lbl xs f = do
-  IR.emitBlockStart lbl
-  ns <- mapM IR.freshName $ map snd xs
-  f [ pure $ LocalReference t n | (t,n) <- zip (map fst xs) ns ]
-  modify' $ \st -> st{ jumpParams = HMS.insert lbl ns $ jumpParams st }
-  return lbl
-
 func :: Name -> [(Type, IR.ParameterName)] -> Type -> ([M Operand] -> M ()) -> M Operand
 func n params t f = lift $ IR.function n params t $ \vs -> do
   _ <- block "JumpStart"
@@ -107,41 +99,50 @@ blockLabel = do
 
 jump :: Type -> Name -> [M Operand] -> M Operand
 jump t x ys = do
-  lbl <- IR.currentBlock
-  bs <- sequence ys
-  modify' $ \st -> st{ jumpArgs = HMS.insertWith (++) x [(bs,lbl)] (jumpArgs st) }
+  let f y = do
+        b <- y
+        lbl <- IR.currentBlock
+        modify' $ \st -> st{ jumpArgs = HMS.insertWith (++) x [([b],lbl)] (jumpArgs st) }
+  mapM_ f ys
   IR.br x
-  pure $ undefOperand t
+  unit
+
+label :: Name -> [(Type, S.ShortByteString)] -> ([M Operand] -> M ()) -> M Name
+label lbl xs f = do
+  IR.emitBlockStart lbl
+  ns <- mapM IR.freshName $ map snd xs
+  f [ pure $ LocalReference t n | (t,n) <- zip (map fst xs) ns ]
+  modify' $ \st -> st{ jumpParams = HMS.insert lbl ns $ jumpParams st }
+  return lbl
 
 if_ :: M Operand -> M Operand -> M Operand -> M Operand
 if_ x t f = mdo
-  v <- x
   lbl <- blockLabel
+  v <- x
 
   IR.condBr v truelbl falselbl
 
   truelbl <- block (lbl <> "_true")
   tval <- t
+  truedonelbl <- IR.currentBlock
   IR.br donelbl
 
   falselbl <- block (lbl <> "_false")
   fval <- f
+  falsedonelbl <- IR.currentBlock
   IR.br donelbl
 
   donelbl <- block (lbl <> "_if_done")
-  phi [(tval, truelbl),(fval,falselbl)]
+  phi [(tval, truedonelbl),(fval, falsedonelbl)]
 
 load :: Operand -> M Operand
 load = flip IR.load 0
 
 store :: Operand -> Operand -> M Operand
-store x y = IR.store x 0 y >> return voidOperand
+store x y = IR.store x 0 y >> unit
 
 unit :: M Operand
-unit = pure voidOperand
-
-voidOperand :: Operand
-voidOperand = undefOperand void
+unit = pure $ undefOperand void
 
 undefOperand :: Type -> Operand
 undefOperand = ConstantOperand . Undef
@@ -171,24 +172,26 @@ reduceEnum ::
 reduceEnum x f ys = mdo
   lbl <- blockLabel
   a <- x
-  IR.switch a dflt $ zip (map fst ys) $ map snd alts
+  IR.switch a dflt $ zip (map fst ys) $ map fst alts
 
   -- alt blocks
   let altBlock (s, g) = do
         alt <- block (lbl <> "_" <> s)
         v <- g
+        altdone <- IR.currentBlock
         IR.br done
-        return (v, alt)
+        return (alt, (v, altdone))
   alts <- mapM altBlock $ map snd ys
 
   -- default block
   dflt <- block (lbl <> "_default")
   vdflt <- f (pure a)
+  dfltdone <- IR.currentBlock
   IR.br done
 
   -- done block
   done <- block (lbl <> "_done")
-  phi ((vdflt, dflt) : alts)
+  phi ((vdflt, dfltdone) : map snd alts)
 
 -- phi that ignores unit values
 phi :: [(Operand, Name)] -> M Operand
@@ -230,12 +233,13 @@ reduceArray sz x y f = mdo
   lbl  <- blockLabel
   arrp <- x
   b0  <- y
+  prelbl <- IR.currentBlock
   IR.br loop
 
   -- loop body
   loop <- block (lbl <> "_loop")
-  i <- phi [(int 32 0, Name lbl), (j, loop)]
-  b <- phi [(b0, Name lbl), (b1, loop)]
+  i <- phi [(int 32 0, prelbl), (j, loop)]
+  b <- phi [(b0, prelbl), (b1, loop)]
   a <- idx arrp i
   b1 <- f (pure a) (pure b)
   j <- IR.add i (int 32 1)
@@ -318,7 +322,7 @@ patchBasicBlock argTbl paramTbl bb@(BasicBlock lbl instrs t) =
     (Just bs, Just ns) -> BasicBlock lbl (phis ++ instrs) t
      where
        phis = [ n := Phi (typeOf v) vs [] | (n, vs@((v,_):_)) <- zip ns bs ]
-    _ -> impossible "patchBasicBlock"
+    _ -> impossible $ "patchBasicBlock:" ++ show (argTbl, paramTbl)
 
 initSt :: FilePath -> St
 initSt = St HMS.empty HMS.empty HMS.empty HMS.empty HMS.empty

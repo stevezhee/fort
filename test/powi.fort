@@ -24,11 +24,16 @@ truncate: a -> b
 is-odd: Int -> Bool = truncate
 
 ^ = powi
-powi: (Int, Int) -> Int = go (1,,)
-  /where
-    go: (Int, Int, Int) -> Int = \(r,a,b) => /if
-      b == 0   => r
-      is-odd b => go (r * a, a, b - 1)
-      _        => go (r, a * a, b / 2)
+powi: (Int, Int) -> Int = \(x,y) => go (1,x,y)
+  ;; /where
+    ;; go: (Int, Int, Int) -> Int = \(r,a,b) => /if
+    ;;   b == 0   => r
+    ;;   is-odd b => go (r * a, a, b - 1)
+    ;;   _        => go (r, a * a, b / 2)
+
+go: (Int, Int, Int) -> Int = \(r,a,b) => /if
+  b == 0   => r
+  is-odd b => go (r * a, a, b - 1)
+  _        => go (r, a * a, b / 2)
 
 squared: Int -> Int = powi (,2)
