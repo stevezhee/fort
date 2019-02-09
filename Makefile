@@ -12,7 +12,8 @@ all: run
 
 .PHONY: run
 run: $(OUT_FILE)
-	./$<
+	./$< | tee ./a.out.actual
+	diff a.out.expected a.out.actual
 
 %.fort.hs: %.fort $(HS_FILES)
 	stack runghc -- -isrc app/Main.hs $<

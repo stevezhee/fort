@@ -46,10 +46,10 @@ int main(int argc, char**argv)
   g_stdin = stdin;
   g_stdout = stdout;
   g_stderr = stderr;
-  printf("%d\n",powi(3,2));
-  printf("%d\n",powi(128,0));
-  printf("%d\n",powi(128,1));
-  printf("%d\n",squared(3));
+  printf("3^2 = %d\n",powi(3,2));
+  printf("128^0 = %d\n",powi(128,0));
+  printf("128^1 = %d\n",powi(128,1));
+  printf("3^2 = %d\n",squared(3));
 
   int x = 0;
   printf("%d\n",x);
