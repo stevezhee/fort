@@ -37,12 +37,11 @@ data Type
   | TyLam Var Type
   | TyFun Type Type
   | TyRecord [(Var, Type)]
-  | TyVariant [(Con, Type)]
+  | TyVariant [(Con, Maybe Type)]
   | TyTuple [Type]
   | TyVar Var
   | TyCon Con
   | TySize (L Int)
-  | TyNone -- BAL: remove(?)
   | TyAddress
   | TyArray
   | TySigned
@@ -63,16 +62,16 @@ data Expr
   | If Expr Expr Expr
   | Case Expr [Alt]
   | Sequence [Expr]
-  | Record [((Var, Type), Expr)]
+  | Record [((Var, Maybe Type), Expr)]
   | Tuple [Maybe Expr]
   | Ascription Expr Type
   deriving Show
 
-type Alt = ((AltPat, Type), Expr)
+type Alt = ((AltPat, Maybe Type), Expr)
 
 data Pat
-  = VarP Var Type
-  | TupleP [Pat] Type
+  = VarP Var (Maybe Type)
+  | TupleP [Pat] (Maybe Type)
   deriving Show
 
 data Prim
@@ -111,12 +110,11 @@ typeSizes x = case x of
   TyLam _ b -> typeSizes b
   TyFun a b -> typeSizes a ++ typeSizes b
   TyRecord bs -> concatMap (typeSizes . snd) bs
-  TyVariant bs -> concatMap (typeSizes . snd) bs
+  TyVariant bs -> concatMap typeSizes $ catMaybes $ map snd bs
   TyTuple bs -> concatMap typeSizes bs
   TyVar{} -> []
   TyCon{} -> []
   TySize a -> [unLoc a]
-  TyNone -> []
   TyAddress -> []
   TyArray -> []
   TySigned -> []
@@ -125,10 +123,13 @@ typeSizes x = case x of
   TyString -> []
   TyUnsigned -> []
 
+ascriptionTypes :: Maybe Type -> [Type]
+ascriptionTypes = maybe [] (:[])
+
 patTypes :: Pat -> [Type]
 patTypes x = case x of
-  VarP _ b -> [b]
-  TupleP bs c -> c : concatMap patTypes bs
+  VarP _ b -> ascriptionTypes b
+  TupleP bs c -> ascriptionTypes c ++ concatMap patTypes bs
 
 exprDeclTypes :: ExprDecl -> [Type]
 exprDeclTypes (ED v e) = patTypes v ++ exprTypes e
@@ -148,10 +149,10 @@ exprTypes x = case x of
   Where a b -> exprTypes a ++ concatMap exprDeclTypes b
   If a b c -> exprTypes a ++ exprTypes b ++ exprTypes c
   Sequence bs -> concatMap exprTypes bs
-  Record bs -> concat [ t : exprTypes e | ((_,t),e) <- bs ]
+  Record bs -> concat [ maybe [] (:[]) mt ++ exprTypes e | ((_,mt),e) <- bs ]
   Tuple bs -> concatMap exprTypes $ catMaybes bs
   Ascription a b -> b : exprTypes a
-  Case a bs -> exprTypes a ++ concat [ t : exprTypes e | ((_,t),e) <- bs ]
+  Case a bs -> exprTypes a ++ concat [ maybe [] (:[]) mt ++ exprTypes e | ((_,mt),e) <- bs ]
   Let a -> exprDeclTypes a
 
 ppLoc :: Pretty a => L a -> Doc x
@@ -214,7 +215,7 @@ nameAndType x = case x of
 
 nameAndTypePat :: Pat -> [(String, Type)]
 nameAndTypePat x = case x of
-  VarP v t -> [(unLoc v, t)]
+  VarP v (Just t) -> [(unLoc v, t)]
   _ -> undefined
 
 ppSize :: Int -> Doc x
@@ -234,8 +235,8 @@ lowercase :: String -> String
 lowercase "" = ""
 lowercase (c:cs) = toLower c : cs
 
-isTyEnum :: [(Con, Type)] -> Bool
-isTyEnum = all ((==) TyNone . snd)
+isTyEnum :: [(Con, Maybe Type)] -> Bool
+isTyEnum = all ((==) Nothing . snd)
 
 ppInstance :: Doc x -> [Doc x] -> [Doc x] -> Doc x
 ppInstance a bs cs =
@@ -256,7 +257,7 @@ ppTopDecl x = case x of
             [ ppTuple [ stringifyName n, "Prim.tyFort" <+> ppProxy t ] | (n,t) <- bs ]
         ]
     ] ++
-    [ ppAscription (ppVar v) (TyFun (tyAddress $ TyCon a) (tyAddress t)) <+> "= Prim.field" <+> pretty i
+    [ ppAscription (ppVar v) (Just $ TyFun (tyAddress $ TyCon a) (tyAddress t)) <+> "= Prim.field" <+> pretty i
     | ((v,t), i) <- zip bs [0 :: Int ..]]
   TyDecl a (TyVariant bs)
     | isTyEnum bs -> vcat $
@@ -274,7 +275,7 @@ ppTopDecl x = case x of
           [ "data" <+> ppCon a
           , ppInstance "Prim.Ty" [ppCon a]
               [ "tyFort _ = Prim.TyVariant" <> ppListV
-                  [ ppTuple [ stringifyName n, "Prim.tyFort" <+> ppProxy t ] | (n,t) <- bs ]
+                  [ ppTuple [ stringifyName n, "Prim.tyFort" <+> ppProxy (maybe (TyTuple []) id mt) ] | (n,mt) <- bs ]
               ]
           ] ++
           map (ppInject a) alts ++
@@ -284,7 +285,7 @@ ppTopDecl x = case x of
           constrs = ppList (map (pretty . show . fst) bs)
   TyDecl a b -> "type" <+> ppCon a <+> "=" <+> ppType b
   PrimDecl a b -> vcat
-    [ ppAscription (ppVar a) b
+    [ ppAscription (ppVar a) $ Just b
     , ppVar a <+> "=" <+> "Prim." <> pretty (show (ppVar a))
     ]
   _ -> mempty
@@ -294,27 +295,27 @@ ppDecl tbl x = case x of
   OpDecl a b -> case lookup (unLoc b) tbl of
     Nothing -> error $ "unknown operator binding" ++ show (a,b)
     Just t -> "let" <> line <> indent 2 (vcat
-      [ ppAscription (parens (ppOp a)) (typeToOperatorType t)
+      [ ppAscription (parens (ppOp a)) (Just $ typeToOperatorType t)
       , parens (ppOp a) <+> "= Prim.operator" <+> ppVar b ])
   ExprDecl a -> ppExprDecl True a
   _ -> mempty
 
-ppUnsafeCon :: Con -> (Con,Type) -> Doc x
-ppUnsafeCon _ (c, TyNone) = vcat
+ppUnsafeCon :: Con -> (Con, Maybe Type) -> Doc x
+ppUnsafeCon _ (c, Nothing) = vcat
   [ pretty (unsafeUnConName c) <+> ":: (Prim.Ty a, Prim.Ty b) => Prim.I a -> (Prim.I b -> Prim.I a)"
   , pretty (unsafeUnConName c) <+> "= Prelude.const"
   ]
-ppUnsafeCon a (c, t) = vcat
+ppUnsafeCon a (c, Just t) = vcat
   [ pretty (unsafeUnConName c) <+> ":: Prim.Ty a => (Prim.I (Prim.Addr " <> ppType t <> ") -> Prim.I a) -> (Prim.I (Prim.Addr (" <> ppCon a <> ")) -> Prim.I a)"
   , pretty (unsafeUnConName c) <+> "= Prim.unsafeCon"
   ]
 
-ppInject :: Pretty a => Con -> ((Con, Type), a) -> Doc x
-ppInject a ((c, TyNone), i) = vcat
+ppInject :: Pretty a => Con -> ((Con, Maybe Type), a) -> Doc x
+ppInject a ((c, Nothing), i) = vcat
   [ pretty (conToVarName c) <+> "::" <+> ppType (toInstructionType (TyFun (tyAddress $ TyCon a) (TyTuple [])))
   , pretty (conToVarName c) <+> "= Prim.injectTag" <+> pretty i
   ]
-ppInject a ((c, t), i) = vcat
+ppInject a ((c, Just t), i) = vcat
   [ pretty (conToVarName c) <+> "::" <+> ppType (toInstructionType (TyFun (TyTuple [tyAddress $ TyCon a, t]) (TyTuple [])))
   , pretty (conToVarName c) <+> "= Prim.inject" <+> pretty i
   ]
@@ -330,24 +331,24 @@ typeToOperatorType x = case x of
   TyFun (TyTuple [a,b]) c -> TyFun a (TyFun b c)
   _ -> error $ "unexpected type for operator decl:" ++ show x
 
-ppLabelAscription :: Doc x -> Type -> Doc x
+ppLabelAscription :: Doc x -> Maybe Type -> Doc x
 ppLabelAscription = ppAscriptionF ppLabelType
 
-ppAscription :: Doc x -> Type -> Doc x
+ppAscription :: Doc x -> Maybe Type -> Doc x
 ppAscription = ppAscriptionF ppType
 
-ppAscriptionF :: (Type -> Doc x) -> Doc x -> Type -> Doc x
-ppAscriptionF f d x = case x of
-  TyNone -> d
-  _ -> d <+> classes <+> f (toInstructionType x)
-  where
-    classes = case tyVars x of
-      [] -> "::"
-      vs -> "::" <+> ppTuple (map g vs) <+> "=>"
-        where
-          g v
-            | isSizeTyVar v = "Prim.Size" <+> pretty v
-            | otherwise = "Prim.Ty" <+> pretty v
+ppAscriptionF :: (Type -> Doc x) -> Doc x -> Maybe Type -> Doc x
+ppAscriptionF f d mx = case mx of
+  Nothing -> d
+  Just x -> d <+> classes <+> f (toInstructionType x)
+    where
+      classes = case tyVars x of
+        [] -> "::"
+        vs -> "::" <+> ppTuple (map g vs) <+> "=>"
+          where
+            g v
+              | isSizeTyVar v = "Prim.Size" <+> pretty v
+              | otherwise = "Prim.Ty" <+> pretty v
 
 isSizeTyVar :: String -> Bool
 isSizeTyVar v = take 2 v == "sz" -- BAL: hacky way to determine that it's a Size TyVar
@@ -364,11 +365,10 @@ tyVars = sort . nub . go
       TyLam v a -> filter ((/=) (unLoc v)) (go a)
       TyFun a b -> go a ++ go b
       TyRecord bs  -> concatMap (go . snd) bs
-      TyVariant bs -> concatMap (go . snd) bs
+      TyVariant bs -> concatMap go $ catMaybes $ map snd bs
       TyTuple bs   -> concatMap go bs
       TyCon{}    -> []
       TySize{}   -> []
-      TyNone     -> []
       TyAddress  -> []
       TyArray    -> []
       TySigned   -> []
@@ -438,7 +438,6 @@ ppType x = case x of
   TyFun a b   -> ppType a <+> "->" <+> ppType b
   TyTuple []  -> "()"
   TyTuple bs  -> ppTuple $ map ppType bs
-  TyNone      -> "()" -- BAL: need to remove TyNone
   TyVar a     -> ppVar a
   _           -> error $ "ppType:" ++ show x
 
@@ -450,7 +449,7 @@ ppExpr x = case x of
   Tuple [Nothing] -> ppExpr $ Tuple []
   Tuple bs -> ppTuple $ map (maybe mempty ppExpr) bs
   Lam a b  -> "\\" <> ppPat a <+> "->" <+> ppExpr b
-  Ascription a b -> parens (ppAscription (ppExpr a) b)
+  Ascription a b -> parens (ppAscription (ppExpr a) $ Just b)
   Sequence a -> ppSequence a
   If a b c -> ppIf a b c
   _ -> error $ "ppExpr:" ++ show x
@@ -492,7 +491,7 @@ getDefault xs = case xs of
     | otherwise -> error "default pattern not in last position"
   where
     dflt = case last xs of
-      ((DefaultP, TyNone),e) -> e
+      ((DefaultP, Nothing), e) -> e
       _                      -> noDflt
     noDflt = Prim $ Var $ L NoLoc "Prim.noDefault"
     bs = init xs

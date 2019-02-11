@@ -89,14 +89,13 @@ grammar = mdo
     (TySize <$> pSize <?> "sized type") <|>
     pTuple TyTuple pType <?> "tuple type"
   pAscription <- rule $ reserved ":" *> pType <?> "type ascription"
-  pOptionalAscription <- rule $ pAscription <|> pure TyNone
-  pVarOptionalAscription <- rule ((,) <$> pVar <*> pOptionalAscription)
-  pConOptionalAscription <- rule ((,) <$> pCon <*> pOptionalAscription)
-  pAltPatOptionalAscription <- rule ((,) <$> pAltPat <*> pOptionalAscription)
+  pVarOptionalAscription <- rule ((,) <$> pVar <*> optional pAscription)
+  pConOptionalAscription <- rule ((,) <$> pCon <*> optional pAscription)
+  pAltPatOptionalAscription <- rule ((,) <$> pAltPat <*> optional pAscription)
   pFieldDecl <- rule $ (,) <$> pBind pVarOptionalAscription <*> pExpr
   pExprDecl <- rule $ ED <$> pBind pPat <*> pExpr
   pDefaultPat <- rule $
-    ((DefaultP,TyNone),) <$> (Lam <$> pLam pPat <*> pLamE <?> "default pattern")
+    ((DefaultP,Nothing),) <$> (Lam <$> pLam pPat <*> pLamE <?> "default pattern")
   pAlt <- rule $
     ((,) <$> pBind pAltPatOptionalAscription <*> pExpr) <|>
     pDefaultPat
@@ -125,8 +124,8 @@ grammar = mdo
     -- ^ pSomeTuple is needed because the expr is optional
     (Prim <$> pPrim)
   pPat <- rule $
-    (VarP <$> pVar <*> pOptionalAscription <?> "var pattern") <|>
-    (pTuple TupleP pPat <*> pOptionalAscription <?> "tuple pattern")
+    (VarP <$> pVar <*> optional pAscription <?> "var pattern") <|>
+    (pTuple TupleP pPat <*> optional pAscription <?> "tuple pattern")
   return (blockItems pDecl)
   where
     blockList = braces . blockItems
@@ -135,14 +134,14 @@ grammar = mdo
 
 mkApp :: Expr -> Expr -> Expr
 mkApp x y = case y of
-  Tuple bs | Just (ps, ts) <- go freshVars [] [] bs -> Lam (TupleP ps TyNone) $ App x (Tuple ts)
+  Tuple bs | Just (ps, ts) <- go freshVars [] [] bs -> Lam (TupleP ps Nothing) $ App x (Tuple ts)
   _ -> App x y
   where
     go :: [Var] -> [Pat] -> [Maybe Expr] -> [Maybe Expr] -> Maybe ([Pat], [Maybe Expr])
     go _  vs es [] = if null vs then Nothing else Just (reverse vs, reverse es)
     go fs vs es (m:ms) = case m of
       Just{} -> go fs vs (m : es) ms
-      Nothing -> go (tail fs) (VarP v TyNone : vs) (Just (Prim (Var v)) : es) ms
+      Nothing -> go (tail fs) (VarP v Nothing : vs) (Just (Prim (Var v)) : es) ms
         where v = head fs
 
 freshVars :: [Var]
