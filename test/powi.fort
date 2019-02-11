@@ -24,7 +24,7 @@ truncate: a -> b
 is-odd: Int -> Bool = truncate
 
 ^ = powi
-powi: (Int, Int) -> Int = \(x,y) => go (1,x,y) ;; BAL:
+powi: (Int, Int) -> Int = \(x,y) => go (1,x,y)
   /where
     go: (Int, Int, Int) -> Int = \(r,a,b) => /if
       b == 0   = r

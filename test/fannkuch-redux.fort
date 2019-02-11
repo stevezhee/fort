@@ -46,7 +46,7 @@ go0: (Perm, Int) -> Int = \(p, num-flips) => /case load (p # 0) /of
 ;; BAL: try multiply version
 checksum: (Int, Int) -> Int = \(csum, n-flips) => /if
   is-odd n-flips = csum - n-flips
-  _ = csum + n-flips ;; BAL: should be =
+  _ = csum + n-flips
   
 reverse-n: (Int, Perm) -> () = \(n,p) => go (0, n - 1)
   /where
