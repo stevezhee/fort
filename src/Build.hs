@@ -99,19 +99,20 @@ blockLabel = do
 
 jump :: Type -> Name -> [M Operand] -> M Operand
 jump t x ys = do
-  let f y = do
-        b <- y
-        lbl <- IR.currentBlock
-        modify' $ \st -> st{ jumpArgs = HMS.insertWith (++) x [([b],lbl)] (jumpArgs st) }
   mapM_ f ys
   IR.br x
-  unit
+  return $ undefOperand t
+  where
+    f y = do
+      b <- y
+      lbl <- IR.currentBlock
+      modify' $ \st -> st{ jumpArgs = HMS.insertWith (++) x [([b],lbl)] (jumpArgs st) }
 
-label :: Name -> [(Type, S.ShortByteString)] -> ([M Operand] -> M ()) -> M Name
+label :: Name -> [(Type, S.ShortByteString)] -> ([M Operand] -> M Operand) -> M Name
 label lbl xs f = do
   IR.emitBlockStart lbl
   ns <- mapM IR.freshName $ map snd xs
-  f [ pure $ LocalReference t n | (t,n) <- zip (map fst xs) ns ]
+  a <- f [ pure $ LocalReference t n | (t,n) <- zip (map fst xs) ns ]
   modify' $ \st -> st{ jumpParams = HMS.insert lbl ns $ jumpParams st }
   return lbl
 

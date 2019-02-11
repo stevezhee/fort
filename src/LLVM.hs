@@ -64,10 +64,9 @@ nowarn _ = pure ()
 
 newtype Func a b = Func{ unFunc :: Operand }
 newtype Label a b = Label{ unLabel :: Name }
-data T a = T -- terminator
 
-ret :: Ty a => I a -> M (T a)
-ret x = (B.ret $ unI x) >> pure T
+ret :: Ty a => I a -> M (I a)
+ret = pure
 
 unsafeCast :: (Ty a, Ty b) => I a -> I b
 unsafeCast (I x) = I x
@@ -93,15 +92,16 @@ noDefault _ = unreachable
 jump :: (Args a, Ty b) => Label a (I b) -> a -> I b
 jump (x :: Label a (I b)) y = I $ B.jump (tyLLVM (Proxy :: Proxy b)) (unLabel x) (argOperands y)
 
-label :: (Args a, Ty b) => Name -> [S.ShortByteString] -> (a -> M (T b)) -> M (Label a (I b))
-label n xs (f :: a -> M (T b)) =
-  Label <$> B.label n (zip (tysLLVM (Proxy :: Proxy a)) xs) (void . f . paramOperands)
+label :: (Args a, Ty b) => Name -> [S.ShortByteString] -> (a -> M (I b)) -> M (Label a (I b))
+label n xs (f :: a -> M (I b)) =
+  Label <$> B.label n (zip (tysLLVM (Proxy :: Proxy a)) xs)
+  (\vs -> f (paramOperands vs) >>= \x -> unI x)
 
 call :: (Args a, Ty b) => Func a (I b) -> a -> I b
 call x a = I $ B.call (unFunc x) (argOperands a)
 
-func :: (Args a, Ty b) => Name -> [IR.ParameterName] -> (a -> M (T b)) -> M (Func a (I b))
-func n xs (f :: a -> M (T b)) = do
+func :: (Args a, Ty b) => Name -> [IR.ParameterName] -> (a -> M (I b)) -> M (Func a (I b))
+func n xs (f :: a -> M (I b)) = do
   nm <- B.func n
     (zip (tysLLVM (Proxy :: Proxy a)) xs)
     (tyLLVM (Proxy :: Proxy b))

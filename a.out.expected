@@ -1,0 +1,38 @@
+3^2 = 9
+128^0 = 1
+128^1 = 128
+3^2 = 9
+0
+1
+3
+[21, 42, ]
+arr[0] 21
+arr[1] 42
+sizeof int 4
+sizeof FILE* 8
+sizeof MyStruct.x 4
+sizeof MyStruct.y 1
+sizeof MyStruct.z 8
+sizeof MyStruct 16
+{x = 42, y = 'c', z = 42424242, }
+{a = 24, b = 24242424, }
+mystruct.x 42
+mystruct.y c
+mystruct.z 42424242
+mystruct2.a 24
+mystruct2.b 24242424
+stdin 0x7fff95858110
+arr2[0][0] = 0
+arr2[0][1] = 1
+arr2[0][2] = 1
+arr2[1][0] = 2
+arr2[1][1] = 3
+arr2[1][2] = 5
+myInt = 7
+hello, world
+hi, again
+flips: 5
+Green
+Red
+Green
+1,3,2,4,5,
