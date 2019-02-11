@@ -45,22 +45,16 @@ go0: (Perm, Int) -> Int = \(p, num-flips) => /case load (p # 0) /of
 
 ;; BAL: try multiply version
 checksum: (Int, Int) -> Int = \(csum, n-flips) => /if
-  is-odd n-flips => csum - n-flips
-  _ => csum + n-flips ;; BAL: should be =
+  is-odd n-flips = csum - n-flips
+  _ = csum + n-flips ;; BAL: should be =
   
-reverse-n: (Int, Perm) -> () = \(n,p) => go1 (p,0,n - 1)
-  ;; /where
-  ;;   go: (Int, Int) -> () = \(l,r) => /if
-  ;;     l >= r => ()
-  ;;     _ => /do
-  ;;       swap (p # l, p # r)
-  ;;       go (l + 1, r - 1)
-
-go1: (Perm,Int, Int) -> () = \(p,l,r) => /if
-  l >= r => ()
-  _ => /do
-    swap (p # l, p # r)
-    go1 (p, l + 1, r - 1)
+reverse-n: (Int, Perm) -> () = \(n,p) => go (0, n - 1)
+  /where
+    go: (Int, Int) -> () = \(l,r) => /if
+      l >= r = ()
+      _ = /do
+        swap (p # l, p # r)
+        go (l + 1, r - 1)
 
 swap: (/address Int, /address Int) -> () = \(p,q) => /do
   /let temp = load p

@@ -7,15 +7,15 @@ Bool = /bool
 equals: (Char, Char) -> Bool
 
 nested-if-foo: (Bool, Char) -> Char = \(p, c) => /if
-  c == #"a" => #"b"
-  c == #"b" => #"c"
-  p => c
-  _ => #"z"
+  c == #"a" = #"b"
+  c == #"b" = #"c"
+  p = c
+  _ = #"z"
 
 nested-if-bar: (Bool, Char) -> Char = \(p, c) => /if
-  c == #"a" => #"b"
-  _ => /if
-    c == #"b" => #"c"
-    _ => /if
-      p => c
-      _ => #"z"
+  c == #"a" = #"b"
+  _ = /if
+    c == #"b" = #"c"
+    _ = /if
+      p = c
+      _ = #"z"

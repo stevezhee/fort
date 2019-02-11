@@ -93,13 +93,14 @@ grammar = mdo
   pVarOptionalAscription <- rule ((,) <$> pVar <*> pOptionalAscription)
   pConOptionalAscription <- rule ((,) <$> pCon <*> pOptionalAscription)
   pAltPatOptionalAscription <- rule ((,) <$> pAltPat <*> pOptionalAscription)
-  pExprDecl <- rule $ ED <$> pBind pVarOptionalAscription <*> pExpr
+  pFieldDecl <- rule $ (,) <$> pBind pVarOptionalAscription <*> pExpr
+  pExprDecl <- rule $ ED <$> pBind pPat <*> pExpr
   pDefaultPat <- rule $
     ((DefaultP,TyNone),) <$> (Lam <$> pLam pPat <*> pLamE <?> "default pattern")
   pAlt <- rule $
     ((,) <$> pBind pAltPatOptionalAscription <*> pExpr) <|>
     pDefaultPat
-  let pIfAlt = (,) <$> pExpr <*> (reserved "=>" *> pExpr)
+  let pIfAlt = (,) <$> pExpr <*> (reserved "=" *> pExpr)
   pExpr <- rule $
     (mkWhere <$> pLamE <*> (reserved "/where" *> blockList pExprDecl) <?> "where clause") <|>
     pLamE
@@ -119,7 +120,7 @@ grammar = mdo
     (Ascription <$> pE0 <*> pAscription) <|>
     pE0
   pE0 <- rule $
-    (Record <$> blockList pExprDecl <?> "record") <|>
+    (Record <$> blockList pFieldDecl <?> "record") <|>
     (pSomeTuple Tuple (optional pExpr) <?> "tuple") <|>
     -- ^ pSomeTuple is needed because the expr is optional
     (Prim <$> pPrim)

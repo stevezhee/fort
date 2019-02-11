@@ -28,7 +28,7 @@ data Decl
   | ExprDecl ExprDecl
   deriving Show
 
-data ExprDecl = ED{ edLHS :: (Var, Type), edRHS :: Expr } deriving Show
+data ExprDecl = ED{ edLHS :: Pat, edRHS :: Expr } deriving Show
 
 -- In general the compiler is free to reorder and lay out data any way it sees
 -- fit. If you want to ffi to/from C/LLVM/etc. you must marshal the data
@@ -63,7 +63,7 @@ data Expr
   | If Expr Expr Expr
   | Case Expr [Alt]
   | Sequence [Expr]
-  | Record [ExprDecl]
+  | Record [((Var, Type), Expr)]
   | Tuple [Maybe Expr]
   | Ascription Expr Type
   deriving Show
@@ -131,7 +131,7 @@ patTypes x = case x of
   TupleP bs c -> c : concatMap patTypes bs
 
 exprDeclTypes :: ExprDecl -> [Type]
-exprDeclTypes (ED (_,t) e) = t : exprTypes e
+exprDeclTypes (ED v e) = patTypes v ++ exprTypes e
 
 declTypes :: Decl -> [Type]
 declTypes x = case x of
@@ -148,7 +148,7 @@ exprTypes x = case x of
   Where a b -> exprTypes a ++ concatMap exprDeclTypes b
   If a b c -> exprTypes a ++ exprTypes b ++ exprTypes c
   Sequence bs -> concatMap exprTypes bs
-  Record bs -> concatMap exprDeclTypes bs
+  Record bs -> concat [ t : exprTypes e | ((_,t),e) <- bs ]
   Tuple bs -> concatMap exprTypes $ catMaybes bs
   Ascription a b -> b : exprTypes a
   Case a bs -> exprTypes a ++ concat [ t : exprTypes e | ((_,t),e) <- bs ]
@@ -203,14 +203,19 @@ ppDecls fn xs = vcat $
   where
     userTypes = concatMap declTypes xs
     userSizes = sort $ nub $ concatMap typeSizes userTypes
-    nameTbl = catMaybes $ map nameAndType xs
+    nameTbl = concatMap nameAndType xs
     (tds, ds) = partition isTopDecl xs
 
-nameAndType :: Decl -> Maybe (String, Type)
+nameAndType :: Decl -> [(String, Type)]
 nameAndType x = case x of
-  PrimDecl a b -> Just (unLoc a, b)
-  ExprDecl (ED (a,b) _) -> Just (unLoc a, b)
-  _ -> Nothing
+  PrimDecl a b -> [(unLoc a, b)]
+  ExprDecl (ED v _) -> nameAndTypePat v
+  _ -> []
+
+nameAndTypePat :: Pat -> [(String, Type)]
+nameAndTypePat x = case x of
+  VarP v t -> [(unLoc v, t)]
+  _ -> undefined
 
 ppSize :: Int -> Doc x
 ppSize i
@@ -377,13 +382,13 @@ stringifyName = pretty . show . canonicalizeName . show . ppToken
 
 mFuncVar :: Decl -> Maybe Var
 mFuncVar x = case x of
-  ExprDecl (ED (v,_) e) -> case e of
+  ExprDecl (ED (VarP v _) e) -> case e of
     Prim{} -> Nothing
     _ -> Just v
   _ -> Nothing
 
 ppExprDecl :: Bool -> ExprDecl -> Doc x
-ppExprDecl isTopLevel (ED (v,t) e) = case e of
+ppExprDecl isTopLevel (ED (VarP v t) e) = case e of
   Prim a -> "let" <+> lhs <+> "=" <+> ppPrim a
   Lam a _
     | isTopLevel -> vcat
@@ -406,7 +411,9 @@ ppLabelType x = case x of
   _ -> ppType x
 
 edLabel :: ExprDecl -> String
-edLabel = unLoc . fst . edLHS
+edLabel (ED p _)= case p of
+ VarP v _ -> unLoc v
+ _ -> undefined
 
 ppFuncVar :: Var -> Doc x
 ppFuncVar v = "func_" <> ppVar v
@@ -502,9 +509,9 @@ ppSequence xs = "Prim.sequence" <> ppListV (go xs)
     go [] = []
     go [b] = [ppExpr b]
     go (b:bs) = case b of
-      Let (ED (v,t) e) ->
+      Let (ED v e) ->
         ["Prim.let_" <+> parens (ppExpr e) <+>
-           parens ("\\" <> ppAscription (ppVar v) t <+> "->" <+> ppSequence bs)]
+           parens ("\\" <> ppPat v <+> "->" <+> ppSequence bs)]
       _ -> ("Prim.unsafeCast" <+> ppExpr b) : go bs
 
 unsafeUnConName :: Con -> String
