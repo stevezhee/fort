@@ -52,6 +52,45 @@ data Type
   | TyUnsigned
   deriving (Show, Eq)
 
+data Expr
+  = Prim Prim
+  | Lam Pat Expr
+  | App Expr Expr
+    -- ^ function call, primop, or jump
+  | Where Expr [ExprDecl] -- BAL: include jump definitions here
+  | Let ExprDecl
+    -- values, functions, or labels
+  | If Expr Expr Expr
+  | Sequence [Expr]
+  | Record [ExprDecl]
+  | Tuple [Maybe Expr]
+  | Ascription Expr Type
+  | Case Expr [Alt]
+  deriving Show
+
+type Alt = ((AltPat, Type), Expr)
+
+data Pat
+  = VarP Var Type
+  | TupleP [Pat] Type
+  deriving Show
+
+data Prim
+  = Var Var
+  | StringL (L String)
+  | IntL (L Int)
+  | CharL (L Char)
+  | Op Op
+  deriving Show
+
+data AltPat
+  = DefaultP
+  | ConP Con
+  | IntP (L Int)
+  | CharP (L Char)
+  | StringP (L String)
+  deriving Show
+
 toInstructionType :: Type -> Type
 toInstructionType = go
   where
@@ -114,47 +153,6 @@ exprTypes x = case x of
   Ascription a b -> b : exprTypes a
   Case a bs -> exprTypes a ++ concat [ t : exprTypes e | ((_,t),e) <- bs ]
   Let a -> exprDeclTypes a
-
-data Expr
-  = Prim Prim
-  | Lam Pat Expr
-  | App Expr Expr -- BAL: use tuples/records for multi-arg functions(?)
-    -- ^ function call, primop, or jump
-  | Where Expr [ExprDecl] -- BAL: include jump definitions here
-  | Let ExprDecl
-    -- values, functions, or labels
-  | If Expr Expr Expr
-    -- expr or terminator
-  | Sequence [Expr] -- BAL: remove
-  | Record [ExprDecl]
-  | Tuple [Maybe Expr]
-  | Ascription Expr Type
-  | Case Expr [Alt]
-  -- BAL: ? | Terminator Terminator -- BAL: break this apart from expr
-  deriving Show
-
-type Alt = ((AltPat, Type), Expr)
-
-data Pat
-  = VarP Var Type
-  | TupleP [Pat] Type
-  deriving Show
-
-data Prim
-  = Var Var
-  | StringL (L String)
-  | IntL (L Int)
-  | CharL (L Char)
-  | Op Op
-  deriving Show
-
-data AltPat
-  = DefaultP
-  | ConP Con
-  | IntP (L Int)
-  | CharP (L Char)
-  | StringP (L String)
-  deriving Show
 
 ppLoc :: Pretty a => L a -> Doc x
 ppLoc = pretty . unLoc
@@ -223,21 +221,6 @@ ppSize i
     ]
   where
     sizeCon = "Size" <> pretty i
-
--- allFieldDecls :: [Decl] -> [String]
--- allFieldDecls = nub . sort . foldl' (\a b -> a ++ fieldDecls b) []
-
--- fieldDecls :: Decl -> [String]
--- fieldDecls x = case x of
---   TyDecl _ (TyRecord bs) -> map (canonicalizeName . unLoc . fst) bs
---   _ -> []
-
--- ppHasClass :: String -> Doc x
--- ppHasClass v = "class Has_" <> pretty v <+> "a b | a -> b where" <+> pretty v <+> ":: Prim.Address a -> Prim.Address b"
-
--- ppHasInstance :: Con -> ((Var, Type), Int) -> Doc x
--- ppHasInstance c ((v,t), i) =
---   ppInstance ("Has_" <> ppVar v) [ppCon c, ppType t] [ppVar v <+> "= Prim.field" <+> pretty i]
 
 conToVarName :: Con -> String
 conToVarName = canonicalizeName . lowercase . unLoc
@@ -457,7 +440,7 @@ ppExpr x = case x of
   Prim a   -> ppPrim a
   App a b  -> parens (ppExpr a <+> ppExpr b)
   Tuple [] -> "Prim.unit"
-  Tuple [Nothing] -> "Prim.unit" -- BAL: The parser should remove these...
+  Tuple [Nothing] -> ppExpr $ Tuple []
   Tuple bs -> ppTuple $ map (maybe mempty ppExpr) bs
   Lam a b  -> "\\" <> ppPat a <+> "->" <+> ppExpr b
   Ascription a b -> parens (ppAscription (ppExpr a) b)
