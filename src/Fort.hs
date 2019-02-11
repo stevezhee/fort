@@ -61,11 +61,11 @@ data Expr
   | Let ExprDecl
     -- values, functions, or labels
   | If Expr Expr Expr
+  | Case Expr [Alt]
   | Sequence [Expr]
   | Record [ExprDecl]
   | Tuple [Maybe Expr]
   | Ascription Expr Type
-  | Case Expr [Alt]
   deriving Show
 
 type Alt = ((AltPat, Type), Expr)
