@@ -4,11 +4,13 @@
 TEST_DIR=test
 HS_FILES=$(shell find src -name \*.hs) $(shell find app -name \*.hs)
 FORT_FILES=$(wildcard $(TEST_DIR)/*.fort)
+GEN_HS_FILES=$(addsuffix .hs, $(FORT_FILES))
+LL_FILES=$(addsuffix .ll, $(FORT_FILES))
 O_FILES=$(addsuffix .o, $(FORT_FILES))
 OUT_FILE=a.out
 
 .PHONY: all
-all: run
+all: $(LL_FILES)
 
 .PHONY: run
 run: $(OUT_FILE)

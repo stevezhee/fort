@@ -26,6 +26,6 @@ foo-2dim-array: /address (/array 2 (/array 3 Int)) -> () = \arr => /do
   store (index (index (arr, 1), 0), 2)
   store (index (index (arr, 1), 1), 3)
   store (index (index (arr, 1), 2), 5)
-  ;; BAL: fixme output arr
+  output arr
 
 ;; do array constants also... as long as the code evaluates to a constant at compile time then it's a constant
