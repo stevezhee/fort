@@ -13,10 +13,10 @@ add: (a, a) -> a ;; where a is a number type
 
 inc: /address Int -> () = \p => store (p, add (1, load p))
 
-;; ;; operator
-;; + = add
-;; inc-op: /address Int -> () = \p => store (p, load p + 1)
+;; operator
++ = add
+inc-op: /address Int -> () = \p => store (p, load p + 1)
 
-;; inc2: /address Int -> () = \p => /do
-;;   inc p
-;;   inc-op p
+inc2: /address Int -> () = \p => /do
+  inc p
+  inc-op p

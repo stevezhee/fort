@@ -4,19 +4,19 @@ Bool = /bool
 
 ;; primitives
 == = equals
-equals: (Int, Int) -> Bool
+equals: (a, a) -> Bool
 
 - = subtract
-subtract: (Int, Int) -> Int
+subtract: (a, a) -> a
 
 * = multiply
-multiply: (Int, Int) -> Int
+multiply: (a, a) -> a
 
 / = divide
-divide: (Int, Int) -> Int
+divide: (a, a) -> a
 
 ;; & = bitwise-and
-;; bitwise-and: (Int, Int) -> Int
+bitwise-and: (a, a) -> a
 
 truncate: a -> b
 

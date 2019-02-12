@@ -4,7 +4,7 @@ Bool = /bool
 
 ;; primitives
 == = equals
-equals: (Char, Char) -> Bool
+equals: (a, a) -> Bool
 
 nested-if-foo: (Bool, Char) -> Char = \(p, c) => /if
   c == #"a" = #"b"
