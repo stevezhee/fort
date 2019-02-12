@@ -214,16 +214,16 @@ ppDecls fn xs = vcat $
     -- nameTbl = concatMap nameAndType xs
     -- (tds, ds) = partition isTopDecl xs
 
-nameAndType :: Decl -> [(String, Type)]
-nameAndType x = case x of
-  PrimDecl a b -> [(unLoc a, b)]
-  ExprDecl (ED v _) -> nameAndTypePat v
-  _ -> []
+-- nameAndType :: Decl -> [(String, Type)]
+-- nameAndType x = case x of
+--   PrimDecl a b -> [(unLoc a, b)]
+--   ExprDecl (ED v _) -> nameAndTypePat v
+--   _ -> []
 
-nameAndTypePat :: Pat -> [(String, Type)]
-nameAndTypePat x = case x of
-  VarP v (Just t) -> [(unLoc v, t)]
-  _ -> undefined
+-- nameAndTypePat :: Pat -> [(String, Type)]
+-- nameAndTypePat x = case x of
+--   VarP v (Just t) -> [(unLoc v, t)]
+--   _ -> undefined
 
 ppSize :: Int -> Doc x
 ppSize i
@@ -402,10 +402,10 @@ ppLabelType x = case x of
   TyFun a b -> "T.Label" <+> parens (ppType a) <+> parens (ppType b)
   _ -> ppType x
 
-edLabel :: ExprDecl -> String
-edLabel (ED p _)= case p of
- VarP v _ -> unLoc v
- _ -> undefined
+-- edLabel :: ExprDecl -> String
+-- edLabel (ED p _)= case p of
+--  VarP v _ -> unLoc v
+--  _ -> undefined
 
 ppType :: Type -> Doc x
 ppType x = case x of
@@ -446,7 +446,11 @@ ppExpr x = case x of
     -- BAL: ^ put this type somewhere...
     where
       (dflt, alts) = getDefault bs
-  Where a bs -> undefined -- vcat $
+  Where a bs -> vcat
+    [ "let"
+    , indent 2 (vcat $ map (ppExprDecl False) bs)
+    , indent 2 ("in" <+> ppExpr a)
+    ]
     -- map (ppExprDecl False) bs ++
     -- [ "T.startBlock"
     -- , parens (ppTerm a)
