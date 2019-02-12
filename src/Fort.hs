@@ -81,6 +81,14 @@ data Pat
   | TupleP [Pat] (Maybe Type)
   deriving Show
 
+letBind :: Var -> Pat -> Doc x
+letBind v x = case x of
+  VarP a mt -> "let" <+> ppVar a <+> "=" <+> ppAscription (ppVar v) mt <+> "in"
+  TupleP [] mt -> "let () =" <+> "T.argUnit" <+> ppAscription (ppVar v) mt <+> "in"
+  TupleP [VarP a _mt0] mt -> letBind v $ VarP a mt -- BAL: do something with the type
+  TupleP [VarP a _mt0, VarP b _mt1] mt -> "let" <+> ppTuple [ppVar a, ppVar b] <+> "=" <+> "T.argTuple2" <+> ppAscription (ppVar v) mt <+> "in" -- BAL: do something with the types
+  _ -> error $ show x
+
 data Prim
   = Var Var
   | StringL (L String)
@@ -388,11 +396,10 @@ mFuncVar x = case x of
 ppExprDecl :: Bool -> ExprDecl -> Doc x
 ppExprDecl isTopLevel (ED (VarP v t) e) = case e of
   Prim a -> lhs <+> "=" <+> ppPrim a
-  Lam a _
-    | isTopLevel ->
-        lhs <+> "= T.func" <+> stringifyName v <+> stringifyPat a <+> parens (ppExpr e)
-    | otherwise ->
-        lhs <+> "= T.label" <+> stringifyName v <+> stringifyPat a <+> parens (ppExpr e)
+  Lam a b -> lhs <+> "=" <+> (if isTopLevel then "T.func" else "T.label") <+> rhs
+    where
+      rhs = stringifyName v <+> stringifyPat a <+> parens ("\\" <> ppVar v <+> "->" <+> letBind (L NoLoc "v") a <+> ppExpr b)
+      v = L NoLoc "v"  -- BAL: create a fresh variable
   _ -> error $ "ppExprDecl:" ++ show e
   where
     lhs = ppAscription (ppVar v) t
