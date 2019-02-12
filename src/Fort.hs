@@ -87,6 +87,7 @@ letBind v x = case x of
   TupleP [] mt -> "let () =" <+> "T.argUnit" <+> ppAscription (ppVar v) mt <+> "in"
   TupleP [VarP a _mt0] mt -> letBind v $ VarP a mt -- BAL: do something with the type
   TupleP [VarP a _mt0, VarP b _mt1] mt -> "let" <+> ppTuple [ppVar a, ppVar b] <+> "=" <+> "T.argTuple2" <+> ppAscription (ppVar v) mt <+> "in" -- BAL: do something with the types
+  TupleP [VarP a _mt0, VarP b _mt1, VarP c _mt2] mt -> "let" <+> ppTuple [ppVar a, ppVar b, ppVar c] <+> "=" <+> "T.argTuple3" <+> ppAscription (ppVar v) mt <+> "in" -- BAL: do something with the types
   _ -> error $ show x
 
 data Prim
@@ -281,7 +282,7 @@ ppTopDecl x = case x of
             [ "tyFort _ = T.TyEnum" <+> constrs
             ]
         ] ++
-        [ vcat [ pretty (conToVarName c) <+> ":: T.I" <+> ppCon a
+        [ vcat [ pretty (conToVarName c) <+> ":: T.E" <+> ppCon a
                , pretty (conToVarName c) <+> "= T.enum" <+> pretty i
                , ppUnsafeCon a (c,t)
                ] | ((c,t),i) <- alts ]
@@ -308,17 +309,18 @@ ppTopDecl x = case x of
 
 ppUnsafeCon :: Con -> (Con, Maybe Type) -> Doc x
 ppUnsafeCon _ (c, Nothing) = vcat
-  [ pretty (unsafeUnConName c) <+> ":: (T.Ty a, T.Ty b) => T.I a -> (T.I b -> T.I a)"
-  , pretty (unsafeUnConName c) <+> "= Prelude.const"
+  [ pretty (unsafeUnConName c) <+> ":: T.E a -> T.E b -> T.E a" -- BAL: put type in here
+  , pretty (unsafeUnConName c) <+> "= T.const"
   ]
 ppUnsafeCon a (c, Just t) = vcat
-  [ pretty (unsafeUnConName c) <+> ":: T.Ty a => (T.I (T.Addr " <> ppType t <> ") -> T.I a) -> (T.I (T.Addr (" <> ppCon a <> ")) -> T.I a)"
+  [ pretty (unsafeUnConName c) <+>
+    ":: (T.E ((T.Addr " <> ppType t <> ") -> a) -> T.E ((T.Addr (" <> ppCon a <> ")) -> a))"
   , pretty (unsafeUnConName c) <+> "= T.unsafeCon"
   ]
 
 ppInject :: Pretty a => Con -> ((Con, Maybe Type), a) -> Doc x
 ppInject a ((c, Nothing), i) = vcat
-  [ pretty (conToVarName c) <+> "::" <+> ppType (TyFun (tyAddress $ TyCon a) (TyTuple []))
+  [ pretty (conToVarName c) <+> ":: T.E" <+> parens (ppType (TyFun (tyAddress $ TyCon a) (TyTuple [])))
   , pretty (conToVarName c) <+> "= T.injectTag" <+> pretty i
   ]
 ppInject a ((c, Just t), i) = vcat
@@ -398,11 +400,14 @@ ppExprDecl isTopLevel (ED (VarP v t) e) = case e of
   Prim a -> lhs <+> "=" <+> ppPrim a
   Lam a b -> lhs <+> "=" <+> (if isTopLevel then "T.func" else "T.label") <+> rhs
     where
-      rhs = stringifyName v <+> stringifyPat a <+> parens ("\\" <> ppVar v <+> "->" <+> letBind (L NoLoc "v") a <+> ppExpr b)
-      v = L NoLoc "v"  -- BAL: create a fresh variable
+      rhs = stringifyName v <+> stringifyPat a <+> ppLam a b
   _ -> error $ "ppExprDecl:" ++ show e
   where
     lhs = ppAscription (ppVar v) t
+
+ppLam x y = parens ("\\" <> ppVar v <+> "->" <+> letBind (L NoLoc "v") x <+> ppExpr y)
+  where
+    v = L NoLoc "v"  -- BAL: create a fresh variable
 
 ppLabelType :: Type -> Doc x
 ppLabelType x = case x of
@@ -444,7 +449,7 @@ ppExpr x = case x of
   Tuple [Nothing] -> ppExpr $ Tuple []
   Tuple [Just e] -> ppExpr e
   Tuple bs -> parens ("T.tuple" <> pretty (length bs) <+> ppTuple (map (maybe mempty ppExpr) bs))
-  Lam a b  -> "\\" <> ppPat a <+> "->" <+> ppExpr b
+  Lam a b  -> ppLam a b
   Ascription a b -> parens (ppAscription (ppExpr a) $ Just b)
   Sequence a -> ppSequence a
   If a b c -> parens ("T.if_" <+> ppExpr a <> line <> indent 2 (vcat [parens (ppExpr b), parens (ppExpr c)]))
@@ -483,7 +488,7 @@ ppAltCon :: AltPat -> Expr -> Doc x
 ppAltCon x e = case x of
   ConP c   -> pretty (unsafeUnConName c) <+> parens (ppExpr e)
   DefaultP -> parens (ppExpr e)
-  _ -> "Prelude.const" <+> parens (ppExpr e)
+  _ -> "T.const" <+> parens (ppExpr e)
 
 ppSequence :: [Expr] -> Doc x
 ppSequence xs = parens ("T.sequence" <> ppListV (go xs))
@@ -492,8 +497,7 @@ ppSequence xs = parens ("T.sequence" <> ppListV (go xs))
     go [b] = [ppExpr b]
     go (b:bs) = case b of
       Let (ED v e) ->
-        ["T.let_" <+> parens (ppExpr e) <+>
-           parens ("\\" <> ppPat v <+> "->" <+> ppSequence bs)]
+        ["T.let_" <+> parens (ppExpr e) <+> ppLam v (Sequence bs)]
       _ -> ("T.unsafeCast" <+> ppExpr b) : go bs
 
 unsafeUnConName :: Con -> String
