@@ -314,7 +314,7 @@ ppUnsafeCon _ (c, Nothing) = vcat
   ]
 ppUnsafeCon a (c, Just t) = vcat
   [ pretty (unsafeUnConName c) <+>
-    ":: (T.E ((T.Addr " <> ppType t <> ") -> a) -> T.E ((T.Addr (" <> ppCon a <> ")) -> a))"
+    ":: (T.E (T.Addr " <> ppType t <> ") -> T.E a) -> (T.E (T.Addr " <> ppCon a <> ") -> T.E a)"
   , pretty (unsafeUnConName c) <+> "= T.unsafeCon"
   ]
 
@@ -324,7 +324,7 @@ ppInject a ((c, Nothing), i) = vcat
   , pretty (conToVarName c) <+> "= T.injectTag" <+> pretty i
   ]
 ppInject a ((c, Just t), i) = vcat
-  [ pretty (conToVarName c) <+> "::" <+> ppType (TyFun (TyTuple [tyAddress $ TyCon a, t]) (TyTuple []))
+  [ pretty (conToVarName c) <+> ":: T.E" <+> parens (ppType (TyFun (TyTuple [tyAddress $ TyCon a, t]) (TyTuple [])))
   , pretty (conToVarName c) <+> "= T.inject" <+> pretty i
   ]
 
