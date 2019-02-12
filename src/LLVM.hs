@@ -342,9 +342,6 @@ hPutTy h t0 x0 = go t0 x0 >> putS "\n"
 output :: Ty a => I a -> I ()
 output a = h_put (a, stdout)
 
-store :: Ty a => (I (Addr a), I a) -> I ()
-store = binop B.store
-
 tyLLVM :: Ty a => Proxy a -> AST.Type
 tyLLVM = toTyLLVM . tyFort
 
@@ -427,6 +424,9 @@ binop f (x, y) = I $ do
 
 index :: (Size sz, Ty a) => (I (Addr (Array sz a)), I UInt32) -> I (Addr a)
 index = binop B.idx
+
+store :: Ty a => (I (Addr a), I a) -> I ()
+store = binop B.store
 
 load :: Ty a => I (Addr a) -> I a
 load = unop B.load

@@ -201,6 +201,7 @@ ppDecls fn xs = vcat $
   [ "{-# LANGUAGE OverloadedStrings #-}"
   , "{-# LANGUAGE RecursiveDo #-}"
   , "{-# LANGUAGE ScopedTypeVariables #-}"
+  , "{-# LANGUAGE RankNTypes #-}"
   , ""
   , "{-# OPTIONS_GHC -fno-warn-missing-signatures #-}"
   , ""
@@ -283,7 +284,7 @@ ppTopDecl x = case x of
             ]
         ] ++
         [ vcat [ pretty (conToVarName c) <+> ":: T.E" <+> ppCon a
-               , pretty (conToVarName c) <+> "= T.enum" <+> pretty i
+               , pretty (conToVarName c) <+> "= T.enum" <+> ppTuple [stringifyName c, pretty i]
                , ppUnsafeCon a (c,t)
                ] | ((c,t),i) <- alts ]
 
@@ -304,7 +305,7 @@ ppTopDecl x = case x of
     [ ppAscription (ppVar a) $ Just b
     , ppVar a <+> "=" <+> "T." <> pretty (show (ppVar a))
     ]
-  OpDecl a b ->parens (ppOp a) <+> "= T.operator" <+> ppVar b 
+  OpDecl a b ->parens (ppOp a) <+> "=" <+> ppVar b 
   ExprDecl a -> ppExprDecl True a
 
 ppUnsafeCon :: Con -> (Con, Maybe Type) -> Doc x
@@ -350,13 +351,13 @@ ppAscriptionF f d mx = case mx of
   Nothing -> d
   Just x -> d <+> classes <+> "T.E" <+> parens (f x)
     where
-      classes = "::" -- case tyVars x of
-        -- [] -> "::"
-        -- vs -> "::" <+> ppTuple (map g vs) <+> "=>"
-        --   where
-        --     g v
-        --       | isSizeTyVar v = "T.Size" <+> pretty v
-        --       | otherwise = "T.Ty" <+> pretty v
+      classes = case tyVars x of
+        [] -> "::"
+        vs -> "::" <+> ppTuple (map g vs) <+> "=>"
+          where
+            g v
+              | isSizeTyVar v = "T.Size" <+> pretty v
+              | otherwise = "T.Ty" <+> pretty v
 
 isSizeTyVar :: String -> Bool
 isSizeTyVar v = take 2 v == "sz" -- BAL: hacky way to determine that it's a Size TyVar
@@ -497,7 +498,7 @@ ppSequence xs = parens ("T.sequence" <> ppListV (go xs))
     go [b] = [ppExpr b]
     go (b:bs) = case b of
       Let (ED v e) ->
-        ["T.let_" <+> parens (ppExpr e) <+> ppLam v (Sequence bs)]
+        ["T.let_" <+> stringifyPat v <+> parens (ppExpr e) <+> ppLam v (Sequence bs)]
       _ -> ("T.unsafeCast" <+> ppExpr b) : go bs
 
 unsafeUnConName :: Con -> String
@@ -535,11 +536,6 @@ commaSep = hcat . intersperse ", "
 commaSepV :: [Doc x] -> Doc x
 commaSepV [] = mempty
 commaSepV (x:ys) = vcat (x : [ "," <> y | y <- ys ])
-
-ppPat :: Pat -> Doc x
-ppPat x = case x of
-  TupleP bs t -> ppAscription (ppTuple (map ppPat bs)) t
-  VarP a t -> ppAscription (ppVar a) t
 
 ppPrim :: Prim -> Doc x
 ppPrim x = case x of
