@@ -55,10 +55,8 @@ data Expr
   = Prim Prim
   | Lam Pat Expr
   | App Expr Expr
-    -- ^ function call, primop, or jump
-  | Where Expr [ExprDecl] -- BAL: include jump definitions here
+  | Where Expr [ExprDecl]
   | Let ExprDecl
-    -- values, functions, or labels
   | If Expr Expr Expr
   | Case Expr [Alt]
   | Sequence [Expr]
@@ -69,8 +67,6 @@ data Expr
 
 isOpExpr x = case x of
   Prim Op{} -> True
-    -- ^ function call, primop, or jump
-    -- values, functions, or labels
   Ascription a _ -> isOpExpr a
   _ -> False
 
@@ -416,14 +412,9 @@ ppLetIn x y z = vcat
 ppExprDecl :: Bool -> ExprDecl -> Doc x
 ppExprDecl isTopLevel (ED (VarP v t) e) = case e of
   Prim a -> lhs <+> "=" <+> ppPrim a
-    -- | isTopLevel -> lhs <+> "=" <+> ppPrim a
-    -- | otherwise ->  ppLet lhs $ ppPrim a
   Lam a b
     | isTopLevel -> lhs <+> "=" <+> "T.func" <+> rhs
     | otherwise  -> lhs <+> "=" <+> "T.jump" <+> stringifyName v
-    -- | otherwise  -> [ ppLet lhs ("T.jump" <+> stringifyName v)
-    --     , "T.label" <+> rhs
-    --     ]
     where
       rhs = stringifyName v <+> stringifyPat a <+> ppLam a b
       labelName = ppVar v <> "_label"
@@ -494,10 +485,6 @@ ppExpr x = case x of
       (dflt, alts) = getDefault bs
   Where a bs -> ppWhere (map (ppExprDecl False) bs) $
     parens ("T.where_" <+> parens ((ppExpr a)) <> ppListV (catMaybes $ map ppExprDeclLabelBody bs))
-  -- "T.where_" <+> parens ("mdo" <> line <> indent 2 (vcat
-  --   (map (ppExprDecl False) bs ++ ["Prelude.pure" <+> ppExpr a])))
-  -- Where a bs -> "T.where_" <+> parens ("mdo" <> line <> indent 2 (vcat
-  --   (map (ppExprDecl False) bs ++ ["Prelude.pure" <+> ppExpr a])))
   _ -> error $ "ppExpr:" ++ show x
 
 ppProxy :: Type -> Doc x
