@@ -498,7 +498,7 @@ store (x,y) = I $ do
 load_volatile :: Ty a => Address a -> I a
 load_volatile = unop load_volatile
   where
-    load_volatile a = IR.emitInstr (AST.typeOf a) $ LLVM.AST.Instruction.Load True a Nothing 0 []
+    load_volatile a = IR.emitInstr (AST.IntegerType 32) $ LLVM.AST.Instruction.Load True a Nothing 0 []
 
 store_volatile :: Ty a => (Address a, I a) -> I ()
 store_volatile (x,y) = I $ do
