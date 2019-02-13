@@ -3,6 +3,18 @@
 ;;  ┴  ┴ ┴  └─┘└─┘
 
 UInt32 = /unsigned 32
+Pointer = /address (/unsigned 32)
+RealWorld = /unsigned 1
+
+;; ┌─┐┬─┐┬┌┬┐┬┌┬┐┬┬  ┬┌─┐┌─┐
+;; ├─┘├┬┘│││││ │ │└┐┌┘├┤ └─┐
+;; ┴  ┴└─┴┴ ┴┴ ┴ ┴ └┘ └─┘└─┘
+
+load_volatile: /address a -> a
+store_volatile: (/address a, a) -> ()
+
+inttoptr: UInt32 -> Pointer
+ptrtoint: Pointer -> UInt32
 
 ;; ┌─┐┌─┐┌─┐┬─┐┌─┐┌┬┐┌─┐┬─┐┌─┐
 ;; │ │├─┘├┤ ├┬┘├─┤ │ │ │├┬┘└─┐
@@ -27,4 +39,14 @@ bitwise_or: (UInt32, UInt32) -> UInt32
 periph_base: UInt32 = 1073741824 ;; 0x40000000
 cmu_base: UInt32 = periph_base + 209715200 ;; 0xc8000
 wdog_base: UInt32 = periph_base + 142606336 ;; 0x88000
-wdog_ctrl: UInt32 = wdog_base + 0 ;; TODO: volatile uint32
+
+;; ┌─┐┬ ┬┌┐┌┌─┐┌┬┐┬┌─┐┌┐┌┌─┐
+;; ├┤ │ │││││   │ ││ ││││└─┐
+;; └  └─┘┘└┘└─┘ ┴ ┴└─┘┘└┘└─┘
+
+set_register: (UInt32, UInt32) -> () = \(a,b) => /do
+  /let pointer = inttoptr a
+  store_volatile (pointer, b)
+
+test: RealWorld -> () = \w => /do
+  set_register (wdog_base, 0)
