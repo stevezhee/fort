@@ -171,11 +171,6 @@ canonicalizeName = map f
   where
     f c = if c == '-' then '_' else c -- '-' is semantically identical to '_'
 
-canonicalizeOp :: String -> String
-canonicalizeOp = concatMap f
-  where
-    f c = if c == '|' then "||" else [c] -- avoid haskell syntax conflict
-
 ppDecls :: FilePath -> [Decl] -> Doc x
 ppDecls fn xs = vcat $
   [ "{-# LANGUAGE FlexibleContexts #-}"
