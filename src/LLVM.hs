@@ -495,6 +495,11 @@ store (x,y) = I $ do
   IR.store a 0 b
   return voidOperand
 
+load_volatile :: Ty a => Address a -> I a
+load_volatile = unop load_volatile
+  where
+    load_volatile a = IR.emitInstr (AST.typeOf a) $ LLVM.AST.Instruction.Load True a Nothing 0 []
+
 operator :: ((a, b) -> c) -> a -> b -> c
 operator = curry
 
@@ -684,6 +689,4 @@ zero_extend = bitop IR.zext
 -- insertValue :: I a -> I a -> [Word32] -> I a
 -- unreachable :: M ()
 -- shuffleVector :: I a -> I a -> Constant -> I a
--- inttoptr :: I a -> Type -> I a
--- ptrtoint :: I a -> Type -> I a
 -- other floating point instructions
