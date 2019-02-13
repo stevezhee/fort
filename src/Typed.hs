@@ -80,7 +80,40 @@ data Atom
 
 type Pat = [Var] -- BAL: Handle nested tuples
 
-ppLabel (Label n p e) =
+newtype E a = E{ unE :: M Expr }
+
+data St = St
+  { unique :: Int
+  , funcs :: HMS.HashMap Name Func
+  }
+
+type M a = State St a
+
+data Expr
+  = AtomE Atom
+  | TupleE [Expr]
+  | AppE Expr Expr
+  | SwitchE Expr Expr [(String,Expr)]
+  | LetE Pat Expr Expr
+  | FunE Func Expr
+  | SeqE Expr Expr
+  deriving Show
+
+data Func = Func Name Pat Expr deriving Show
+
+codegen :: String -> [M Expr] -> IO ()
+codegen file ds = do
+  putStrLn file
+  let st = execState (sequence_ ds) $ St 0 HMS.empty
+  print $ indent 2 (vcat $ map (ppFunc . snd) $ HMS.toList $ funcs st)
+
+nextUnique :: M Int
+nextUnique = do
+  i <- gets unique
+  modify' $ \st -> st{ unique = i + 1 }
+  return i
+
+ppFunc (Func n p e) =
   pretty n <+> ppPat p <+> "=" <> line <> indent 2 (ppExpr e)
 
 ppPat x = case x of
@@ -101,7 +134,7 @@ ppExpr x = case x of
     , ppExpr c
     ]
   FunE a b -> vcat
-    [ "fun" <+> ppLabel a
+    [ "fun" <+> ppFunc a
     , ppExpr b
     ]
   SeqE a b -> vcat [ppExpr a, ppExpr b]
@@ -117,46 +150,13 @@ ppAtom x = case x of
   Var v      -> pretty v
   Name n     -> pretty n
 
-newtype E a = E{ unE :: M Expr }
-
-data St = St
-  { unique :: Int
-  , labels :: HMS.HashMap Name Label
-  }
-
-nextUnique :: M Int
-nextUnique = do
-  i <- gets unique
-  modify' $ \st -> st{ unique = i + 1 }
-  return i
-
-type M a = State St a
-
-data Expr
-  = AtomE Atom
-  | TupleE [Expr]
-  | AppE Expr Expr
-  | SwitchE Expr Expr [(String,Expr)]
-  | LetE Pat Expr Expr
-  | FunE Label Expr
-  | SeqE Expr Expr
-  deriving Show
-
-data Label = Label Name Pat Expr deriving Show
-
-codegen :: String -> [M Expr] -> IO ()
-codegen file ds = do
-  putStrLn file
-  let st = execState (sequence_ ds) $ St 0 HMS.empty
-  print $ indent 2 (vcat $ map (ppLabel . snd) $ HMS.toList $ labels st)
-
 seq :: E a -> E b -> E b
 seq (E x) (E y) = E $ SeqE <$> x <*> y
 
-where_ :: E a -> [M Label] -> E a
+where_ :: E a -> [M Func] -> E a
 where_ e ms = E $ funEs <$> Prelude.sequence ms <*> unE e
 
-funEs :: [Label] -> Expr -> Expr
+funEs :: [Func] -> Expr -> Expr
 funEs xs y = foldl' (flip FunE) y xs
 
 case_ :: Ty a => E a -> (E a -> E b) -> [(String, E a -> E b)] -> E b
@@ -170,13 +170,13 @@ case_ x f ys = letFresh x $ \v -> E $ do
 jump :: Name -> E (a -> b)
 jump n = nameE n
 
-label :: Name -> Pat -> (E a -> E b) -> M Label
-label n pat f = Label n pat <$> (unE $ f $ patToExpr pat)
+mkFunc :: Name -> Pat -> (E a -> E b) -> M Func
+mkFunc n pat f = Func n pat <$> (unE $ f $ patToExpr pat)
 
 func :: Name -> Pat -> (E a -> E b) -> E (a -> b)
 func n pat f = E $ do
-  lbl <- label n pat f
-  modify' $ \st -> st{ labels = HMS.insert n lbl $ labels st }
+  lbl <- mkFunc n pat f
+  modify' $ \st -> st{ funcs = HMS.insert n lbl $ funcs st }
   unE $ nameE n
 
 exprToPat :: Ty a => E a -> Pat

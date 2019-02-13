@@ -424,7 +424,7 @@ ppExprDecl isTopLevel (ED (VarP v t) e) = case e of
 
 ppExprDeclLabelBody :: ExprDecl -> Maybe (Doc x)
 ppExprDeclLabelBody (ED (VarP v t) e) = case e of
-  Lam a b -> Just ("T.label" <+> stringifyName v <+> stringifyPat a <+> ppLam a b)
+  Lam a b -> Just ("T.mkFunc" <+> stringifyName v <+> stringifyPat a <+> ppLam a b)
   _ -> Nothing
 
 ppLam x y = parens ("\\" <> ppVar v <+> "->" <> line <>
