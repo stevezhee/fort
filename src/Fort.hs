@@ -545,14 +545,17 @@ ppList :: [Doc x] -> Doc x
 ppList = brackets . commaSep
 
 ppListV :: [Doc x] -> Doc x
-ppListV xs = line <> indent 2 (brackets $ commaSepV xs)
+ppListV xs = line <> indent 2 (vcat
+  [ "[" <+> commaSepV xs
+  , "]"
+  ])
 
 commaSep :: [Doc x] -> Doc x
 commaSep = hcat . intersperse ", "
 
 commaSepV :: [Doc x] -> Doc x
 commaSepV [] = mempty
-commaSepV (x:ys) = vcat (x : [ "," <> y | y <- ys ])
+commaSepV (x:ys) = vcat (x : [ ", " <> y | y <- ys ])
 
 ppPrim :: Prim -> Doc x
 ppPrim x = case x of

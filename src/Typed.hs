@@ -91,7 +91,11 @@ ppExpr x = case x of
   AtomE a -> ppAtom a
   TupleE bs -> ppTuple $ map ppExpr bs
   AppE a b -> parens (ppExpr a <+> ppExpr b)
-  SwitchE a b cs -> "switch" <+> ppExpr a <> ppListV (map ppExpr (b:cs))
+  SwitchE a b cs -> vcat
+    [ "switch" <+> ppExpr a
+    , indent 2 $ ppAlt ("default",b)
+    , indent 2 $ vcat (map ppAlt cs)
+    ]
   LetE a b c -> vcat
     [ "let" <+> ppPat a <+> "=" <+> ppExpr b
     , ppExpr c
@@ -101,6 +105,8 @@ ppExpr x = case x of
     , ppExpr b
     ]
   SeqE a b -> vcat [ppExpr a, ppExpr b]
+
+ppAlt (c,e) = pretty c <> ":" <> line <> indent 2 (ppExpr e)
 
 ppAtom x = case x of
   Int _ i    -> pretty i
@@ -130,7 +136,7 @@ data Expr
   = AtomE Atom
   | TupleE [Expr]
   | AppE Expr Expr
-  | SwitchE Expr Expr [Expr]
+  | SwitchE Expr Expr [(String,Expr)]
   | LetE Pat Expr Expr
   | FunE Label Expr
   | SeqE Expr Expr
@@ -153,13 +159,13 @@ where_ e ms = E $ funEs <$> Prelude.sequence ms <*> unE e
 funEs :: [Label] -> Expr -> Expr
 funEs xs y = foldl' (flip FunE) y xs
 
-case_ :: Ty a => E a -> (E a -> E b) -> [(Name, E a -> E b)] -> E b
+case_ :: Ty a => E a -> (E a -> E b) -> [(String, E a -> E b)] -> E b
 case_ x f ys = letFresh x $ \v -> E $ do
   a  <- unE v
   let mkAlt (c,g) = unE $ g $ E $ pure a
   b  <- mkAlt ("default", f)
   bs <- mapM mkAlt ys
-  pure $ SwitchE a b bs
+  pure $ SwitchE a b $ zip (map fst ys) bs
 
 jump :: Name -> E (a -> b)
 jump n = nameE n
@@ -188,7 +194,7 @@ freshPat = mapM freshName
 freshName :: String -> M String
 freshName v = do
   i <- nextUnique
-  pure $ v ++ "-" ++ show i
+  pure $ v ++ "." ++ show i
 
 letFresh :: Ty a => E a -> (E a -> E b) -> E b
 letFresh x f = E $ do
