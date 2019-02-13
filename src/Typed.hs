@@ -7,6 +7,7 @@
 module Typed where
 
 import Control.Monad.State
+import Data.Bifunctor
 import Data.List
 import Data.Proxy
 import Data.String
@@ -54,7 +55,8 @@ instance (Size sz, Ty a) => Ty (Array sz a) where
 
 data St = St
   { unique :: Int
-  , funcs :: HMS.HashMap Name Func
+  , funcs  :: HMS.HashMap Name Func
+  , lifted :: HMS.HashMap Name AFunc
   }
 
 type M a = State St a
@@ -115,6 +117,24 @@ withAtoms = go
     go [] f = f []
     go (e:es) f = go es $ \vs -> withAtom e $ \v -> f (v:vs)
 
+freeVars :: [Var] -> AExpr -> [Var]
+freeVars bvs = go
+  where
+    go x = case x of
+      AtomA a -> goAtom a
+      TupleA bs -> nub $ concatMap goAtom bs
+      CExprA a -> goCExpr a
+      LetA pat a b -> nub $ concat [goCExpr a, freeVars (pat++bvs) b]
+      SeqA a b -> nub $ concat [go a, go b]
+    goAtom x = case x of
+      Var v
+        | v `elem` bvs -> []
+        | otherwise -> [v]
+      _ -> []
+    goCExpr x = nub $ case x of
+      CallA _ bs -> concatMap goAtom bs
+      SwitchA a b cs -> goAtom a ++ go b ++ concatMap (go . snd) cs
+
 toAExpr :: Expr -> M AExpr
 toAExpr x = case x of
   LetE pat a b -> do
@@ -123,34 +143,55 @@ toAExpr x = case x of
       AtomA a       -> subst (mkSubst pat [a]) <$> toAExpr b
       TupleA bs     -> subst (mkSubst pat bs) <$> toAExpr b
       CExprA c      -> LetA pat c <$> toAExpr b
+      SeqA p q      -> SeqA p <$> toAExpr (LetE pat (fromAExpr q) b)
       LetA pat1 c e -> do
         pat1' <- freshPat pat1 -- rename to avoid conflicts
         let tbl = mkSubst pat1 $ map Var pat1'
         LetA pat1' c <$> toAExpr (LetE pat (fromAExpr $ subst tbl e) b)
-      SeqA p q      -> SeqA p <$> toAExpr (LetE pat (fromAExpr q) b)
-      LetFunA{}     -> impossible $ "toAExpr:" ++ show ea
   CallE n es -> withAtoms es $ \vs -> pure (CExprA (CallA n vs))
   TupleE es -> withAtoms es $ \vs -> pure (TupleA vs)
   SeqE a b -> SeqA <$> toAExpr a <*> toAExpr b
   AtomE a -> pure $ AtomA a
-  LetFunE a b -> LetFunA <$> toAFunc a <*> toAExpr b
-  SwitchE a b cs -> withAtom a $ \v -> (CExprA <$>
-            (SwitchA v <$> toAExpr b <*> Prelude.sequence [ (s,) <$> toAExpr c | (s,c) <- cs ]))
+  LetFunE a b -> do -- lambda lift local function
+    f@(AFunc n pat e) <- toAFunc a
+    n' <- freshName n
+    let fvs = freeVars pat e
+    let g = lambdaLift n n' $ map Var fvs
+    modify' $ \st -> st{ lifted = HMS.insert n' (AFunc n' (pat ++ fvs) $ g e) $ lifted st }
+    g <$> toAExpr b
+  SwitchE a b cs -> withAtom a $ \v -> CExprA <$>
+            (SwitchA v <$> toAExpr b <*> secondM toAExpr cs)
 
 fromAExpr :: AExpr -> Expr
 fromAExpr x = case x of
   AtomA a      -> AtomE a
   TupleA bs    -> TupleE $ map AtomE bs
   LetA pat a b -> LetE pat (fromCExpr a) (fromAExpr b)
-  LetFunA a b  -> LetFunE (fromAFunc a) (fromAExpr b)
   CExprA a     -> fromCExpr a
   SeqA a b     -> SeqE (fromAExpr a) (fromAExpr b)
 
 fromAFunc (AFunc n pat e) = Func n pat $ fromAExpr e
 
+secondM f xs = Prelude.sequence [ (a,) <$> f b | (a,b) <- xs ]
+
 fromCExpr x = case x of
   CallA a bs     -> CallE a $ map AtomE bs
-  SwitchA a b cs -> SwitchE (AtomE a) (fromAExpr b) [ (s, fromAExpr c) | (s,c) <- cs ]
+  SwitchA a b cs -> SwitchE (AtomE a) (fromAExpr b) $ map (second fromAExpr) cs
+
+lambdaLift :: Name -> Name -> [Atom] -> AExpr -> AExpr
+lambdaLift n n' fvs = go
+  where
+    go x = case x of
+      CExprA a -> CExprA $ goCExpr a
+      LetA pat a b -> LetA pat (goCExpr a) (go b)
+      SeqA a b -> SeqA (go a) (go b)
+      _ -> x
+    goCExpr x = case x of
+      CallA a bs
+        | a == n -> CallA n' (bs ++ fvs)
+        | otherwise -> x
+      SwitchA a b cs ->
+        SwitchA a (go b) $ map (second go) cs
 
 subst :: HMS.HashMap Var Atom -> AExpr -> AExpr
 subst tbl = go
@@ -160,12 +201,11 @@ subst tbl = go
       TupleA bs -> TupleA $ map goAtom bs
       CExprA a -> CExprA $ goCExpr a
       LetA pat a b -> LetA pat (goCExpr a) (subst (remove pat) b)
-      LetFunA a b -> LetFunA (goAFunc a) (go b)
       SeqA a b -> SeqA (go a) (go b)
     goAFunc (AFunc n pat e) = AFunc n pat (subst (remove pat) e)
     goCExpr x = case x of
       CallA n bs -> CallA n $ map goAtom bs
-      SwitchA a b cs -> SwitchA (goAtom a) (go b) [ (s, go c) | (s,c) <- cs ]
+      SwitchA a b cs -> SwitchA (goAtom a) (go b) $ map (second go) cs
     goAtom x = case x of
       Var a -> case HMS.lookup a tbl of
         Just b  -> b
@@ -182,7 +222,6 @@ data AExpr
   | TupleA [Atom]
   | CExprA CExpr
   | LetA Pat CExpr AExpr
-  | LetFunA AFunc AExpr
   | SeqA AExpr AExpr
   deriving Show
 
@@ -202,16 +241,17 @@ data Atom
 
 codegen :: String -> [M Expr] -> IO ()
 codegen file ds = do
-  putStrLn "=============="
+  putStrLn "========================"
   putStrLn file
-  putStrLn "=============="
-  let st = execState (sequence_ ds) $ St 0 HMS.empty
+  putStrLn "----- input ------------"
+  let st = execState (sequence_ ds) $ St 0 HMS.empty HMS.empty
   let fs = HMS.elems $ funcs st
   print $ ppFuncs fs
-  putStrLn "--------------"
-  let afs = evalState (mapM toAFunc fs) st
+  putStrLn "----- a-normal ---------"
+  let (afs0,st1) = runState (mapM toAFunc fs) st
+  let afs = HMS.elems (lifted st1) ++ afs0
   print $ ppFuncs $ map fromAFunc afs
-  putStrLn "=============="
+  putStrLn "========================"
 
 ppFuncs xs = indent 2 (vcat $ map ppFunc xs)
 
