@@ -87,7 +87,7 @@ data Expr
   | AppE Expr Expr
   | SwitchE Expr Expr [(String,Expr)]
   | LetE Pat Expr Expr
-  | FunE Func Expr
+  | LetFunE Func Expr
   | SeqE Expr Expr
   deriving Show
 
@@ -119,12 +119,12 @@ data AExpr
   | CExprA CExpr
   | LetA Pat CExpr AExpr
   | FunA AFunc AExpr
-  | SeqA AExpr AExpr
   deriving Show
 
 data CExpr
   = CallA Name [Atom]
   | SwitchA Atom AExpr [(String, AExpr)]
+  | SeqA AExpr AExpr
   deriving Show
 
 data Atom
@@ -169,7 +169,7 @@ ppExpr x = case x of
     [ "let" <+> ppPat a <+> "=" <+> ppExpr b
     , ppExpr c
     ]
-  FunE a b -> vcat
+  LetFunE a b -> vcat
     [ "fun" <+> ppFunc a
     , ppExpr b
     ]
@@ -187,10 +187,10 @@ ppAtom x = case x of
   Name n     -> pretty n
 
 where_ :: E a -> [M Func] -> E a
-where_ e ms = E $ funEs <$> Prelude.sequence ms <*> unE e
+where_ e ms = E $ letFunEs <$> Prelude.sequence ms <*> unE e
 
-funEs :: [Func] -> Expr -> Expr
-funEs xs y = foldl' (flip FunE) y xs
+letFunEs :: [Func] -> Expr -> Expr
+letFunEs xs y = foldl' (flip LetFunE) y xs
 
 case_ :: Ty a => E a -> (E a -> E b) -> [(String, E a -> E b)] -> E b
 case_ x f ys = letFresh x $ \v -> E $ do
@@ -203,12 +203,12 @@ case_ x f ys = letFresh x $ \v -> E $ do
 jump :: Name -> E (a -> b)
 jump n = nameE n
 
-mkFunc :: Name -> Pat -> (E a -> E b) -> M Func
-mkFunc n pat f = Func n pat <$> (unE $ f $ patToExpr pat)
+letFunc :: Name -> Pat -> (E a -> E b) -> M Func
+letFunc n pat f = Func n pat <$> (unE $ f $ patToExpr pat)
 
 func :: Name -> Pat -> (E a -> E b) -> E (a -> b)
 func n pat f = E $ do
-  lbl <- mkFunc n pat f
+  lbl <- letFunc n pat f
   modify' $ \st -> st{ funcs = HMS.insert n lbl $ funcs st }
   unE $ nameE n
 
