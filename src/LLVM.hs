@@ -500,6 +500,13 @@ load_volatile = unop load_volatile
   where
     load_volatile a = IR.emitInstr (AST.typeOf a) $ LLVM.AST.Instruction.Load True a Nothing 0 []
 
+store_volatile :: Ty a => (Address a, I a) -> I ()
+store_volatile (x,y) = I $ do
+  a <- unI x
+  b <- unI y
+  IR.emitInstrVoid $ LLVM.AST.Instruction.Store True a b Nothing 0 []
+  return voidOperand
+
 operator :: ((a, b) -> c) -> a -> b -> c
 operator = curry
 
