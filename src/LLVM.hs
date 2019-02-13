@@ -691,6 +691,9 @@ zero_extend = bitop IR.zext
 inttoptr :: (Size sz, Ty b, Ty (IntNum a sz)) => I (IntNum a sz) -> I (Addr b)
 inttoptr = bitop IR.inttoptr
 
+ptrtoint :: (Ty a, Size sz, Ty (IntNum b sz)) => I (Addr a) -> I (IntNum b sz)
+ptrtoint = bitop IR.ptrtoint
+
 -- not supported (yet?)
 -- alloca :: Type -> Maybe I a -> Word32 -> I a
 -- extractElement :: (I a, I a) -> I a
