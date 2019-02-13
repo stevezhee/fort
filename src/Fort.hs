@@ -81,13 +81,15 @@ data Pat
   | TupleP [Pat] (Maybe Type)
   deriving Show
 
-letBind :: Var -> Pat -> Doc x
-letBind v x = case x of
-  VarP a mt -> "let" <+> ppVar a <+> "=" <+> ppAscription (ppVar v) mt <+> "in"
-  TupleP [] mt -> "let () =" <+> "T.argUnit" <+> ppAscription (ppVar v) mt <+> "in"
-  TupleP [VarP a _mt0] mt -> letBind v $ VarP a mt -- BAL: do something with the type
-  TupleP [VarP a _mt0, VarP b _mt1] mt -> "let" <+> ppTuple [ppVar a, ppVar b] <+> "=" <+> "T.argTuple2" <+> ppAscription (ppVar v) mt <+> "in" -- BAL: do something with the types
-  TupleP [VarP a _mt0, VarP b _mt1, VarP c _mt2] mt -> "let" <+> ppTuple [ppVar a, ppVar b, ppVar c] <+> "=" <+> "T.argTuple3" <+> ppAscription (ppVar v) mt <+> "in" -- BAL: do something with the types
+letBind :: Var -> Pat -> Doc x -> Doc x
+letBind v x z = case x of
+  VarP a mt -> ppLetIn (ppVar a) (ppAscription (ppVar v) mt) z
+  TupleP [] mt -> ppLetIn "()" ("T.argUnit" <+> ppAscription (ppVar v) mt) z
+  TupleP [VarP a _mt0] mt -> letBind v (VarP a mt) z
+  TupleP [VarP a _mt0, VarP b _mt1] mt ->
+    ppLetIn (ppTuple [ppVar a, ppVar b]) ("T.argTuple2" <+> ppAscription (ppVar v) mt) z -- BAL: do something with the types
+  TupleP [VarP a _mt0, VarP b _mt1, VarP c _mt2] mt ->
+    ppLetIn (ppTuple [ppVar a, ppVar b, ppVar c]) ("T.argTuple3" <+> ppAscription (ppVar v) mt) z
   _ -> error $ show x
 
 data Prim
@@ -202,6 +204,7 @@ ppDecls fn xs = vcat $
   , "{-# LANGUAGE RecursiveDo #-}"
   , "{-# LANGUAGE ScopedTypeVariables #-}"
   , "{-# LANGUAGE RankNTypes #-}"
+  , "{-# LANGUAGE NoMonomorphismRestriction #-}"
   , ""
   , "{-# OPTIONS_GHC -fno-warn-missing-signatures #-}"
   , ""
@@ -211,8 +214,9 @@ ppDecls fn xs = vcat $
   , "import qualified Typed as T"
   , ""
   , "main :: Prelude.IO ()"
-  , "main = Prelude.print \"hello, world\"" -- <+> "T.codegen" <+> pretty (show fn) <+> parens ("mdo" <> line <>
-  --     (indent 2 $ vcat (map (ppDecl nameTbl) ds ++ ["T.end"])))
+  , "main = T.codegen" <+> pretty (show fn) <> ppListV
+      [ "T.unE" <+> ppVar v
+      | ExprDecl (ED (VarP v _) Lam{}) <- xs ] -- BAL: process pattern, not just variable
   , ""
   ] ++
   map ppTopDecl xs ++
@@ -305,7 +309,7 @@ ppTopDecl x = case x of
     [ ppAscription (ppVar a) $ Just b
     , ppVar a <+> "=" <+> "T." <> pretty (show (ppVar a))
     ]
-  OpDecl a b ->parens (ppOp a) <+> "=" <+> ppVar b 
+  OpDecl a b -> parens (ppOp a) <+> "=" <+> ppVar b 
   ExprDecl a -> ppExprDecl True a
 
 ppUnsafeCon :: Con -> (Con, Maybe Type) -> Doc x
@@ -396,17 +400,46 @@ mFuncVar x = case x of
     _ -> Just v
   _ -> Nothing
 
+ppWhere ys x = parens $ vcat
+  [ "let"
+  , indent 2 (vcat ys)
+  , "in"
+  , x
+  ]
+
+ppLetIn x y z = vcat
+  [ "let"
+  , indent 2 (x <+> "=" <+> y <+> "in")
+  , indent 4 z
+  ]
+
 ppExprDecl :: Bool -> ExprDecl -> Doc x
 ppExprDecl isTopLevel (ED (VarP v t) e) = case e of
   Prim a -> lhs <+> "=" <+> ppPrim a
-  Lam a b -> lhs <+> "=" <+> (if isTopLevel then "T.func" else "T.label") <+> rhs
+    -- | isTopLevel -> lhs <+> "=" <+> ppPrim a
+    -- | otherwise ->  ppLet lhs $ ppPrim a
+  Lam a b
+    | isTopLevel -> lhs <+> "=" <+> "T.func" <+> rhs
+    | otherwise  -> lhs <+> "=" <+> "T.jump" <+> stringifyName v
+    -- | otherwise  -> [ ppLet lhs ("T.jump" <+> stringifyName v)
+    --     , "T.label" <+> rhs
+    --     ]
     where
       rhs = stringifyName v <+> stringifyPat a <+> ppLam a b
+      labelName = ppVar v <> "_label"
   _ -> error $ "ppExprDecl:" ++ show e
   where
     lhs = ppAscription (ppVar v) t
 
-ppLam x y = parens ("\\" <> ppVar v <+> "->" <+> letBind (L NoLoc "v") x <+> ppExpr y)
+ppExprDeclLabelBody :: ExprDecl -> Maybe (Doc x)
+ppExprDeclLabelBody (ED (VarP v t) e) = case e of
+  Lam a b -> Just ("T.label" <+> stringifyName v <+> stringifyPat a <+> ppLam a b)
+  _ -> Nothing
+
+ppLam x y = parens ("\\" <> ppVar v <+> "->" <> line <>
+                    indent 2 (
+                      letBind (L NoLoc "v") x (ppExpr y)
+                      ))
   where
     v = L NoLoc "v"  -- BAL: create a fresh variable
 
@@ -459,15 +492,12 @@ ppExpr x = case x of
     -- BAL: ^ put this type somewhere...
     where
       (dflt, alts) = getDefault bs
-  Where a bs -> vcat
-    [ "let"
-    , indent 2 (vcat $ map (ppExprDecl False) bs)
-    , indent 2 ("in" <+> ppExpr a)
-    ]
-    -- map (ppExprDecl False) bs ++
-    -- [ "T.startBlock"
-    -- , parens (ppTerm a)
-    -- ]
+  Where a bs -> ppWhere (map (ppExprDecl False) bs) $
+    parens ("T.where_" <+> parens ((ppExpr a)) <> ppListV (catMaybes $ map ppExprDeclLabelBody bs))
+  -- "T.where_" <+> parens ("mdo" <> line <> indent 2 (vcat
+  --   (map (ppExprDecl False) bs ++ ["Prelude.pure" <+> ppExpr a])))
+  -- Where a bs -> "T.where_" <+> parens ("mdo" <> line <> indent 2 (vcat
+  --   (map (ppExprDecl False) bs ++ ["Prelude.pure" <+> ppExpr a])))
   _ -> error $ "ppExpr:" ++ show x
 
 ppProxy :: Type -> Doc x

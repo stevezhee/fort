@@ -1,8 +1,8 @@
-{-# LANGUAGE ScopedTypeVariables       #-}
-{-# LANGUAGE FlexibleInstances         #-}
-{-# LANGUAGE TupleSections             #-}
-{-# LANGUAGE OverloadedStrings         #-}
-{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE FlexibleInstances   #-}
+{-# LANGUAGE TupleSections       #-}
+{-# LANGUAGE OverloadedStrings      #-}
+{-# LANGUAGE OverloadedStrings      #-}
 
 module Typed where
 
@@ -15,10 +15,12 @@ import qualified LLVM.IRBuilder        as IR
 import qualified LLVM.AST as AST
 import qualified LLVM.AST.IntegerPredicate as AST
 import qualified LLVM.AST.Type as AST
-import LLVM.AST (Operand, Name)
+import LLVM.AST (Operand)
 import LLVM.AST.Constant (Constant)
 import qualified Build as B
-import Fort (neededBitsList)
+import Fort (neededBitsList, ppTuple, ppListV)
+import qualified Data.HashMap.Strict   as HMS
+import Data.String
 
 class Size a where size :: Proxy a -> Integer
 class Ty a where tyFort :: Proxy a -> Type
@@ -64,6 +66,7 @@ data Type
   deriving Show
 
 type Var = String
+type Name = String
 
 data Atom
   = Int Integer Integer
@@ -77,13 +80,42 @@ data Atom
 
 type Pat = [Var] -- BAL: Handle nested tuples
 
-data Func = Func Name Pat Expr deriving Show
+ppLabel (Label n p e) =
+  pretty n <+> ppPat p <+> "=" <> line <> indent 2 (ppExpr e)
 
-data E a = forall a . Ty a => E{ unE :: M Expr, prxy :: Proxy a }
+ppPat x = case x of
+  [a] -> pretty a
+  _   -> ppTuple $ map pretty x
+
+ppExpr x = case x of
+  AtomE a -> ppAtom a
+  TupleE bs -> ppTuple $ map ppExpr bs
+  AppE a b -> parens (ppExpr a <+> ppExpr b)
+  SwitchE a b cs -> "switch" <+> ppExpr a <> ppListV (map ppExpr (b:cs))
+  LetE a b c -> vcat
+    [ "let" <+> ppPat a <+> "=" <+> ppExpr b
+    , ppExpr c
+    ]
+  FunE a b -> vcat
+    [ "fun" <+> ppLabel a
+    , ppExpr b
+    ]
+  SeqE a b -> vcat [ppExpr a, ppExpr b]
+
+ppAtom x = case x of
+  Int _ i    -> pretty i
+  Enum (s,_) -> pretty s
+  Address i  -> "@" <> pretty i
+  String s   -> pretty (show s)
+  Char c     -> pretty (show c)
+  Var v      -> pretty v
+  Name n     -> pretty n
+
+newtype E a = E{ unE :: M Expr }
 
 data St = St
   { unique :: Int
-  , labels :: [Label]
+  , labels :: HMS.HashMap Name Label
   }
 
 nextUnique :: M Int
@@ -92,27 +124,54 @@ nextUnique = do
   modify' $ \st -> st{ unique = i + 1 }
   return i
 
-data Label = Label Name Pat Expr deriving Show
-
 type M a = State St a
 
 data Expr
   = AtomE Atom
   | TupleE [Expr]
-  | CallE Name
-  | AppE Atom Expr
+  | AppE Expr Expr
   | SwitchE Expr Expr [Expr]
   | LetE Pat Expr Expr
+  | FunE Label Expr
   | SeqE Expr Expr
   deriving Show
+
+data Label = Label Name Pat Expr deriving Show
+
+codegen :: String -> [M Expr] -> IO ()
+codegen file ds = do
+  putStrLn file
+  let st = execState (sequence_ ds) $ St 0 HMS.empty
+  print $ indent 2 (vcat $ map (ppLabel . snd) $ HMS.toList $ labels st)
 
 seq :: E a -> E b -> E b
 seq (E x) (E y) = E $ SeqE <$> x <*> y
 
+where_ :: E a -> [M Label] -> E a
+where_ e ms = E $ funEs <$> Prelude.sequence ms <*> unE e
+
+funEs :: [Label] -> Expr -> Expr
+funEs xs y = foldl' (flip FunE) y xs
+
 case_ :: Ty a => E a -> (E a -> E b) -> [(Name, E a -> E b)] -> E b
 case_ x f ys = letFresh x $ \v -> E $ do
-  let mkAlt (c,g) = unE $ label c [] (\_ -> g v)
-  SwitchE <$> unE v <*> mkAlt ("default", f) <*> mapM mkAlt ys
+  a  <- unE v
+  let mkAlt (c,g) = unE $ g $ E $ pure a
+  b  <- mkAlt ("default", f)
+  bs <- mapM mkAlt ys
+  pure $ SwitchE a b bs
+
+jump :: Name -> E (a -> b)
+jump n = nameE n
+
+label :: Name -> Pat -> (E a -> E b) -> M Label
+label n pat f = Label n pat <$> (unE $ f $ patToExpr pat)
+
+func :: Name -> Pat -> (E a -> E b) -> E (a -> b)
+func n pat f = E $ do
+  lbl <- label n pat f
+  modify' $ \st -> st{ labels = HMS.insert n lbl $ labels st }
+  unE $ nameE n
 
 exprToPat :: Ty a => E a -> Pat
 exprToPat (_ :: E a) = go $ tyFort (Proxy :: Proxy a)
@@ -124,11 +183,12 @@ exprToPat (_ :: E a) = go $ tyFort (Proxy :: Proxy a)
       _           -> ["x"]
 
 freshPat :: Pat -> M Pat
-freshPat = mapM f
-  where
-    f v = do
-      i <- nextUnique
-      pure $ v ++ "-" ++ show i
+freshPat = mapM freshName
+
+freshName :: String -> M String
+freshName v = do
+  i <- nextUnique
+  pure $ v ++ "-" ++ show i
 
 letFresh :: Ty a => E a -> (E a -> E b) -> E b
 letFresh x f = E $ do
@@ -138,22 +198,13 @@ letFresh x f = E $ do
 let_ :: Pat -> E a -> (E a -> E b) -> E b
 let_ pat (E x) f = E $ LetE pat <$> x <*> unE (f (patToExpr pat))
 
-label :: Name -> Pat -> (E a -> E b) -> E (a -> b)
-label n pat f = E $ do
-  a <- unE $ f $ patToExpr pat
-  modify' $ \st -> st{ labels = Label n pat a : labels st }
-  pure $ CallE n
+nameE = atomE . Name
 
 opapp :: E a -> E ((a, b) -> c) -> E (b -> c)
-opapp = undefined
+opapp x f = app (unsafeCast f) x
 
 app :: E (a -> b) -> E a -> E b
-app (E x) (E y) = E $ do
-  a <- x
-  b <- y
-  case a of
-    CallE n -> pure $ AppE (Name n) b
-    _       -> impossible "app"
+app (E x) (E y) = E $ AppE <$> x <*> y
 
 patToExpr :: Pat -> E a
 patToExpr = tupleE . map (unE . varE)
@@ -195,7 +246,12 @@ unit :: E ()
 unit = tupleE []
 
 int :: Ty a => Integer -> E a
-int = undefined
+int i = f Proxy
+  where
+    f :: Ty a => Proxy a -> E a
+    f proxy = intE (sizeFort $ tyFort proxy) i
+
+intE sz = atomE . Int sz
 
 string :: String -> E String_
 string = atomE . String
@@ -207,9 +263,6 @@ atomE = E . pure . AtomE
 
 if_ :: E Bool_ -> E a -> E a -> E a
 if_ x t f = case_ x (\_ -> t) [("False", \_ -> f)]
-
-func :: Name -> Pat -> (E a -> E b) -> E (a -> b)
-func = label
 
 const :: E a -> E b -> E a
 const x _ = x
@@ -230,22 +283,22 @@ volatile :: Integer -> E (Addr a)
 volatile = atomE . Address
 
 output :: E (a -> ())
-output = undefined
-
-unsafeCon :: (E (Addr b) -> E c) -> (E (Addr a) -> E c)
-unsafeCon f = undefined -- f . bitcast
+output = nameE "output"
 
 noDefault :: E a -> E b
-noDefault _ = undefined -- unreachable
+noDefault _ = varE "unreachable" -- fixme: -- unreachable
+
+unsafeCon :: (E (Addr b) -> E c) -> (E (Addr a) -> E c)
+unsafeCon f = \_ -> nameE "unsafeCon" -- f . bitcast
 
 field :: Integer -> E (Addr a -> Addr b)
-field = undefined
+field i = app (nameE "field") (intE 32 i)
 
 inject :: Integer -> E ((Addr a, b) -> ())
-inject i = undefined -- binop (B.inject i)
+inject i = app (nameE "inject") (intE 32 i)
 
 injectTag :: Ty a => Integer -> E (Addr a -> ())
-injectTag = undefined
+injectTag i = app (nameE "injectTag") (intE 32 i)
 
 -- no brainers
 arithop :: Ty a => Name -> (Operand -> Operand -> B.M Operand) -> E ((a,a) -> a)
@@ -278,7 +331,7 @@ signedCmpop s p q = f Proxy
       t -> error $ "unable to compare values of type:" ++ show t
 
 instr :: Name -> ([Operand] -> B.M Operand) -> E (a -> b)
-instr s _ = E $ pure $ CallE s
+instr s _ = nameE s
 
 unop :: Name -> (Operand -> B.M Operand) -> E (a -> b)
 unop s f = instr s (\[x] -> f x)
@@ -325,8 +378,22 @@ tyRecordToTyTuple bs = TyTuple $ map snd bs
 tyVariantToTyTuple :: [(String, Type)] -> Type
 tyVariantToTyTuple bs = TyTuple
   [ tyEnumToTyUnsigned bs
-  , undefined -- maximumBy (\a b -> compare (sizeFort a) (sizeFort b)) $ map snd bs
+  , maximumBy (\a b -> compare (sizeFort a) (sizeFort b)) $ map snd bs
   ]
+
+-- BAL: write sizeOf :: AST.Type -> Integer in Build.hs and use that
+sizeFort :: Type -> Integer
+sizeFort x = case x of
+  TyChar        -> 8
+  TySigned sz   -> sz
+  TyUnsigned sz -> sz
+  TyString      -> sizeFort tyStringToTyAddress
+  TyAddress _   -> 64 -- BAL: architecture dependent
+  TyArray sz a  -> sz * sizeFort a
+  TyTuple bs    -> sum $ map sizeFort bs
+  TyRecord bs   -> sizeFort $ tyRecordToTyTuple bs
+  TyVariant bs  -> sizeFort $ tyVariantToTyTuple bs
+  TyEnum bs     -> sizeFort $ tyEnumToTyUnsigned bs
 
 tyEnumToTyUnsigned :: [a] -> Type
 tyEnumToTyUnsigned bs = TyUnsigned (neededBitsList bs)
@@ -345,7 +412,7 @@ store :: E ((Addr a, a) -> ())
 store = binop "store" B.store
 
 extern :: Ty a => Name -> E (a -> b)
-extern = E . pure . CallE
+extern = nameE
 
 h_get_char :: E (Handle -> Char_)
 h_get_char = extern "fgetc"

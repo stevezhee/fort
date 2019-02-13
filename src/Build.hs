@@ -24,7 +24,7 @@ import LLVM.Pretty
 import Prelude hiding (Ordering(..))
 import qualified Data.ByteString.Short as S
 import qualified Data.HashMap.Strict   as HMS
-import qualified Data.Text.Lazy     as T
+import qualified Data.Text.Lazy        as T
 import qualified Data.Text.Lazy.IO     as T
 import qualified LLVM.IRBuilder        as IR
 import qualified LLVM.IRBuilder.Internal.SnocList as IR

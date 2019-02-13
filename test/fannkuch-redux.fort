@@ -7,7 +7,7 @@ Bool = /bool
 add: (a, a) -> a
 + = add
 equals: (a, a) -> Bool
-;; == = equals ;; BAL: if operators are declared but not used it results in an error
+== = equals
 
 subtract: (a, a) -> a
 - = subtract

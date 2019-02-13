@@ -19,7 +19,7 @@ s: String = "hello, world"
 
 ;; functions
 
-char-foo: Char -> Char = \_ => fst (#"z",#"z")
+char-foo: Char -> Char = \_ => fst (#"z",#"a")
 char-bar: Char -> Char = \_ => fst (a,b : Char)
 
 get-char: () -> Char = \() => h-get-char stdin
