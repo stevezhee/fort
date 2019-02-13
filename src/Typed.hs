@@ -9,18 +9,18 @@ module Typed where
 import Control.Monad.State
 import Data.List
 import Data.Proxy
+import Data.String
 import Data.Text.Prettyprint.Doc
-import Prelude hiding (seq)
-import qualified LLVM.IRBuilder        as IR
-import qualified LLVM.AST as AST
-import qualified LLVM.AST.IntegerPredicate as AST
-import qualified LLVM.AST.Type as AST
+import Fort (neededBitsList, ppTuple, ppListV)
 import LLVM.AST (Operand)
 import LLVM.AST.Constant (Constant)
-import qualified Build as B
-import Fort (neededBitsList, ppTuple, ppListV)
-import qualified Data.HashMap.Strict   as HMS
-import Data.String
+import Prelude hiding (seq)
+import qualified Build                     as B
+import qualified Data.HashMap.Strict       as HMS
+import qualified LLVM.AST                  as AST
+import qualified LLVM.AST.IntegerPredicate as AST
+import qualified LLVM.AST.Type             as AST
+import qualified LLVM.IRBuilder            as IR
 
 class Size a where size :: Proxy a -> Integer
 class Ty a where tyFort :: Proxy a -> Type
@@ -84,47 +84,111 @@ data Func = Func Name Pat Expr deriving Show
 data Expr
   = AtomE Atom
   | TupleE [Expr]
-  | AppE Expr Expr
-  | SwitchE Expr Expr [(String,Expr)]
-  | LetE Pat Expr Expr
-  | LetFunE Func Expr
   | SeqE Expr Expr
+  | SwitchE Expr Expr [(String,Expr)]
+  | CallE Name [Expr]
+  | LetFunE Func Expr
+  | LetE Pat Expr Expr
   deriving Show
 
 data AFunc = AFunc Name Pat AExpr deriving Show -- BAL: Pat should be reduced to [Var]
 
-toAtom = undefined
+isAtomE AtomE{} = True
+isAtomE _ = False
+
+var = AtomE . Var
+
+toAFunc :: Func -> M AFunc
+toAFunc (Func n pat e) = AFunc n pat <$> toAExpr e
+
+withAtom :: Expr -> (Atom -> M AExpr) -> M AExpr
+withAtom x f = case x of
+  AtomE a -> f a
+  _ -> do
+    a <- freshName "a"
+    b <- f (Var a)
+    toAExpr $ LetE [a] x $ fromAExpr b
+
+withAtoms :: [Expr] -> ([Atom] -> M AExpr) -> M AExpr
+withAtoms = go
+  where
+    go [] f = f []
+    go (e:es) f = go es $ \vs -> withAtom e $ \v -> f (v:vs)
 
 toAExpr :: Expr -> M AExpr
 toAExpr x = case x of
+  LetE pat a b -> do
+    ea <- toAExpr a
+    case ea of
+      AtomA a       -> subst (mkSubst pat [a]) <$> toAExpr b
+      TupleA bs     -> subst (mkSubst pat bs) <$> toAExpr b
+      CExprA c      -> LetA pat c <$> toAExpr b
+      LetA pat1 c e -> do
+        pat1' <- freshPat pat1 -- rename to avoid conflicts
+        let tbl = mkSubst pat1 $ map Var pat1'
+        LetA pat1' c <$> toAExpr (LetE pat (fromAExpr $ subst tbl e) b)
+      SeqA p q      -> SeqA p <$> toAExpr (LetE pat (fromAExpr q) b)
+      LetFunA{}     -> impossible $ "toAExpr:" ++ show ea
+  CallE n es -> withAtoms es $ \vs -> pure (CExprA (CallA n vs))
+  TupleE es -> withAtoms es $ \vs -> pure (TupleA vs)
+  SeqE a b -> SeqA <$> toAExpr a <*> toAExpr b
   AtomE a -> pure $ AtomA a
-  TupleE bs -> TupleA <$> mapM toAtom bs
-  -- AppE Expr Expr -- toCExpr
-  -- SwitchE Expr Expr [(String,Expr)] -- toCExpr
-  -- LetE Pat Expr Expr
-    -- a:
-    -- case a of
-    -- AtomA -> subst for a ...
-    -- TupleA -> multiple lets
-    -- cexpr -> keep
-    -- let -> lift lets out(?)
-    -- fun (?) -- shouldn't happen(?)
-    -- seq (?)
-  -- FunE Func Expr
-  -- SeqE Expr Expr
+  LetFunE a b -> LetFunA <$> toAFunc a <*> toAExpr b
+  SwitchE a b cs -> withAtom a $ \v -> (CExprA <$>
+            (SwitchA v <$> toAExpr b <*> Prelude.sequence [ (s,) <$> toAExpr c | (s,c) <- cs ]))
+
+fromAExpr :: AExpr -> Expr
+fromAExpr x = case x of
+  AtomA a      -> AtomE a
+  TupleA bs    -> TupleE $ map AtomE bs
+  LetA pat a b -> LetE pat (fromCExpr a) (fromAExpr b)
+  LetFunA a b  -> LetFunE (fromAFunc a) (fromAExpr b)
+  CExprA a     -> fromCExpr a
+  SeqA a b     -> SeqE (fromAExpr a) (fromAExpr b)
+
+fromAFunc (AFunc n pat e) = Func n pat $ fromAExpr e
+
+fromCExpr x = case x of
+  CallA a bs     -> CallE a $ map AtomE bs
+  SwitchA a b cs -> SwitchE (AtomE a) (fromAExpr b) [ (s, fromAExpr c) | (s,c) <- cs ]
+
+subst :: HMS.HashMap Var Atom -> AExpr -> AExpr
+subst tbl = go
+  where
+    go x = case x of
+      AtomA a -> AtomA $ goAtom a
+      TupleA bs -> TupleA $ map goAtom bs
+      CExprA a -> CExprA $ goCExpr a
+      LetA pat a b -> LetA pat (goCExpr a) (subst (remove pat) b)
+      LetFunA a b -> LetFunA (goAFunc a) (go b)
+      SeqA a b -> SeqA (go a) (go b)
+    goAFunc (AFunc n pat e) = AFunc n pat (subst (remove pat) e)
+    goCExpr x = case x of
+      CallA n bs -> CallA n $ map goAtom bs
+      SwitchA a b cs -> SwitchA (goAtom a) (go b) [ (s, go c) | (s,c) <- cs ]
+    goAtom x = case x of
+      Var a -> case HMS.lookup a tbl of
+        Just b  -> b
+        Nothing -> x
+      _ -> x
+    remove pat = HMS.filterWithKey (\k _ -> k `elem` pat) tbl
+
+mkSubst xs ys
+  | length xs /= length ys = impossible $ "mkSubst:" ++ show (xs,ys)
+  | otherwise = HMS.fromList $ zip xs ys
 
 data AExpr
   = AtomA Atom
   | TupleA [Atom]
   | CExprA CExpr
   | LetA Pat CExpr AExpr
-  | FunA AFunc AExpr
+  | LetFunA AFunc AExpr
+  | SeqA AExpr AExpr
   deriving Show
 
 data CExpr
   = CallA Name [Atom]
   | SwitchA Atom AExpr [(String, AExpr)]
-  | SeqA AExpr AExpr
   deriving Show
 
 data Atom
@@ -134,14 +198,22 @@ data Atom
   | String String
   | Char Char
   | Var Var
-  | Name Name
   deriving Show
 
 codegen :: String -> [M Expr] -> IO ()
 codegen file ds = do
+  putStrLn "=============="
   putStrLn file
+  putStrLn "=============="
   let st = execState (sequence_ ds) $ St 0 HMS.empty
-  print $ indent 2 (vcat $ map (ppFunc . snd) $ HMS.toList $ funcs st)
+  let fs = HMS.elems $ funcs st
+  print $ ppFuncs fs
+  putStrLn "--------------"
+  let afs = evalState (mapM toAFunc fs) st
+  print $ ppFuncs $ map fromAFunc afs
+  putStrLn "=============="
+
+ppFuncs xs = indent 2 (vcat $ map ppFunc xs)
 
 nextUnique :: M Int
 nextUnique = do
@@ -159,7 +231,7 @@ ppPat x = case x of
 ppExpr x = case x of
   AtomE a -> ppAtom a
   TupleE bs -> ppTuple $ map ppExpr bs
-  AppE a b -> parens (ppExpr a <+> ppExpr b)
+  CallE a bs -> pretty a <+> ppTuple (map ppExpr bs)
   SwitchE a b cs -> vcat
     [ "switch" <+> ppExpr a
     , indent 2 $ ppAlt ("default",b)
@@ -184,7 +256,6 @@ ppAtom x = case x of
   String s   -> pretty (show s)
   Char c     -> pretty (show c)
   Var v      -> pretty v
-  Name n     -> pretty n
 
 where_ :: E a -> [M Func] -> E a
 where_ e ms = E $ letFunEs <$> Prelude.sequence ms <*> unE e
@@ -201,7 +272,7 @@ case_ x f ys = letFresh x $ \v -> E $ do
   pure $ SwitchE a b $ zip (map fst ys) bs
 
 jump :: Name -> E (a -> b)
-jump n = nameE n
+jump n = callE n
 
 letFunc :: Name -> Pat -> (E a -> E b) -> M Func
 letFunc n pat f = Func n pat <$> (unE $ f $ patToExpr pat)
@@ -210,7 +281,7 @@ func :: Name -> Pat -> (E a -> E b) -> E (a -> b)
 func n pat f = E $ do
   lbl <- letFunc n pat f
   modify' $ \st -> st{ funcs = HMS.insert n lbl $ funcs st }
-  unE $ nameE n
+  unE $ callE n
 
 exprToPat :: Ty a => E a -> Pat
 exprToPat (_ :: E a) = go $ tyFort (Proxy :: Proxy a)
@@ -237,13 +308,21 @@ letFresh x f = E $ do
 let_ :: Pat -> E a -> (E a -> E b) -> E b
 let_ pat (E x) f = E $ LetE pat <$> x <*> unE (f (patToExpr pat))
 
-nameE = atomE . Name
+callE n = E $ pure $ CallE n []
 
 opapp :: E a -> E ((a, b) -> c) -> E (b -> c)
 opapp x f = app (unsafeCast f) x
 
 app :: E (a -> b) -> E a -> E b
-app (E x) (E y) = E $ AppE <$> x <*> y
+app (E x) (E y) = E $ do
+  a <- x
+  b <- y
+  let ps = case b of
+        TupleE bs -> bs
+        _         -> [b]
+  case a of
+    CallE n es -> pure $ CallE n (es ++ ps)
+    _ -> impossible $ "app:" ++ show a
 
 patToExpr :: Pat -> E a
 patToExpr = tupleE . map (unE . varE)
@@ -325,22 +404,22 @@ volatile :: Integer -> E (Addr a)
 volatile = atomE . Address
 
 output :: E (a -> ())
-output = nameE "output"
+output = callE "output"
 
 noDefault :: E a -> E b
 noDefault _ = varE "unreachable" -- fixme: -- unreachable
 
 unsafeCon :: (E (Addr b) -> E c) -> (E (Addr a) -> E c)
-unsafeCon f = \_ -> nameE "unsafeCon" -- f . bitcast
+unsafeCon f = \_ -> callE "unsafeCon" -- f . bitcast
 
 field :: Integer -> E (Addr a -> Addr b)
-field i = app (nameE "field") (intE 32 i)
+field i = app (callE "field") (intE 32 i)
 
 inject :: Integer -> E ((Addr a, b) -> ())
-inject i = app (nameE "inject") (intE 32 i)
+inject i = app (callE "inject") (intE 32 i)
 
 injectTag :: Ty a => Integer -> E (Addr a -> ())
-injectTag i = app (nameE "injectTag") (intE 32 i)
+injectTag i = app (callE "injectTag") (intE 32 i)
 
 -- no brainers
 arithop :: Ty a => Name -> (Operand -> Operand -> B.M Operand) -> E ((a,a) -> a)
@@ -373,7 +452,7 @@ signedCmpop s p q = f Proxy
       t -> error $ "unable to compare values of type:" ++ show t
 
 instr :: Name -> ([Operand] -> B.M Operand) -> E (a -> b)
-instr s _ = nameE s
+instr s _ = callE s
 
 unop :: Name -> (Operand -> B.M Operand) -> E (a -> b)
 unop s f = instr s (\[x] -> f x)
@@ -454,7 +533,7 @@ store :: E ((Addr a, a) -> ())
 store = binop "store" B.store
 
 extern :: Ty a => Name -> E (a -> b)
-extern = nameE
+extern = callE
 
 h_get_char :: E (Handle -> Char_)
 h_get_char = extern "fgetc"
