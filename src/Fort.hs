@@ -509,14 +509,15 @@ ppAltCon x e = case x of
   _ -> "T.const" <+> parens (ppExpr e)
 
 ppSequence :: [Expr] -> Doc x
-ppSequence xs = parens ("T.sequence" <> ppListV (go xs))
+ppSequence = go []
   where
-    go [] = []
-    go [b] = [ppExpr b]
-    go (b:bs) = case b of
+    go _ [] = error "ppSequence"
+    go rs [b] = f rs (ppExpr b)
+    go rs (b:bs) = case b of
       Let (ED v e) ->
-        ["T.let_" <+> stringifyPat v <+> parens (ppExpr e) <+> ppLam v (Sequence bs)]
-      _ -> ("T.unsafeCast" <+> ppExpr b) : go bs
+        f rs ("T.let_" <+> stringifyPat v <+> parens (ppExpr e) <+> ppLam v (Sequence bs))
+      _ -> go (b:rs) bs
+    f rs d = parens ("T.sequence" <+> ppListV (map ppExpr $ reverse rs) <+> parens d)
 
 unsafeUnConName :: Con -> String
 unsafeUnConName c = "unsafe_" ++ unLoc c

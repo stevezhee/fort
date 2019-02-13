@@ -52,6 +52,13 @@ instance Ty a => Ty (Addr a) where tyFort _  = TyAddress (tyFort (Proxy :: Proxy
 instance (Size sz, Ty a) => Ty (Array sz a) where
   tyFort _ = TyArray (size (Proxy :: Proxy sz)) (tyFort (Proxy :: Proxy a))
 
+data St = St
+  { unique :: Int
+  , funcs :: HMS.HashMap Name Func
+  }
+
+type M a = State St a
+
 data Type
   = TyChar
   | TyString
@@ -68,26 +75,11 @@ data Type
 type Var = String
 type Name = String
 
-data Atom
-  = Int Integer Integer
-  | Enum (String, Integer)
-  | Address Integer
-  | String String
-  | Char Char
-  | Var Var
-  | Name Name
-  deriving Show
-
 type Pat = [Var] -- BAL: Handle nested tuples
 
 newtype E a = E{ unE :: M Expr }
 
-data St = St
-  { unique :: Int
-  , funcs :: HMS.HashMap Name Func
-  }
-
-type M a = State St a
+data Func = Func Name Pat Expr deriving Show
 
 data Expr
   = AtomE Atom
@@ -99,7 +91,51 @@ data Expr
   | SeqE Expr Expr
   deriving Show
 
-data Func = Func Name Pat Expr deriving Show
+data AFunc = AFunc Name Pat AExpr deriving Show -- BAL: Pat should be reduced to [Var]
+
+toAtom = undefined
+
+toAExpr :: Expr -> M AExpr
+toAExpr x = case x of
+  AtomE a -> pure $ AtomA a
+  TupleE bs -> TupleA <$> mapM toAtom bs
+  -- AppE Expr Expr -- toCExpr
+  -- SwitchE Expr Expr [(String,Expr)] -- toCExpr
+  -- LetE Pat Expr Expr
+    -- a:
+    -- case a of
+    -- AtomA -> subst for a ...
+    -- TupleA -> multiple lets
+    -- cexpr -> keep
+    -- let -> lift lets out(?)
+    -- fun (?) -- shouldn't happen(?)
+    -- seq (?)
+  -- FunE Func Expr
+  -- SeqE Expr Expr
+
+data AExpr
+  = AtomA Atom
+  | TupleA [Atom]
+  | CExprA CExpr
+  | LetA Pat CExpr AExpr
+  | FunA AFunc AExpr
+  | SeqA AExpr AExpr
+  deriving Show
+
+data CExpr
+  = CallA Name [Atom]
+  | SwitchA Atom AExpr [(String, AExpr)]
+  deriving Show
+
+data Atom
+  = Int Integer Integer
+  | Enum (String, Integer)
+  | Address Integer
+  | String String
+  | Char Char
+  | Var Var
+  | Name Name
+  deriving Show
 
 codegen :: String -> [M Expr] -> IO ()
 codegen file ds = do
@@ -149,9 +185,6 @@ ppAtom x = case x of
   Char c     -> pretty (show c)
   Var v      -> pretty v
   Name n     -> pretty n
-
-seq :: E a -> E b -> E b
-seq (E x) (E y) = E $ SeqE <$> x <*> y
 
 where_ :: E a -> [M Func] -> E a
 where_ e ms = E $ funEs <$> Prelude.sequence ms <*> unE e
@@ -276,8 +309,11 @@ const x _ = x
 argUnit :: E () -> ()
 argUnit = \_ -> ()
 
-sequence :: [E a] -> E a
-sequence = foldl1' seq
+sequence :: [E ()] -> E a -> E a
+sequence xs y = foldl' (flip seq) y xs
+
+seq :: E () -> E a -> E a
+seq (E x) (E y) = E $ SeqE <$> x <*> y
 
 enum :: (String, Integer) -> E a
 enum = atomE . Enum
