@@ -688,6 +688,9 @@ sign_extend = bitop IR.sext
 zero_extend :: (Ty (IntNum a aSz), Ty (IntNum a bSz)) => INum a aSz -> INum a bSz
 zero_extend = bitop IR.zext
 
+inttoptr :: (Size sz, Ty b, Ty (IntNum a sz)) => I (IntNum a sz) -> I (Addr b)
+inttoptr = bitop IR.inttoptr
+
 -- not supported (yet?)
 -- alloca :: Type -> Maybe I a -> Word32 -> I a
 -- extractElement :: (I a, I a) -> I a
