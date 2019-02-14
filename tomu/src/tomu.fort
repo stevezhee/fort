@@ -149,34 +149,38 @@ gpio_toggle: (UInt32, UInt32) -> () = \(gpio_port, gpios) => /do
 ;; ├┤ │││ │ ├┬┘└┬┘
 ;; └─┘┘└┘ ┴ ┴└─ ┴
 
-run: Bit -> () = \_ => /do
+run: Bit -> () = \_ => begin 0
+  /where
+    begin: Bit -> () = \_ => /do
+      ;; disable watchdog
+      set_register (wdog_ctrl, 0)
 
-  ;; disable watchdog
-  set_register (wdog_ctrl, 0)
+      enable_gpio_clock 1
 
-  enable_gpio_clock 1
+      gpio_setup (led_red_port, led_red_pin)
+      gpio_setup (led_green_port, led_green_pin)
 
-  gpio_setup (led_red_port, led_red_pin)
-  gpio_setup (led_green_port, led_green_pin)
+      gpio_set (led_red_port, led_red_pin)
+      gpio_set (led_green_port, led_green_pin)
 
-  gpio_set (led_red_port, led_red_pin)
-  gpio_set (led_green_port, led_green_pin)
+      ;; set systick clock source to stk_csr_clksource_ahb
+      set_register (stk_csr, ((get_register stk_csr) & (stk_csr_clksource ^ (0 - 1))) | (stk_csr_clksource_ahb & stk_csr_clksource))
 
-  ;; set systick clock source to stk_csr_clksource_ahb
-  set_register (stk_csr, ((get_register stk_csr) & (stk_csr_clksource ^ (0 - 1))) | (stk_csr_clksource_ahb & stk_csr_clksource))
+      ;; set systick automatic reload value
+      set_register (stk_rvr, 23999 & stk_rvr_reload)
 
-  ;; set systick automatic reload value
-  set_register (stk_rvr, 23999 & stk_rvr_reload)
+      ;; enable systick counter
+      set_register (stk_csr, (get_register stk_csr) |  stk_csr_enable)
 
-  ;; enable systick counter
-  set_register (stk_csr, (get_register stk_csr) |  stk_csr_enable)
+      ;; enable systick interrupt
+      set_register (stk_csr, (get_register stk_csr) | stk_csr_tickint)
 
-  ;; enable systick interrupt
-  set_register (stk_csr, (get_register stk_csr) | stk_csr_tickint)
+      loop 1
 
-  ;; TODO
-  ;;while(1) {
-  ;;  delay(1000);
-  ;;  gpio_toggle(LED_RED_PORT, LED_RED_PIN);
-  ;;  gpio_toggle(LED_GREEN_PORT, LED_GREEN_PIN);
-  ;;}
+    loop: Bit -> () = \_ => /do
+      ;;delay 1000
+
+      gpio_toggle (led_red_port, led_red_pin)
+      gpio_toggle (led_green_port, led_green_pin)
+
+      loop 1
