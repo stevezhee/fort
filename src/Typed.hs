@@ -92,7 +92,14 @@ data Expr
   | LetE Pat Expr Expr
   deriving Show
 
-data AFunc = AFunc Name Pat AExpr deriving Show -- BAL: Pat should be reduced to [Var]
+data Atom
+  = Int Integer Integer
+  | Enum (String, Integer)
+  | Address Integer
+  | String String
+  | Char Char
+  | Var Var
+  deriving Show
 
 var :: Var -> Expr
 var = AtomE . Var
@@ -232,26 +239,39 @@ mkSubst xs ys
   | length xs /= length ys = impossible $ "mkSubst:" ++ show (xs,ys)
   | otherwise = HMS.fromList $ zip xs ys
 
+data AFunc = AFunc Name Pat AExpr deriving Show -- BAL: Pat should be reduced to [Var]
+
+type ACall = (Name, [Atom])
+
 data AExpr
   = TupleA [Atom]
   | CExprA CExpr
   | LetA Pat CExpr AExpr
   deriving Show
 
+isInstr = undefined
+emitTerminator = undefined
+emitInstruction = undefined
+emitVoidInstruction = undefined
+
+foo x = case x of
+  TupleA bs -> emitTerminator $ Return bs
+  CExprA a -> case a of
+    CallA a
+      | isInstr a -> do
+          emitVoidInstruction a
+          emitTerminator $ Return []
+      | otherwise -> undefined
+    SwitchA a b cs -> undefined
+  LetA vs e b -> case e of
+    CallA a
+      | isInstr a -> emitInstruction vs a
+      | otherwise -> undefined
+    SwitchA a b cs -> undefined
+
 data CExpr
   = CallA ACall
   | SwitchA Atom ACall [(String, ACall)]
-  deriving Show
-
-type ACall = (Name, [Atom])
-
-data Atom
-  = Int Integer Integer
-  | Enum (String, Integer)
-  | Address Integer
-  | String String
-  | Char Char
-  | Var Var
   deriving Show
 
 data BFunc = BFunc
@@ -262,15 +282,9 @@ data BFunc = BFunc
   deriving Show
 
 data Term
-  = Switch Atom Call [(String, Call)]
+  = Switch Atom ACall [(String, ACall)]
   | Return [Atom]
   deriving Show
-
-data Call = Call
-  Name   -- Block
-  [Atom] -- arguments
-  deriving Show
-
 
 codegen :: String -> [M Expr] -> IO ()
 codegen file ds = do
@@ -480,10 +494,10 @@ output :: E (a -> ())
 output = callE "output"
 
 noDefault :: E a -> E b
-noDefault _ = varE "unreachable" -- fixme: -- unreachable
+noDefault _ = app (callE "unreachable") (string "default case")
 
 unsafeCon :: (E (Addr b) -> E c) -> (E (Addr a) -> E c)
-unsafeCon f = \_ -> callE "unsafeCon" -- f . bitcast
+unsafeCon f = \x -> f $ app (callE "unsafeCon") x -- BAL: f . bitcast
 
 field :: Integer -> String -> E (Addr a -> Addr b)
 field i fld = app (app (callE "field") (intE 32 i)) (string fld)
@@ -707,3 +721,10 @@ sign_extend = bitop "sext" IR.sext
 
 zero_extend :: (Ty a, Ty b) => E (a -> b)
 zero_extend = bitop "zext" IR.zext
+
+ptrtoint :: (Ty a, Ty b) => E (a -> b) -- BAL: make part of bitcast?
+ptrtoint = bitop "ptrtoint" IR.ptrtoint
+
+inttoptr :: (Ty a, Ty b) => E (a -> b) -- BAL: make part of bitcast?
+inttoptr = bitop "inttoptr" IR.inttoptr
+

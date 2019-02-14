@@ -51,7 +51,7 @@ data Type
   | TyUnsigned
   deriving (Show, Eq)
 
-data Expr
+data Expr -- BAL: pass locations through to all constructs
   = Prim Prim
   | Lam Pat Expr
   | App Expr Expr
@@ -411,14 +411,13 @@ ppLetIn x y z = vcat
 
 ppExprDecl :: Bool -> ExprDecl -> Doc x
 ppExprDecl isTopLevel (ED (VarP v t) e) = case e of
-  Prim a -> lhs <+> "=" <+> ppPrim a
   Lam a b
     | isTopLevel -> lhs <+> "=" <+> "T.func" <+> rhs
     | otherwise  -> lhs <+> "=" <+> "T.jump" <+> stringifyName v
     where
       rhs = stringifyName v <+> stringifyPat a <+> ppLam a b
       labelName = ppVar v <> "_label"
-  _ -> error $ "ppExprDecl:" ++ show e
+  _ -> lhs <+> "=" <+> ppExpr e
   where
     lhs = ppAscription (ppVar v) t
 
@@ -498,7 +497,7 @@ getDefault xs = case xs of
   where
     dflt = case last xs of
       ((DefaultP, Nothing), e) -> e
-      _                      -> noDflt
+      _                        -> noDflt
     noDflt = Prim $ Var $ L NoLoc "T.noDefault"
     bs = init xs
 

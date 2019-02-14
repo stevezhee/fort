@@ -139,6 +139,13 @@ if_ x t f = mdo
 load :: Operand -> M Operand
 load = flip IR.load 0
 
+-- load_volatile :: Operand -> M Operand
+-- load_volatile x = IR.emitInstr (AST.IntegerType 32) $ LLVM.AST.Instruction.Load True x Nothing 0 []
+-- BAL: ^ return tpe shouldn't be fixed
+
+-- store_volatile :: Operand -> Operand -> M ()
+-- store_volatile x y = IR.emitInstrVoid $ AST.Store True x y Nothing 0 []
+
 store :: Operand -> Operand -> M Operand
 store x y = IR.store x 0 y >> unit
 
