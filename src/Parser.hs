@@ -247,6 +247,7 @@ parseAndCodeGen fn = do
       let (asts, rpt) = fullParses (parser grammar) toks
       case (asts, unconsumed rpt) of
         ([ast], []) -> do
+          -- putStrLn $ unwords $ map unLoc toks
           putStrLn "it parsed!"
           let oFile = fn ++ ".hs"
           writeFile oFile $ show (ppDecls fn ast) ++ "\n"
@@ -262,6 +263,7 @@ parseAndCodeGen fn = do
           exitFailure
         _ -> do
           let errtok@(L errloc _) = toks !! (position rpt)
+          -- putStrLn $ unwords $ map unLoc toks
           putStrLn $ displayLoc errloc ++ ":error:unexpected token:"
           case errloc of
             NoLoc -> return ()
@@ -291,18 +293,22 @@ indentation toks@(t0:_) = go t0 [] toks
     go _ [] [] = []
     go prev cols [] = replicate (length cols) (useLoc "}" prev)
     go prev cols xs0@(x : xs)
-      | col < indentTop && not (col `elem` (1 : cols)) = error $ "unaligned indentation:" ++ show (locOf x)
+      | col < indentTop && not (col `elem` (1 : cols)) =
+          error $ "unaligned indentation:" ++ show (locOf x)
       | col == indentTop && unLoc x == "/where" || col < indentTop = close
+      | col == indentTop && isOpen = openAndSep
+      | isOpen = open
       | col == indentTop = sep
-      | unLoc x `elem` ["/of", "/where", "/if", "/do", "/record","/enum"] = open
       | otherwise = adv
       where
+        isOpen = unLoc x `elem` ["/of", "/where", "/if", "/do", "/record","/enum"]
         col = column (locOf x)
         indentTop = case cols of
           [] -> 1
           t : _ -> t
         close = useLoc "}" x : go prev (tail cols) xs0
         sep = useLoc ";" x : adv
+        openAndSep = useLoc ";" x : open
         open = case xs of
           [] -> error "no token following keyword"
           a : _ -> x : useLoc "{" x : go x (column (locOf a) : cols) xs
