@@ -485,14 +485,14 @@ noDefault _ = varE "unreachable" -- fixme: -- unreachable
 unsafeCon :: (E (Addr b) -> E c) -> (E (Addr a) -> E c)
 unsafeCon f = \_ -> callE "unsafeCon" -- f . bitcast
 
-field :: Integer -> E (Addr a -> Addr b)
-field i = app (callE "field") (intE 32 i)
+field :: Integer -> String -> E (Addr a -> Addr b)
+field i fld = app (app (callE "field") (intE 32 i)) (string fld)
 
-inject :: Integer -> E ((Addr a, b) -> ())
-inject i = app (callE "inject") (intE 32 i)
+inject :: Integer -> String -> E ((Addr a, b) -> ())
+inject i con = app (app (callE "inject") (intE 32 i)) (string con)
 
-injectTag :: Ty a => Integer -> E (Addr a -> ())
-injectTag i = app (callE "injectTag") (intE 32 i)
+injectTag :: Ty a => Integer -> String -> E (Addr a -> ())
+injectTag i con = app (app (callE "injectTag") (intE 32 i)) (string con)
 
 -- no brainers
 arithop :: Ty a => Name -> (Operand -> Operand -> B.M Operand) -> E ((a,a) -> a)

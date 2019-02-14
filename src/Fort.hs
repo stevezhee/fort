@@ -274,7 +274,7 @@ ppTopDecl x = case x of
             [ ppTuple [ stringifyName n, "T.tyFort" <+> ppProxy t ] | (n,t) <- bs ]
         ]
     ] ++
-    [ ppAscription (ppVar v) (Just $ TyFun (tyAddress $ TyCon a) (tyAddress t)) <+> "= T.field" <+> pretty i
+    [ ppAscription (ppVar v) (Just $ TyFun (tyAddress $ TyCon a) (tyAddress t)) <+> "= T.field" <+> pretty i <+> stringifyName v
     | ((v,t), i) <- zip bs [0 :: Int ..]]
   TyDecl a (TyVariant bs)
     | isTyEnum bs -> vcat $
@@ -322,11 +322,11 @@ ppUnsafeCon a (c, Just t) = vcat
 ppInject :: Pretty a => Con -> ((Con, Maybe Type), a) -> Doc x
 ppInject a ((c, Nothing), i) = vcat
   [ pretty (conToVarName c) <+> ":: T.E" <+> parens (ppType (TyFun (tyAddress $ TyCon a) (TyTuple [])))
-  , pretty (conToVarName c) <+> "= T.injectTag" <+> pretty i
+  , pretty (conToVarName c) <+> "= T.injectTag" <+> pretty i <+> stringifyName c
   ]
 ppInject a ((c, Just t), i) = vcat
   [ pretty (conToVarName c) <+> ":: T.E" <+> parens (ppType (TyFun (TyTuple [tyAddress $ TyCon a, t]) (TyTuple [])))
-  , pretty (conToVarName c) <+> "= T.inject" <+> pretty i
+  , pretty (conToVarName c) <+> "= T.inject" <+> pretty i <+> stringifyName c
   ]
 
 neededBits :: Integral n => Integer -> n
