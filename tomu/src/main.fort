@@ -55,10 +55,10 @@ bitwise_xor: (UInt32, UInt32) -> UInt32
 
 periph_base: UInt32 = 1073741824 ;; 0x40000000
 
-cmu_base: UInt32 = periph_base + 209715200 ;; 0xc8000
+cmu_base: UInt32 = periph_base + 819200 ;; 0xc8000
 cmu_gpio: UInt32 = _reg_bit(68, 8) ;; 0x44
 
-wdog_base: UInt32 = periph_base + 142606336 ;; 0x88000
+wdog_base: UInt32 = periph_base + 557056 ;; 0x88000
 wdog_ctrl: UInt32 = wdog_base
 
 ppbi_base: UInt32 = 3758096384 ;; 0xE0000000U
@@ -76,7 +76,7 @@ stk_csr_enable: UInt32 = 1 << 0
 stk_rvr: UInt32 = sys_tick_base + 4 ;; 0x04
 stk_rvr_reload: UInt32 = 16777215 ;; 0x00FFFFFF
 
-gpio_base: UInt32 = periph_base + 1536 ;; 0x06000
+gpio_base: UInt32 = periph_base + 24576 ;; 0x06000
 gpio_pa: UInt32 = gpio_base
 gpio_pb: UInt32 = gpio_base + 36
 gpio0: UInt32 = 1 << 0
@@ -178,10 +178,10 @@ run: Bit -> () = \_ => begin 0
       ;; enable systick interrupt
       set_register (stk_csr, (get_register stk_csr) | stk_csr_tickint)
 
-      ;;loop 1
+      loop 1
 
     loop: Bit -> () = \_ => /do
-      ;;delay 1000
+      delay 1000
 
       gpio_toggle (led_red_port, led_red_pin)
       gpio_toggle (led_green_port, led_green_pin)

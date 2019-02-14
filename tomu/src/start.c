@@ -9,7 +9,6 @@ extern void run();
 
 _Noreturn void Reset_Handler(void)
 {
-  *(uint32_t *)0x40088000UL = 0;
   unsigned int *src = &__etext;
   unsigned int *dst = &__data_start__;
 
