@@ -118,23 +118,6 @@ withAtom x f = case x of
     b <- f (Var a)
     toAExpr $ LetE [a] x $ fromAExpr b
 
-data Block = Block
-  Name
-  [Var]         -- parameters
-  [(Var,ACall)] -- instructions
-  Term          -- switch or return
-  deriving Show
-
-data Term
-  = Switch Atom Call [(String, Call)]
-  | Return [Atom]
-  deriving Show
-
-data Call = Call
-  Name   -- Block
-  [Atom] -- arguments
-  deriving Show
-
 withAtoms :: [Expr] -> ([Atom] -> M AExpr) -> M AExpr
 withAtoms = go
   where
@@ -151,7 +134,6 @@ freeVars :: [Var] -> AExpr -> [Var]
 freeVars bvs = go
   where
     go x = case x of
-      AtomA a      -> goAtom a
       TupleA bs    -> nub $ concatMap goAtom bs
       CExprA a     -> goCExpr a
       LetA pat a b -> nub $ concat [goCExpr a, freeVars (pat++bvs) b]
@@ -170,7 +152,6 @@ toAExpr x = case x of
   LetE pat a b -> do
     ea <- toAExpr a
     case ea of
-      AtomA a       -> subst (mkSubst pat [a]) <$> toAExpr b
       TupleA bs     -> subst (mkSubst pat bs) <$> toAExpr b
       CExprA c      -> LetA pat c <$> toAExpr b
       LetA pat1 c e -> do
@@ -179,7 +160,7 @@ toAExpr x = case x of
         LetA pat1' c <$> toAExpr (LetE pat (fromAExpr $ subst tbl e) b)
   CallE n es -> withAtoms es $ \vs -> pure (CExprA (CallA (n, vs)))
   TupleE es -> withAtoms es $ \vs -> pure (TupleA vs)
-  AtomE a -> pure $ AtomA a
+  AtomE a -> pure $ TupleA [a]
   LetFunE a b -> do -- lambda lift local function
     f@(AFunc n pat e) <- toAFunc a
     n' <- freshName n
@@ -194,7 +175,6 @@ toAExpr x = case x of
 
 fromAExpr :: AExpr -> Expr
 fromAExpr x = case x of
-  AtomA a      -> AtomE a
   TupleA bs    -> TupleE $ map AtomE bs
   LetA pat a b -> LetE pat (fromCExpr a) (fromAExpr b)
   CExprA a     -> fromCExpr a
@@ -232,7 +212,6 @@ subst :: HMS.HashMap Var Atom -> AExpr -> AExpr
 subst tbl = go
   where
     go x = case x of
-      AtomA a -> AtomA $ goAtom a
       TupleA bs -> TupleA $ map goAtom bs
       CExprA a -> CExprA $ goCExpr a
       LetA pat a b -> LetA pat (goCExpr a) (subst (remove pat) b)
@@ -254,8 +233,7 @@ mkSubst xs ys
   | otherwise = HMS.fromList $ zip xs ys
 
 data AExpr
-  = AtomA Atom
-  | TupleA [Atom]
+  = TupleA [Atom]
   | CExprA CExpr
   | LetA Pat CExpr AExpr
   deriving Show
@@ -275,6 +253,24 @@ data Atom
   | Char Char
   | Var Var
   deriving Show
+
+data BFunc = BFunc
+  Name
+  [Var]         -- parameters
+  [(Var,ACall)] -- instructions
+  Term          -- switch or return
+  deriving Show
+
+data Term
+  = Switch Atom Call [(String, Call)]
+  | Return [Atom]
+  deriving Show
+
+data Call = Call
+  Name   -- Block
+  [Atom] -- arguments
+  deriving Show
+
 
 codegen :: String -> [M Expr] -> IO ()
 codegen file ds = do
@@ -315,7 +311,7 @@ ppExpr x = case x of
     , indent 2 $ vcat (map ppAlt cs)
     ]
   LetE a b c -> vcat
-    [ "let" <+> ppPat a <+> "=" <+> ppExpr b
+    [ if null a then ppExpr b else "let" <+> ppPat a <+> "=" <+> ppExpr b
     , ppExpr c
     ]
   LetFunE a b -> vcat
