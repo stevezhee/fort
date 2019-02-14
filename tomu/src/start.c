@@ -9,6 +9,7 @@ extern void run();
 
 _Noreturn void Reset_Handler(void)
 {
+  *(uint32_t *)0x40088000UL = 0;
   unsigned int *src = &__etext;
   unsigned int *dst = &__data_start__;
 
@@ -40,6 +41,8 @@ void SysTick_Handler()
 {
   msTicks++;
 }
+
+void __aeabi_unwind_cpp_pr0(void){}
 
 __attribute__((section(".isr_vector"),used)) static void *vectors[] = {
   (void *)&__stack,

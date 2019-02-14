@@ -156,7 +156,7 @@ run: Bit -> () = \_ => begin 0
   /where
     begin: Bit -> () = \_ => /do
       ;; disable watchdog
-      set_register (wdog_ctrl, 0)
+      set_register (wdog_base, 0)
 
       enable_gpio_clock 1
 
@@ -178,7 +178,7 @@ run: Bit -> () = \_ => begin 0
       ;; enable systick interrupt
       set_register (stk_csr, (get_register stk_csr) | stk_csr_tickint)
 
-      loop 1
+      ;;loop 1
 
     loop: Bit -> () = \_ => /do
       ;;delay 1000
