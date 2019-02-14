@@ -489,17 +489,17 @@ ppExpr x = case x of
 ppProxy :: Type -> Doc x
 ppProxy t = parens ("P.Proxy :: P.Proxy" <+> parens (ppType t))
 
+isDefaultP ((DefaultP,_),_) = True
+isDefaultP _ = False
+
 getDefault :: [Alt] -> (Expr, [Alt])
-getDefault xs = case xs of
-  [] -> (noDflt, [])
-  _ | null [ () | ((DefaultP,_),_) <- bs ] -> (dflt, bs)
-    | otherwise -> error "default pattern not in last position"
-  where
-    dflt = case last xs of
-      ((DefaultP, Nothing), e) -> e
-      _                        -> noDflt
-    noDflt = Prim $ Var $ L NoLoc "T.noDefault"
-    bs = init xs
+getDefault [] = (noDflt, [])
+getDefault xs = case break isDefaultP xs of
+  (_, []) -> (noDflt, xs)
+  (bs, [((DefaultP, mt),e)]) -> (e, bs)
+  _ -> error "default pattern not in last position"
+
+noDflt = Prim $ Var $ L NoLoc "T.noDefault"
 
 ppAltCon :: AltPat -> Expr -> Doc x
 ppAltCon x e = case x of
@@ -538,7 +538,7 @@ stringifyPat = pretty . show . go
       TupleP bs _ -> concatMap go bs
       VarP v _ -> [stringifyName v]
 
-ppTuple :: [Doc x] -> Doc x
+ppTuple :: [Doc x] -> Doc x -- BAL: don't print the parens with a single element (bug)
 ppTuple = parens . commaSep
 
 ppList :: [Doc x] -> Doc x

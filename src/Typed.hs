@@ -57,6 +57,8 @@ data St = St
   { unique :: Int
   , funcs  :: HMS.HashMap Name Func
   , lifted :: HMS.HashMap Name AFunc
+  , bfuncs :: [BFunc]
+  , instrs :: [([Var], ACall)]
   }
 
 type M a = State St a
@@ -131,23 +133,6 @@ withAtoms = go
   where
     go [] f = f []
     go (e:es) f = go es $ \vs -> withAtom e $ \v -> f (v:vs)
-
--- withACall :: Expr -> (ACall -> M AExpr) -> M AExpr
--- withACall x f = do
---   a <- toAExpr x
---   case a of
---     CExprA (CallA c) -> f c
---     _ -> do
---       v <- freshName "f"
---       e <- f ((v, Definition),[])
---       toAExpr $ LetFunE (Func v [] $ fromAExpr a) $ fromAExpr e
-
-
--- withACalls :: [Expr] -> ([ACall] -> M AExpr) -> M AExpr
--- withACalls = go
---   where
---     go [] f = f []
---     go (e:es) f = go es $ \vs -> withACall e $ \v -> f (v:vs)
 
 freeVars :: [Var] -> AExpr -> [Var]
 freeVars bvs = go
@@ -259,67 +244,98 @@ data AExpr
   | LetA Pat CExpr AExpr
   deriving Show
 
-isInstr = undefined
-emitTerminator = undefined
-emitInstruction = undefined
-emitVoidInstruction = undefined
-
--- emitAExpr x = case x of
---   TupleA bs -> emitTerminator $ Return bs
---   CExprA a -> case a of
---     CallA a
---       | isInstr a -> do
---           emitVoidInstruction a
---           emitTerminator $ Return []
---       | otherwise -> emitTerminator $ br a
---     SwitchA a b cs -> undefined
---       -- BAL: convert b and cs to local functions (if not already) and emitTerminator
---   LetA vs e b -> case e of
---     CallA a
---       | isInstr a -> do
---           emitInstruction vs a
---           emitAExpr b
---       | otherwise -> undefined
---       -- BAL: convert b into a function that takes vs and computes b
---       -- convert e into a function that takes [] and calls b with vs
---     SwitchA a b cs -> undefined
---     -- BAL: convert the switch into a function that takes []
-
 data CExpr
   = CallA ACall
   | SwitchA Atom AExpr [(String, AExpr)]
   deriving Show
 
-data BFunc = BFunc
-  Name
-  [Var]         -- parameters
-  [(Var,ACall)] -- instructions/externals
-  Term          -- switch or return
-  deriving Show
-
-br :: ACall -> Term
-br x = Switch (Int 1 0) x []
-
 data Term
   = Switch Atom ACall [(String, ACall)]
+  | Branch ACall
   | Return [Atom]
   deriving Show
+
+data BFunc = BFunc
+  Name
+  [Var]            -- parameters
+  [([Var], ACall)] -- instructions/externals
+  Term             -- switch or return
+  deriving Show
+
+isDefn ((_,x),_) = case x of
+  Definition -> True
+  _ -> False
+
+emitInstruction :: [Var] -> ACall -> M ()
+emitInstruction vs x =
+  modify' $ \st -> st{ instrs = (vs, x) : instrs st }
+
+toBFunc :: AFunc -> M ()
+toBFunc (AFunc x ys z)= do
+  instrs0 <- gets instrs
+  modify' $ \st -> st{ instrs = [] }
+  t <- toTerminator z
+  bs <- reverse <$> gets instrs
+  modify' $ \st -> st{ instrs = instrs0, bfuncs = BFunc x ys bs t : bfuncs st }
+
+toACall :: AExpr -> M ACall
+toACall x = case x of
+  CExprA (CallA a) -> pure a
+  _ -> do
+    f <- freshName "f"
+    let fvs = freeVars [] x
+    toBFunc $ AFunc f fvs x
+    pure $ ((f,Definition), map Var fvs)
+
+toTerminator :: AExpr -> M Term
+toTerminator x = case x of
+  TupleA bs -> pure $ Return bs
+  CExprA e -> case e of
+    CallA a -> pure $ Branch a
+    SwitchA a b cs -> do
+      b' <- toACall b
+      cs' <- mapM (toACall . snd) cs
+      pure $ Switch a b' $ zip (map fst cs) cs'
+  LetA vs e b -> do
+    a <- toACall $ CExprA e
+    emitInstruction vs a
+    toTerminator b
+
+fromBFunc :: BFunc -> Func
+fromBFunc (BFunc n xs ys z) = Func n xs $ foldr (\f b -> f b) (goTerm z) $ map go ys
+  where
+    go :: ([Var], ACall) -> (Expr -> Expr)
+    go (a,b) = LetE a $ goACall b
+
+    goTerm :: Term -> Expr
+    goTerm x = case x of
+      Branch a      -> goACall a
+      Switch a b cs -> SwitchE a (goACall b) $ map (second goACall) cs
+      Return bs     -> TupleE $ map AtomE bs
+
+    goACall :: ACall -> Expr
+    goACall (a,bs) = CallE a $ map AtomE bs
 
 codegen :: String -> [M Expr] -> IO ()
 codegen file ds = do
   putStrLn "========================"
   putStrLn file
   putStrLn "----- input ------------"
-  let st = execState (sequence_ ds) $ St 0 HMS.empty HMS.empty
+  let st = execState (sequence_ ds) $ St 0 mempty mempty [] []
   let fs = HMS.elems $ funcs st
-  print $ ppFuncs fs
-  putStrLn "----- a-normal ---------"
-  let (afs0,st1) = runState (mapM toAFunc fs) st
+  print $ ppFuncs ppFunc fs
+  putStrLn "----- a-normalization --"
+  let (afs0,st1) = runState (mapM toAFunc fs) st{ funcs = mempty }
   let afs = HMS.elems (lifted st1) ++ afs0
-  print $ ppFuncs $ map fromAFunc afs
+  print $ ppFuncs ppAFunc afs
+  putStrLn "----- block functions --"
+  let st2 = execState (mapM_ toBFunc afs) st1{ lifted = mempty }
+  let bfs = bfuncs st2
+  print $ ppFuncs ppBFunc bfs
   putStrLn "========================"
 
-ppFuncs xs = indent 2 (vcat $ map ppFunc xs)
+ppFuncs :: (a -> Doc ann) -> [a] -> Doc ann
+ppFuncs f xs = indent 2 (vcat $ map f xs)
 
 nextUnique :: M Int
 nextUnique = do
@@ -330,10 +346,14 @@ nextUnique = do
 ppFunc (Func n p e) =
   pretty n <+> ppPat p <+> "=" <> line <> indent 2 (ppExpr e)
 
+ppAFunc = ppFunc . fromAFunc
+ppBFunc = ppFunc . fromBFunc
+
 ppPat x = case x of
   [a] -> pretty a
   _   -> ppTuple $ map pretty x
 
+ppExpr :: Expr -> Doc ann
 ppExpr x = case x of
   AtomE a -> ppAtom a
   TupleE bs -> ppTuple $ map ppExpr bs
@@ -344,7 +364,8 @@ ppExpr x = case x of
     , indent 2 $ vcat (map ppAlt cs)
     ]
   LetE a b c -> vcat
-    [ if null a then ppExpr b else "let" <+> ppPat a <+> "=" <+> ppExpr b
+    [ "let" <+> ppPat a <+> "=" <+> ppExpr b
+    -- [ if null a then ppExpr b else "let" <+> ppPat a <+> "=" <+> ppExpr b
     , ppExpr c
     ]
   LetFunE a b -> vcat
@@ -352,6 +373,13 @@ ppExpr x = case x of
     , ppExpr b
     ]
 
+ppAExpr :: AExpr -> Doc ann
+ppAExpr = ppExpr . fromAExpr
+
+ppCExpr :: CExpr -> Doc ann
+ppCExpr = ppExpr . fromCExpr
+
+ppAlt :: (String, Expr) -> Doc ann
 ppAlt (c,e) = pretty c <> ":" <> line <> indent 2 (ppExpr e)
 
 ppAtom x = case x of
