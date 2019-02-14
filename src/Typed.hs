@@ -174,7 +174,7 @@ toAExpr x = case x of
     n' <- freshName n
     let fvs = freeVars pat e
     let g = lambdaLift n n' $ map Var fvs
-    modify' $ \st -> st{ lifted = HMS.insert n' (AFunc n' (pat ++ fvs) $ g e) $ lifted st }
+    modify' $ \st -> st{ lifted = HMS.map (mapAFunc g) $ HMS.insert n' (AFunc n' (pat ++ fvs) e) $ lifted st }
     g <$> toAExpr b
   SwitchE a b cs ->
     withACall b $ \b' ->
@@ -196,6 +196,9 @@ fromCExpr x = case x of
   SwitchA a b cs -> SwitchE a (fromACall b) $ map (second fromACall) cs
 
 fromACall (a,bs) = CallE a $ map AtomE bs
+
+mapAFunc :: (AExpr -> AExpr) -> AFunc -> AFunc
+mapAFunc f (AFunc n vs e) = AFunc n vs $ f e
 
 lambdaLift :: Name -> Name -> [Atom] -> AExpr -> AExpr
 lambdaLift n n' fvs = go
@@ -246,11 +249,12 @@ data AExpr
   | SeqA AExpr AExpr
   deriving Show
 
-type ACall = (Name, [Atom])
 data CExpr
   = CallA ACall
   | SwitchA Atom ACall [(String, ACall)]
   deriving Show
+
+type ACall = (Name, [Atom])
 
 data Atom
   = Int Integer Integer
