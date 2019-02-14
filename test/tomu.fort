@@ -113,6 +113,16 @@ gpio_mask: UInt32 -> UInt32 = \x => /do
 gpio_mode: (UInt32, UInt32) -> UInt32 = \(x, mode) => /do
   (mode << ((x & 7) * 4)) & (gpio_mask x)
 
+gpio_low: (UInt32, UInt32, UInt32) -> UInt32 = \(gpios, i, low) => /if
+  (gpios & (1 << i)) != 0 => /do
+    (low & ((gpio_mask i) ^ (0 - 1))) | (gpio_mode (i, 8))
+  _ => low
+
+gpio_high: (UInt32, UInt32, UInt32) -> UInt32 = \(gpios, i, high) => /if
+  (gpios & (1 << (i + 8))) != 0 => /do
+    (high & ((gpio_mask i) ^ (0 - 1))) | (gpio_mode (i, 8))
+  _ => high
+
 gpio_setup: (UInt32, UInt32) -> () = \(gpio_port, gpios) => begin 0
   /where
     begin: UInt32 -> () = \i => /do
@@ -121,17 +131,10 @@ gpio_setup: (UInt32, UInt32) -> () = \(gpio_port, gpios) => begin 0
       loop (i, high, low)
     loop: (UInt32, UInt32, UInt32) -> () = \(i, high, low) => /if
       i == 8  => end (high, low)
-      _ => /if
-        (gpios & (1 << i)) != 0 => /do
-          /let first = low & ((gpio_mask i) ^ (0 - 1))
-          /let second = first | (gpio_mode (i, 8))
-          loop (i + 1, high, second)
-        (gpios & (1 << (i + 8))) != 0 => /do
-          /let first = high & ((gpio_mask i) ^ (0 - 1))
-          /let second = first | (gpio_mode (i, 8))
-          loop (i + 1, second, low)
-        _ => /do
-          loop (i + 1, high, low)
+      _ => /do
+        /let l = gpio_low (gpios, i, low)
+        /let h = gpio_high (gpios, i, high)
+        loop (i + 1, h, l)
     end: (UInt32, UInt32) -> () = \(high, low) => /do
       set_register ((gpio_port + 4), low)
       set_register ((gpio_port + 8), high)
