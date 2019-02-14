@@ -519,6 +519,9 @@ operator = curry
 h_get_char :: Size sz => I Handle -> I (Char_ sz) -- BAL: use different ones based on the size
 h_get_char = extern "fgetc"
 
+delay :: Ty a => I a -> I ()
+delay = extern "delay"
+
 globalRef :: AST.Type -> AST.Name -> AST.Operand
 globalRef x y = AST.ConstantOperand (AST.GlobalReference x y)
 

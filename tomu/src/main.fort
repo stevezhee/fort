@@ -14,6 +14,7 @@ Bool = /unsigned 1
 load_volatile: /address a -> a
 store_volatile: (/address a, a) -> ()
 inttoptr: UInt32 -> Pointer
+delay: UInt32 -> ()
 
 ;; ┌─┐┌─┐┌─┐┬─┐┌─┐┌┬┐┌─┐┬─┐┌─┐
 ;; │ │├─┘├┤ ├┬┘├─┤ │ │ │├┬┘└─┐
