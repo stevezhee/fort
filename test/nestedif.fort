@@ -5,6 +5,7 @@ Bool = /bool
 ;; primitives
 == = equals
 equals: (a, a) -> Bool
+output: a -> ()
 
 nested-if-foo: (Bool, Char) -> Char = \(p, c) => /if
   c == #"a" = #"b"
@@ -19,3 +20,11 @@ nested-if-bar: (Bool, Char) -> Char = \(p, c) => /if
     _ = /if
       p = c
       _ = #"z"
+
+nested-if-seq: Char -> () = \c => /do
+  /if
+    c == #"c" = output "one"
+    _         = output "two"
+  ;; /if
+  ;;   c == #"a" = output "three"
+  ;;   _ = output "four"
