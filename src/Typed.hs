@@ -118,16 +118,6 @@ var = AtomE . Var
 toAFunc :: Func -> M AFunc
 toAFunc (Func n pat e) = AFunc n pat <$> toAExpr e
 
-withACall :: Expr -> (ACall -> M AExpr) -> M AExpr
-withACall x f = do
-  a <- toAExpr x
-  case a of
-    CExprA (CallA c) -> f c
-    _ -> do
-      v <- freshName "f"
-      e <- f ((v, Definition),[])
-      toAExpr $ LetFunE (Func v [] $ fromAExpr a) $ fromAExpr e
-
 withAtom :: Expr -> (Atom -> M AExpr) -> M AExpr
 withAtom x f = case x of
   AtomE a -> f a
@@ -142,11 +132,22 @@ withAtoms = go
     go [] f = f []
     go (e:es) f = go es $ \vs -> withAtom e $ \v -> f (v:vs)
 
-withACalls :: [Expr] -> ([ACall] -> M AExpr) -> M AExpr
-withACalls = go
-  where
-    go [] f = f []
-    go (e:es) f = go es $ \vs -> withACall e $ \v -> f (v:vs)
+-- withACall :: Expr -> (ACall -> M AExpr) -> M AExpr
+-- withACall x f = do
+--   a <- toAExpr x
+--   case a of
+--     CExprA (CallA c) -> f c
+--     _ -> do
+--       v <- freshName "f"
+--       e <- f ((v, Definition),[])
+--       toAExpr $ LetFunE (Func v [] $ fromAExpr a) $ fromAExpr e
+
+
+-- withACalls :: [Expr] -> ([ACall] -> M AExpr) -> M AExpr
+-- withACalls = go
+--   where
+--     go [] f = f []
+--     go (e:es) f = go es $ \vs -> withACall e $ \v -> f (v:vs)
 
 freeVars :: [Var] -> AExpr -> [Var]
 freeVars bvs = go
@@ -162,7 +163,7 @@ freeVars bvs = go
       _ -> []
     goCExpr x = nub $ case x of
       CallA a -> goACall a
-      SwitchA a b cs -> goAtom a ++ goACall b ++ concatMap (goACall . snd) cs
+      SwitchA a b cs -> goAtom a ++ go b ++ concatMap (go . snd) cs
     goACall (_,bs) = concatMap goAtom bs
 
 toAExpr :: Expr -> M AExpr
@@ -187,10 +188,7 @@ toAExpr x = case x of
     modify' $ \st -> st{ lifted = HMS.map (mapAFunc g) $ HMS.insert n' (AFunc n' (pat ++ fvs) e) $ lifted st }
     g <$> toAExpr b
   SwitchE a b cs ->
-    withACall b $ \b' ->
-      withACalls (map snd cs) $ \bs ->
-        pure $ CExprA $ SwitchA a b' $ zip (map fst cs) bs
--- BAL: ^ probably don't need to reduce these to calls here...
+    CExprA <$> (SwitchA a <$> toAExpr b <*> Prelude.sequence [ (s,) <$> toAExpr c | (s,c) <- cs ])
 
 fromAExpr :: AExpr -> Expr
 fromAExpr x = case x of
@@ -204,7 +202,7 @@ fromAFunc (AFunc n pat e) = Func n pat $ fromAExpr e
 fromCExpr :: CExpr -> Expr
 fromCExpr x = case x of
   CallA a  -> fromACall a
-  SwitchA a b cs -> SwitchE a (fromACall b) $ map (second fromACall) cs
+  SwitchA a b cs -> SwitchE a (fromAExpr b) $ map (second fromAExpr) cs
 
 fromACall :: ACall -> Expr
 fromACall (a,bs) = CallE a $ map AtomE bs
@@ -225,7 +223,7 @@ lambdaLift n n' fvs = go
     goCExpr x = case x of
       CallA a -> CallA $ goACall a
       SwitchA a b cs ->
-        SwitchA a (goACall b) $ map (second goACall) cs
+        SwitchA a (go b) $ map (second go) cs
 
 subst :: HMS.HashMap Var Atom -> AExpr -> AExpr
 subst tbl = go
@@ -238,7 +236,7 @@ subst tbl = go
     goACall (n, bs) = (n, map goAtom bs)
     goCExpr x = case x of
       CallA a -> CallA $ goACall a
-      SwitchA a b cs -> SwitchA (goAtom a) (goACall b) $ map (second goACall) cs
+      SwitchA a b cs -> SwitchA (goAtom a) (go b) $ map (second go) cs
     goAtom x = case x of
       Var a -> case HMS.lookup a tbl of
         Just b  -> b
@@ -289,13 +287,13 @@ emitVoidInstruction = undefined
 
 data CExpr
   = CallA ACall
-  | SwitchA Atom ACall [(String, ACall)]
+  | SwitchA Atom AExpr [(String, AExpr)]
   deriving Show
 
 data BFunc = BFunc
   Name
   [Var]         -- parameters
-  [(Var,ACall)] -- instructions
+  [(Var,ACall)] -- instructions/externals
   Term          -- switch or return
   deriving Show
 
