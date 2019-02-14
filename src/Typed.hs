@@ -87,7 +87,7 @@ data Expr
   = AtomE Atom
   | TupleE [Expr]
   | SeqE Expr Expr
-  | SwitchE Expr Expr [(String,Expr)]
+  | SwitchE Atom Expr [(String,Expr)]
   | CallE Name [Expr]
   | LetFunE Func Expr
   | LetE Pat Expr Expr
@@ -103,6 +103,16 @@ var = AtomE . Var
 toAFunc :: Func -> M AFunc
 toAFunc (Func n pat e) = AFunc n pat <$> toAExpr e
 
+withACall :: Expr -> (ACall -> M AExpr) -> M AExpr
+withACall x f = do
+  a <- toAExpr x
+  case a of
+    CExprA (CallA c) -> f c
+    _ -> do
+      v <- freshName "f"
+      e <- f (v,[])
+      toAExpr $ LetFunE (Func v [] $ fromAExpr a) $ fromAExpr e
+
 withAtom :: Expr -> (Atom -> M AExpr) -> M AExpr
 withAtom x f = case x of
   AtomE a -> f a
@@ -117,23 +127,30 @@ withAtoms = go
     go [] f = f []
     go (e:es) f = go es $ \vs -> withAtom e $ \v -> f (v:vs)
 
+withACalls :: [Expr] -> ([ACall] -> M AExpr) -> M AExpr
+withACalls = go
+  where
+    go [] f = f []
+    go (e:es) f = go es $ \vs -> withACall e $ \v -> f (v:vs)
+
 freeVars :: [Var] -> AExpr -> [Var]
 freeVars bvs = go
   where
     go x = case x of
-      AtomA a -> goAtom a
-      TupleA bs -> nub $ concatMap goAtom bs
-      CExprA a -> goCExpr a
+      AtomA a      -> goAtom a
+      TupleA bs    -> nub $ concatMap goAtom bs
+      CExprA a     -> goCExpr a
       LetA pat a b -> nub $ concat [goCExpr a, freeVars (pat++bvs) b]
-      SeqA a b -> nub $ concat [go a, go b]
+      SeqA a b     -> nub $ concat [go a, go b]
     goAtom x = case x of
       Var v
         | v `elem` bvs -> []
-        | otherwise -> [v]
+        | otherwise    -> [v]
       _ -> []
     goCExpr x = nub $ case x of
-      CallA _ bs -> concatMap goAtom bs
-      SwitchA a b cs -> goAtom a ++ go b ++ concatMap (go . snd) cs
+      CallA a -> goACall a
+      SwitchA a b cs -> goAtom a ++ goACall b ++ concatMap (goACall . snd) cs
+    goACall (_,bs) = concatMap goAtom bs
 
 toAExpr :: Expr -> M AExpr
 toAExpr x = case x of
@@ -148,7 +165,7 @@ toAExpr x = case x of
         pat1' <- freshPat pat1 -- rename to avoid conflicts
         let tbl = mkSubst pat1 $ map Var pat1'
         LetA pat1' c <$> toAExpr (LetE pat (fromAExpr $ subst tbl e) b)
-  CallE n es -> withAtoms es $ \vs -> pure (CExprA (CallA n vs))
+  CallE n es -> withAtoms es $ \vs -> pure (CExprA (CallA (n, vs)))
   TupleE es -> withAtoms es $ \vs -> pure (TupleA vs)
   SeqE a b -> SeqA <$> toAExpr a <*> toAExpr b
   AtomE a -> pure $ AtomA a
@@ -159,8 +176,10 @@ toAExpr x = case x of
     let g = lambdaLift n n' $ map Var fvs
     modify' $ \st -> st{ lifted = HMS.insert n' (AFunc n' (pat ++ fvs) $ g e) $ lifted st }
     g <$> toAExpr b
-  SwitchE a b cs -> withAtom a $ \v -> CExprA <$>
-            (SwitchA v <$> toAExpr b <*> secondM toAExpr cs)
+  SwitchE a b cs ->
+    withACall b $ \b' ->
+      withACalls (map snd cs) $ \bs ->
+        pure $ CExprA $ SwitchA a b' $ zip (map fst cs) bs
 
 fromAExpr :: AExpr -> Expr
 fromAExpr x = case x of
@@ -172,11 +191,11 @@ fromAExpr x = case x of
 
 fromAFunc (AFunc n pat e) = Func n pat $ fromAExpr e
 
-secondM f xs = Prelude.sequence [ (a,) <$> f b | (a,b) <- xs ]
-
 fromCExpr x = case x of
-  CallA a bs     -> CallE a $ map AtomE bs
-  SwitchA a b cs -> SwitchE (AtomE a) (fromAExpr b) $ map (second fromAExpr) cs
+  CallA a  -> fromACall a
+  SwitchA a b cs -> SwitchE a (fromACall b) $ map (second fromACall) cs
+
+fromACall (a,bs) = CallE a $ map AtomE bs
 
 lambdaLift :: Name -> Name -> [Atom] -> AExpr -> AExpr
 lambdaLift n n' fvs = go
@@ -186,12 +205,13 @@ lambdaLift n n' fvs = go
       LetA pat a b -> LetA pat (goCExpr a) (go b)
       SeqA a b -> SeqA (go a) (go b)
       _ -> x
+    goACall x@(a, bs)
+        | a == n    = (n', bs ++ fvs)
+        | otherwise = x
     goCExpr x = case x of
-      CallA a bs
-        | a == n -> CallA n' (bs ++ fvs)
-        | otherwise -> x
+      CallA a -> CallA $ goACall a
       SwitchA a b cs ->
-        SwitchA a (go b) $ map (second go) cs
+        SwitchA a (goACall b) $ map (second goACall) cs
 
 subst :: HMS.HashMap Var Atom -> AExpr -> AExpr
 subst tbl = go
@@ -203,9 +223,10 @@ subst tbl = go
       LetA pat a b -> LetA pat (goCExpr a) (subst (remove pat) b)
       SeqA a b -> SeqA (go a) (go b)
     goAFunc (AFunc n pat e) = AFunc n pat (subst (remove pat) e)
+    goACall (n, bs) = (n, map goAtom bs)
     goCExpr x = case x of
-      CallA n bs -> CallA n $ map goAtom bs
-      SwitchA a b cs -> SwitchA (goAtom a) (go b) $ map (second go) cs
+      CallA a -> CallA $ goACall a
+      SwitchA a b cs -> SwitchA (goAtom a) (goACall b) $ map (second goACall) cs
     goAtom x = case x of
       Var a -> case HMS.lookup a tbl of
         Just b  -> b
@@ -225,9 +246,10 @@ data AExpr
   | SeqA AExpr AExpr
   deriving Show
 
+type ACall = (Name, [Atom])
 data CExpr
-  = CallA Name [Atom]
-  | SwitchA Atom AExpr [(String, AExpr)]
+  = CallA ACall
+  | SwitchA Atom ACall [(String, ACall)]
   deriving Show
 
 data Atom
@@ -273,7 +295,7 @@ ppExpr x = case x of
   TupleE bs -> ppTuple $ map ppExpr bs
   CallE a bs -> pretty a <+> ppTuple (map ppExpr bs)
   SwitchE a b cs -> vcat
-    [ "switch" <+> ppExpr a
+    [ "switch" <+> ppAtom a
     , indent 2 $ ppAlt ("default",b)
     , indent 2 $ vcat (map ppAlt cs)
     ]
@@ -304,12 +326,21 @@ letFunEs :: [Func] -> Expr -> Expr
 letFunEs xs y = foldl' (flip LetFunE) y xs
 
 case_ :: Ty a => E a -> (E a -> E b) -> [(String, E a -> E b)] -> E b
-case_ x f ys = letFresh x $ \v -> E $ do
-  a  <- unE v
-  let mkAlt (c,g) = unE $ g $ E $ pure a
-  b  <- mkAlt ("default", f)
-  bs <- mapM mkAlt ys
-  pure $ SwitchE a b $ zip (map fst ys) bs
+case_ (E x) f ys = E $ do
+  e <- x
+  let h a = do
+        let mkAlt g = unE $ g $ E $ pure $ AtomE a
+        b  <- mkAlt f
+        bs <- mapM mkAlt $ map snd ys
+        pure $ SwitchE a b $ zip (map fst ys) bs
+  case e of
+    AtomE a -> h a
+    _ -> do
+      v <- freshName "v"
+      LetE [v] e <$> h (Var v)
+
+let_ :: Pat -> E a -> (E a -> E b) -> E b
+let_ pat (E x) f = E $ LetE pat <$> x <*> unE (f (patToExpr pat))
 
 jump :: Name -> E (a -> b)
 jump n = callE n
@@ -339,14 +370,6 @@ freshName :: String -> M String
 freshName v = do
   i <- nextUnique
   pure $ v ++ "." ++ show i
-
-letFresh :: Ty a => E a -> (E a -> E b) -> E b
-letFresh x f = E $ do
-  pat <- freshPat $ exprToPat x
-  unE $ let_ pat x f
-
-let_ :: Pat -> E a -> (E a -> E b) -> E b
-let_ pat (E x) f = E $ LetE pat <$> x <*> unE (f (patToExpr pat))
 
 callE n = E $ pure $ CallE n []
 
