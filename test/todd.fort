@@ -113,28 +113,26 @@ gpio_mask: UInt32 -> UInt32 = \x => /do
 gpio_mode: (UInt32, UInt32) -> UInt32 = \(x, mode) => /do
   (mode << ((x & 7) * 4)) & (gpio_mask x)
 
-gpio_setup: (UInt32, UInt32) -> () = \(gpio_port, gpios) => begin 0
-  /where
-    begin: UInt32 -> () = \i => /do
-      /let low = get_register (gpio_port + 4)
-      /let high = get_register (gpio_port + 8)
-      loop (i, high, low)
-    loop: (UInt32, UInt32, UInt32) -> () = \(i, high, low) => /if
-      i == 8 = end (high, low)
-      _ = /if
-        (gpios & (1 << i)) != 0 = /do
-          /let first = low & ((gpio_mask i) ^ (0 - 1))
-          /let second = first | (gpio_mode (i, 8))
-          loop (i + 1, high, second)
-        (gpios & (1 << (i + 8))) != 0 = /do
-          /let first = high & ((gpio_mask i) ^ (0 - 1))
-          /let second = first | (gpio_mode (i, 8))
-          loop (i + 1, second, low)
-        _ = /do
-          loop (i + 1, high, low)
-    end: (UInt32, UInt32) -> () = \(high, low) => /do
-      set_register ((gpio_port + 4), low)
-      set_register ((gpio_port + 8), high)
+gpio_setup: (UInt32, UInt32) -> () = \(gpio_port, gpios) => /do
+  /let low = get_register (gpio_port + 4)
+  /let high = get_register (gpio_port + 8)
+  loop (0, high, low)
+    /where
+      loop: (UInt32, UInt32, UInt32) -> () = \(i, high, low) => /case i /of
+        8 = end (high, low)
+        \_ => /if
+          (gpios & (1 << i)) != 0 = /do
+            /let first = low & ((gpio_mask i) ^ (0 - 1))
+            /let second = first | (gpio_mode (i, 8))
+            loop (i + 1, high, second)
+          (gpios & (1 << (i + 8))) != 0 = /do
+            /let first = high & ((gpio_mask i) ^ (0 - 1))
+            /let second = first | (gpio_mode (i, 8))
+            loop (i + 1, second, low)
+          _ = loop (i + 1, high, low)
+      end: (UInt32, UInt32) -> () = \(high, low) => /do
+        set_register ((gpio_port + 4), low)
+        set_register ((gpio_port + 8), high)
 
 gpio_set: (UInt32, UInt32) -> () = \(gpio_port, gpios) => /do
   set_register (gpio_port + 16, gpios)

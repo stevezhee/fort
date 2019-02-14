@@ -87,10 +87,21 @@ data Expr
   = AtomE Atom
   | TupleE [Expr]
   | SwitchE Atom Expr [(String,Expr)]
-  | CallE Name [Expr]
+  | CallE (Name, CallType) [Expr]
   | LetFunE Func Expr
   | LetE Pat Expr Expr
   deriving Show
+
+data CallType
+  = Definition
+  | External
+  | Instruction ([Operand] -> B.M Operand)
+
+instance Show CallType where
+  show x = case x of
+    Definition    -> "defn"
+    External      -> "external"
+    Instruction{} -> "instr"
 
 data Atom
   = Int Integer Integer
@@ -114,7 +125,7 @@ withACall x f = do
     CExprA (CallA c) -> f c
     _ -> do
       v <- freshName "f"
-      e <- f (v,[])
+      e <- f ((v, Definition),[])
       toAExpr $ LetFunE (Func v [] $ fromAExpr a) $ fromAExpr e
 
 withAtom :: Expr -> (Atom -> M AExpr) -> M AExpr
@@ -179,6 +190,7 @@ toAExpr x = case x of
     withACall b $ \b' ->
       withACalls (map snd cs) $ \bs ->
         pure $ CExprA $ SwitchA a b' $ zip (map fst cs) bs
+-- BAL: ^ probably don't need to reduce these to calls here...
 
 fromAExpr :: AExpr -> Expr
 fromAExpr x = case x of
@@ -207,8 +219,8 @@ lambdaLift n n' fvs = go
       CExprA a -> CExprA $ goCExpr a
       LetA pat a b -> LetA pat (goCExpr a) (go b)
       _ -> x
-    goACall x@(a, bs)
-        | a == n    = (n', bs ++ fvs)
+    goACall x@((a,ct), bs)
+        | a == n    = ((n',ct), bs ++ fvs)
         | otherwise = x
     goCExpr x = case x of
       CallA a -> CallA $ goACall a
@@ -241,7 +253,7 @@ mkSubst xs ys
 
 data AFunc = AFunc Name Pat AExpr deriving Show -- BAL: Pat should be reduced to [Var]
 
-type ACall = (Name, [Atom])
+type ACall = ((Name, CallType), [Atom])
 
 data AExpr
   = TupleA [Atom]
@@ -254,20 +266,26 @@ emitTerminator = undefined
 emitInstruction = undefined
 emitVoidInstruction = undefined
 
-foo x = case x of
-  TupleA bs -> emitTerminator $ Return bs
-  CExprA a -> case a of
-    CallA a
-      | isInstr a -> do
-          emitVoidInstruction a
-          emitTerminator $ Return []
-      | otherwise -> undefined
-    SwitchA a b cs -> undefined
-  LetA vs e b -> case e of
-    CallA a
-      | isInstr a -> emitInstruction vs a
-      | otherwise -> undefined
-    SwitchA a b cs -> undefined
+-- emitAExpr x = case x of
+--   TupleA bs -> emitTerminator $ Return bs
+--   CExprA a -> case a of
+--     CallA a
+--       | isInstr a -> do
+--           emitVoidInstruction a
+--           emitTerminator $ Return []
+--       | otherwise -> emitTerminator $ br a
+--     SwitchA a b cs -> undefined
+--       -- BAL: convert b and cs to local functions (if not already) and emitTerminator
+--   LetA vs e b -> case e of
+--     CallA a
+--       | isInstr a -> do
+--           emitInstruction vs a
+--           emitAExpr b
+--       | otherwise -> undefined
+--       -- BAL: convert b into a function that takes vs and computes b
+--       -- convert e into a function that takes [] and calls b with vs
+--     SwitchA a b cs -> undefined
+--     -- BAL: convert the switch into a function that takes []
 
 data CExpr
   = CallA ACall
@@ -280,6 +298,9 @@ data BFunc = BFunc
   [(Var,ACall)] -- instructions
   Term          -- switch or return
   deriving Show
+
+br :: ACall -> Term
+br x = Switch (Int 1 0) x []
 
 data Term
   = Switch Atom ACall [(String, ACall)]
@@ -318,7 +339,7 @@ ppPat x = case x of
 ppExpr x = case x of
   AtomE a -> ppAtom a
   TupleE bs -> ppTuple $ map ppExpr bs
-  CallE a bs -> pretty a <+> ppTuple (map ppExpr bs)
+  CallE (a,_) bs -> pretty a <+> ppTuple (map ppExpr bs)
   SwitchE a b cs -> vcat
     [ "switch" <+> ppAtom a
     , indent 2 $ ppAlt ("default",b)
@@ -367,7 +388,7 @@ let_ :: Pat -> E a -> (E a -> E b) -> E b
 let_ pat (E x) f = E $ LetE pat <$> x <*> unE (f (patToExpr pat))
 
 jump :: Name -> E (a -> b)
-jump n = callE n
+jump n = callE Definition n
 
 letFunc :: Name -> Pat -> (E a -> E b) -> M Func
 letFunc n pat f = Func n pat <$> (unE $ f $ patToExpr pat)
@@ -376,7 +397,7 @@ func :: Name -> Pat -> (E a -> E b) -> E (a -> b)
 func n pat f = E $ do
   lbl <- letFunc n pat f
   modify' $ \st -> st{ funcs = HMS.insert n lbl $ funcs st }
-  unE $ callE n
+  unE $ callE Definition n
 
 exprToPat :: Ty a => E a -> Pat
 exprToPat (_ :: E a) = go $ tyFort (Proxy :: Proxy a)
@@ -395,7 +416,7 @@ freshName v = do
   i <- nextUnique
   pure $ v ++ "." ++ show i
 
-callE n = E $ pure $ CallE n []
+callE x n = E $ pure $ CallE (n,x) []
 
 opapp :: E a -> E ((a, b) -> c) -> E (b -> c)
 opapp x f = app (unsafeCast f) x
@@ -491,22 +512,22 @@ volatile :: Integer -> E (Addr a)
 volatile = atomE . Address
 
 output :: E (a -> ())
-output = callE "output"
+output = callE External "output"
 
 noDefault :: E a -> E b
-noDefault _ = app (callE "unreachable") (string "default case")
+noDefault _ = app (callE Definition "unreachable") (string "default case")
 
 unsafeCon :: (E (Addr b) -> E c) -> (E (Addr a) -> E c)
-unsafeCon f = \x -> f $ app (callE "unsafeCon") x -- BAL: f . bitcast
+unsafeCon f = \x -> f $ app (callE External "unsafeCon") x -- BAL: f . bitcast
 
 field :: Integer -> String -> E (Addr a -> Addr b)
-field i fld = app (app (callE "field") (intE 32 i)) (string fld)
+field i fld = app (app (callE External "field") (intE 32 i)) (string fld)
 
 inject :: Integer -> String -> E ((Addr a, b) -> ())
-inject i con = app (app (callE "inject") (intE 32 i)) (string con)
+inject i con = app (app (callE External "inject") (intE 32 i)) (string con)
 
 injectTag :: Ty a => Integer -> String -> E (Addr a -> ())
-injectTag i con = app (app (callE "injectTag") (intE 32 i)) (string con)
+injectTag i con = app (app (callE External "injectTag") (intE 32 i)) (string con)
 
 -- no brainers
 arithop :: Ty a => Name -> (Operand -> Operand -> B.M Operand) -> E ((a,a) -> a)
@@ -539,7 +560,7 @@ signedCmpop s p q = f Proxy
       t -> error $ "unable to compare values of type:" ++ show t
 
 instr :: Name -> ([Operand] -> B.M Operand) -> E (a -> b)
-instr s _ = callE s
+instr s f = callE (Instruction f) s
 
 unop :: Name -> (Operand -> B.M Operand) -> E (a -> b)
 unop s f = instr s (\[x] -> f x)
@@ -609,18 +630,17 @@ tyEnumToTyUnsigned bs = TyUnsigned (neededBitsList bs)
 tyStringToTyAddress :: Type
 tyStringToTyAddress = TyAddress TyChar
 
-
 index :: E ((Addr (Array sz a), UInt32) -> Addr a)
 index = binop "idx" B.idx
 
-load :: E (Addr a -> a)
+load :: E (Addr a -> a) -- BAL: call B.load_volatile if needed by the type
 load = unop "load" B.load
 
-store :: E ((Addr a, a) -> ())
+store :: E ((Addr a, a) -> ()) -- BAL: call B.store_volatile if needed by the type
 store = binop "store" B.store
 
 extern :: Ty a => Name -> E (a -> b)
-extern = callE
+extern = callE External
 
 h_get_char :: E (Handle -> Char_)
 h_get_char = extern "fgetc"
