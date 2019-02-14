@@ -86,7 +86,6 @@ data Func = Func Name Pat Expr deriving Show
 data Expr
   = AtomE Atom
   | TupleE [Expr]
-  | SeqE Expr Expr
   | SwitchE Atom Expr [(String,Expr)]
   | CallE Name [Expr]
   | LetFunE Func Expr
@@ -95,9 +94,7 @@ data Expr
 
 data AFunc = AFunc Name Pat AExpr deriving Show -- BAL: Pat should be reduced to [Var]
 
-isAtomE AtomE{} = True
-isAtomE _ = False
-
+var :: Var -> Expr
 var = AtomE . Var
 
 toAFunc :: Func -> M AFunc
@@ -121,6 +118,23 @@ withAtom x f = case x of
     b <- f (Var a)
     toAExpr $ LetE [a] x $ fromAExpr b
 
+data Block = Block
+  Name
+  [Var]         -- parameters
+  [(Var,ACall)] -- instructions
+  Term          -- switch or return
+  deriving Show
+
+data Term
+  = Switch Atom Call [(String, Call)]
+  | Return [Atom]
+  deriving Show
+
+data Call = Call
+  Name   -- Block
+  [Atom] -- arguments
+  deriving Show
+
 withAtoms :: [Expr] -> ([Atom] -> M AExpr) -> M AExpr
 withAtoms = go
   where
@@ -141,7 +155,6 @@ freeVars bvs = go
       TupleA bs    -> nub $ concatMap goAtom bs
       CExprA a     -> goCExpr a
       LetA pat a b -> nub $ concat [goCExpr a, freeVars (pat++bvs) b]
-      SeqA a b     -> nub $ concat [go a, go b]
     goAtom x = case x of
       Var v
         | v `elem` bvs -> []
@@ -160,14 +173,12 @@ toAExpr x = case x of
       AtomA a       -> subst (mkSubst pat [a]) <$> toAExpr b
       TupleA bs     -> subst (mkSubst pat bs) <$> toAExpr b
       CExprA c      -> LetA pat c <$> toAExpr b
-      SeqA p q      -> SeqA p <$> toAExpr (LetE pat (fromAExpr q) b)
       LetA pat1 c e -> do
         pat1' <- freshPat pat1 -- rename to avoid conflicts
         let tbl = mkSubst pat1 $ map Var pat1'
         LetA pat1' c <$> toAExpr (LetE pat (fromAExpr $ subst tbl e) b)
   CallE n es -> withAtoms es $ \vs -> pure (CExprA (CallA (n, vs)))
   TupleE es -> withAtoms es $ \vs -> pure (TupleA vs)
-  SeqE a b -> SeqA <$> toAExpr a <*> toAExpr b
   AtomE a -> pure $ AtomA a
   LetFunE a b -> do -- lambda lift local function
     f@(AFunc n pat e) <- toAFunc a
@@ -187,14 +198,16 @@ fromAExpr x = case x of
   TupleA bs    -> TupleE $ map AtomE bs
   LetA pat a b -> LetE pat (fromCExpr a) (fromAExpr b)
   CExprA a     -> fromCExpr a
-  SeqA a b     -> SeqE (fromAExpr a) (fromAExpr b)
 
+fromAFunc :: AFunc -> Func
 fromAFunc (AFunc n pat e) = Func n pat $ fromAExpr e
 
+fromCExpr :: CExpr -> Expr
 fromCExpr x = case x of
   CallA a  -> fromACall a
   SwitchA a b cs -> SwitchE a (fromACall b) $ map (second fromACall) cs
 
+fromACall :: ACall -> Expr
 fromACall (a,bs) = CallE a $ map AtomE bs
 
 mapAFunc :: (AExpr -> AExpr) -> AFunc -> AFunc
@@ -206,7 +219,6 @@ lambdaLift n n' fvs = go
     go x = case x of
       CExprA a -> CExprA $ goCExpr a
       LetA pat a b -> LetA pat (goCExpr a) (go b)
-      SeqA a b -> SeqA (go a) (go b)
       _ -> x
     goACall x@(a, bs)
         | a == n    = (n', bs ++ fvs)
@@ -224,7 +236,6 @@ subst tbl = go
       TupleA bs -> TupleA $ map goAtom bs
       CExprA a -> CExprA $ goCExpr a
       LetA pat a b -> LetA pat (goCExpr a) (subst (remove pat) b)
-      SeqA a b -> SeqA (go a) (go b)
     goAFunc (AFunc n pat e) = AFunc n pat (subst (remove pat) e)
     goACall (n, bs) = (n, map goAtom bs)
     goCExpr x = case x of
@@ -237,6 +248,7 @@ subst tbl = go
       _ -> x
     remove pat = HMS.filterWithKey (\k _ -> k `elem` pat) tbl
 
+mkSubst :: [Var] -> [Atom] -> HMS.HashMap Var Atom
 mkSubst xs ys
   | length xs /= length ys = impossible $ "mkSubst:" ++ show (xs,ys)
   | otherwise = HMS.fromList $ zip xs ys
@@ -246,7 +258,6 @@ data AExpr
   | TupleA [Atom]
   | CExprA CExpr
   | LetA Pat CExpr AExpr
-  | SeqA AExpr AExpr
   deriving Show
 
 data CExpr
@@ -311,7 +322,6 @@ ppExpr x = case x of
     [ "fun" <+> ppFunc a
     , ppExpr b
     ]
-  SeqE a b -> vcat [ppExpr a, ppExpr b]
 
 ppAlt (c,e) = pretty c <> ":" <> line <> indent 2 (ppExpr e)
 
@@ -459,7 +469,7 @@ sequence :: [E ()] -> E a -> E a
 sequence xs y = foldl' (flip seq) y xs
 
 seq :: E () -> E a -> E a
-seq (E x) (E y) = E $ SeqE <$> x <*> y
+seq (E x) (E y) = E $ LetE [] <$> x <*> y
 
 enum :: (String, Integer) -> E a
 enum = atomE . Enum
