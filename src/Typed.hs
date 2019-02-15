@@ -55,11 +55,12 @@ instance (Size sz, Ty a) => Ty (Array sz a) where
   tyFort _ = TyArray (size (Proxy :: Proxy sz)) (tyFort (Proxy :: Proxy a))
 
 data St = St
-  { unique :: Int
+  { unique :: Integer
   , funcs  :: HMS.HashMap Name Func
   , lifted :: HMS.HashMap Name AFunc
   , bfuncs :: [BFunc]
   , instrs :: [([Var], ACall)]
+  , conts  :: HMS.HashMap Name [(Integer, Name)]
   }
 
 type M a = State St a
@@ -86,14 +87,18 @@ newtype E a = E{ unE :: M Expr }
 
 data Func = Func Name Pat Expr deriving Show
 
+type Tag = (String, Constant)
+
 data Expr
   = AtomE Atom
   | TupleE [Expr]
-  | SwitchE Atom Expr [(String,Expr)]
+  | SwitchE Atom Expr [(Tag, Expr)]
   | CallE (Name, CallType) [Expr]
   | LetFunE Func Expr
   | LetE Pat Expr Expr
   deriving Show
+
+-- BAL: don't need B.M anymore
 
 data CallType
   = Definition
@@ -246,27 +251,38 @@ data AExpr
 
 data CExpr
   = CallA ACall
-  | SwitchA Atom AExpr [(String, AExpr)]
+  | SwitchA Atom AExpr [(Tag, AExpr)]
   deriving Show
 
-data Term
-  = Switch Atom DefnCall [(String, DefnCall)]
-  | Branch ACall
-  | Return [Atom]
-  deriving Show
+type Instr = ([Var], ACall)
 
 data DefnCall = DefnCall Name [Atom] deriving Show
 
 data BFunc = BFunc
   Name
-  [Var]            -- parameters
-  [([Var], ACall)] -- instructions/calls
-  Term             -- switch, branch, or return
+  [Var]   -- parameters
+  [Instr] -- instructions/calls
+  Term    -- switch, call, or return
   deriving Show
 
-isDefn ((_,x),_) = case x of
-  Definition -> True
-  _ -> False
+data Term
+  = Return [Atom]
+  | Call DefnCall
+  | Switch Atom DefnCall [(Tag, DefnCall)]
+  deriving Show
+
+data SSAFunc = SSAFunc
+  Name
+  [Var]   -- parameters
+  [Instr] -- instructions/calls
+  SSATerm -- switch, call, or return
+  deriving Show
+
+data SSATerm
+  = SwitchT Atom Name [(Constant, Name)]
+  | CallT Name
+  | ReturnT Atom
+  deriving Show
 
 emitInstruction :: [Var] -> ACall -> M ()
 emitInstruction vs x =
@@ -302,7 +318,11 @@ toTerminator :: AExpr -> M Term
 toTerminator x = case x of
   TupleA bs -> pure $ Return bs
   CExprA e -> case e of
-    CallA _ -> Branch <$> toACall x
+    CallA a -> case a of
+      ((n,Definition), vs) -> pure $ Call $ DefnCall n vs
+      _ -> do
+        v <- freshName "v" -- BAL: what if it's void or returns a tuple?
+        toTerminator $ LetA [v] e $ TupleA [Var v]
     SwitchA a b cs -> do
       b' <- toDefnCall b
       cs' <- mapM (toDefnCall . snd) cs
@@ -313,45 +333,124 @@ toTerminator x = case x of
     toTerminator b
 
 fromBFunc :: BFunc -> Func
-fromBFunc (BFunc n xs ys z) = Func n xs $ foldr (\f b -> f b) (goTerm z) $ map go ys
+fromBFunc (BFunc n xs ys z) =
+  Func n xs $ foldr (\f b -> f b) (goTerm z) $ map go ys
   where
     go :: ([Var], ACall) -> (Expr -> Expr)
     go (a,b) = LetE a $ goACall b
 
     goTerm :: Term -> Expr
     goTerm x = case x of
-      Branch a      -> goACall a
+      Call a        -> goDefnCall a
       Switch a b cs -> SwitchE a (goDefnCall b) $ map (second goDefnCall) cs
       Return bs     -> TupleE $ map AtomE bs
 
     goACall :: ACall -> Expr
-    goACall (a,bs) = CallE a $ map AtomE bs
+    goACall (a@(n1,ct), bs) = case ct of
+      Definition -> goDefnCall (DefnCall n1 bs)
+      _ -> CallE a $ map AtomE bs
 
     goDefnCall :: DefnCall -> Expr
     goDefnCall (DefnCall a bs) = CallE (a, Definition) $ map AtomE bs
 
 codegen :: String -> [M Expr] -> IO ()
 codegen file ds = do
-  putStrLn "========================"
+  putStrLn "=================================="
   putStrLn file
-  putStrLn "----- input ------------"
-  let st = execState (sequence_ ds) $ St 0 mempty mempty [] []
-  let fs = HMS.elems $ funcs st
+
+  putStrLn "--- input ------------------------"
+  let (fs, st) = runState (toFuncs ds) $ St 0 mempty mempty mempty mempty mempty
   print $ ppFuncs ppFunc fs
-  putStrLn "----- a-normalization --"
-  let (afs0,st1) = runState (mapM toAFunc fs) st{ funcs = mempty }
-  let afs = HMS.elems (lifted st1) ++ afs0
-  print $ ppFuncs ppAFunc afs
-  putStrLn "----- block functions --"
-  let st2 = execState (mapM_ toBFunc afs) st1{ lifted = mempty }
-  let bfs = bfuncs st2
-  print $ ppFuncs ppBFunc bfs
-  putStrLn "========================"
+
+  putStrLn "--- a-normalization --------------"
+  let (afss, st1) = runState (mapM toAFuncs fs) st
+  print $ ppFuncs (vcat . map ppAFunc) afss
+
+  putStrLn "--- block functions --------------"
+  let (bfss, st2) = runState (mapM toBFuncs afss) st1
+  print $ ppFuncs (vcat . map ppBFunc) bfss
+
+  putStrLn "--- single static assignment -----"
+  -- let (ssass, st2) = runState (mapM toSSAFuncs afss) st1
+  -- print $ ppFuncs (vcat . map ppBFunc) ssas
+
+  -- putStrLn "--- continuation passing style ---"
+  -- let (cfs,st3) = runState (toCPSs [ n | Func n _ _ <- fs ] bfs) st2
+  -- print $ ppFuncs ppBFunc cfs
+
+  putStrLn "=================================="
+
+toFuncs :: [M Expr] -> M [Func]
+toFuncs ds = do
+  sequence_ ds
+  bs <- gets funcs
+  modify' $ \st -> st{ funcs = impossible "funcs" }
+  pure $ HMS.elems bs
+
+toAFuncs x  = do
+  af <- toAFunc x
+  bs <- gets lifted
+  modify' $ \st -> st{ lifted = mempty }
+  pure (af : HMS.elems bs)
+
+toBFuncs afs = do
+  mapM_ toBFunc afs
+  bfs <- gets bfuncs
+  modify' $ \st -> st{ bfuncs = mempty }
+  return $ reverse bfs
+
+-- toCPSs :: [Name] -> [BFunc] -> M [BFunc]
+-- toCPSs ns bfs = do
+--   -- (bfs,_) <- unzip <$> mapM f ns
+--   cfs0 <- concat <$> mapM toCPS bfs
+--   tbl <- gets conts
+--   modify' $ \st -> st{ conts = impossible "conts" }
+--   pure $ map (toCPSPost tbl) (cfs0)
+--   -- where
+--   --   f n = do
+--   --     v <- freshName "v"
+--   --     freshContinuation (n ++ ".ret") [v] [] (Return [Var v]) "obf.start"
+
+-- toCPS :: BFunc -> M [BFunc] -- BAL: do this in bfunc?
+-- toCPS (BFunc n params xs t) = case break isDefinition xs of
+--   (_, [])  -> do
+--     let t' = case t of
+--           Return{}      -> t
+--           Call a        -> Call $ cont a
+--           Switch a b cs -> Switch a (cont b) (map (second cont) cs)
+--     pure [BFunc n ("%ret":params) xs t']
+--   (pre, (vs,((toLbl,_),args)):post) -> do
+--     (bf,i) <- freshContinuation n vs post t toLbl
+--     bfs <- toCPS bf
+--     pure $ BFunc n ("%ret":params) pre (Call (DefnCall toLbl (i:args))) : bfs
+--   where
+--     cont (DefnCall a bs) = DefnCall a (Var "%ret":bs)
+
+-- freshContinuation :: Name -> [Var] -> [Instr] -> Term -> Name -> M (BFunc, Atom)
+-- freshContinuation n vs post t toLbl = do
+--   i <- nextUnique
+--   let n' = "%" ++ n ++ "." ++ show i
+--   modify' $ \st -> st{ conts = HMS.insertWith (++) toLbl [(i, n')] $ conts st }
+--   return (BFunc n' vs post t, Int 32 i) -- BAL: could base the size on the total number of continuations
+
+-- toCPSPost :: HMS.HashMap Name [(Integer, Name)] -> BFunc -> BFunc
+-- toCPSPost tbl (BFunc n params xs t) = BFunc n params xs t'
+--   where
+--     t' = case t of
+--       Return bs -> case HMS.lookup n tbl of
+--         Nothing -> impossible $ "toCPSPost:" ++ n
+--         Just ((_,lbl):cs) -> Switch (Var "%ret") (f lbl) [ (show i, f c) | (i,c) <- cs ]
+--         where
+--           f = flip DefnCall bs
+--       _ -> t
+
+-- isDefinition (_,((_,Definition),_)) = True
+-- isDefinition _ = False
 
 ppFuncs :: (a -> Doc ann) -> [a] -> Doc ann
 ppFuncs f xs = indent 2 (vcat $ map f xs)
 
-nextUnique :: M Int
+nextUnique :: M Integer
 nextUnique = do
   i <- gets unique
   modify' $ \st -> st{ unique = i + 1 }
@@ -374,7 +473,7 @@ ppExpr x = case x of
   CallE (a,_) bs -> pretty a <+> ppTuple (map ppExpr bs)
   SwitchE a b cs -> vcat
     [ "switch" <+> ppAtom a
-    , indent 2 $ ppAlt ("default",b)
+    , indent 2 $ "default" <> ppAltRHS b
     , indent 2 $ vcat (map ppAlt cs)
     ]
   LetE a b c -> vcat
@@ -393,8 +492,10 @@ ppAExpr = ppExpr . fromAExpr
 ppCExpr :: CExpr -> Doc ann
 ppCExpr = ppExpr . fromCExpr
 
-ppAlt :: (String, Expr) -> Doc ann
-ppAlt (c,e) = pretty c <> ":" <> line <> indent 2 (ppExpr e)
+ppAlt :: (Tag, Expr) -> Doc ann
+ppAlt ((s,_),e) = pretty s <> ppAltRHS e
+
+ppAltRHS e = ":" <> line <> indent 2 (ppExpr e)
 
 ppAtom x = case x of
   Int _ i    -> pretty i
@@ -411,18 +512,34 @@ letFunEs :: [Func] -> Expr -> Expr
 letFunEs xs y = foldl' (flip LetFunE) y xs
 
 case_ :: Ty a => E a -> (E a -> E b) -> [(String, E a -> E b)] -> E b
-case_ (E x) f ys = E $ do
+case_ (E x :: E a) f ys = E $ do
   e <- x
   let h a = do
         let mkAlt g = unE $ g $ E $ pure $ AtomE a
         b  <- mkAlt f
         bs <- mapM mkAlt $ map snd ys
-        pure $ SwitchE a b $ zip (map fst ys) bs
+        pure $ SwitchE a b $ zip (map (readTag (tyFort (Proxy :: Proxy a)) . fst) ys) bs
   case e of
     AtomE a -> h a
     _ -> do
       v <- freshName "v"
       LetE [v] e <$> h (Var v)
+
+readTag :: Type -> String -> Tag
+readTag x s = (s, go x)
+  where
+    go t = case t of
+      TyChar -> constInt 8 $ toInteger $ fromEnum (read s :: Char)
+      TySigned sz   -> constInt sz (read s)
+      TyUnsigned sz -> constInt sz (read s)
+      TyVariant bs -> go (TyEnum $ map fst bs)
+      TyEnum tags -> constInt (neededBitsList tags) $
+        maybe err id (lookup s $ zip tags [0 ..])
+      _ -> err
+    err = impossible $ "readTag:" ++ s
+
+constInt :: Integer -> Integer -> Constant
+constInt bits = AST.Int (fromInteger bits)
 
 let_ :: Pat -> E a -> (E a -> E b) -> E b
 let_ pat (E x) f = E $ LetE pat <$> x <*> unE (f (patToExpr pat))
@@ -435,8 +552,12 @@ letFunc n pat f = Func n pat <$> (unE $ f $ patToExpr pat)
 
 func :: Name -> Pat -> (E a -> E b) -> E (a -> b)
 func n pat f = E $ do
-  lbl <- letFunc n pat f
-  modify' $ \st -> st{ funcs = HMS.insert n lbl $ funcs st }
+  tbl <- gets funcs
+  case HMS.lookup n tbl of
+    Just _ -> pure ()
+    Nothing -> do
+      lbl <- letFunc n pat f
+      modify' $ \st -> st{ funcs = HMS.insert n lbl $ funcs st }
   unE $ callE n Definition
 
 exprToPat :: Ty a => E a -> Pat
