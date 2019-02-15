@@ -1,6 +1,7 @@
 .SUFFIXES:
 .PRECIOUS: %.fort.hs %.fort.ll %.fort.s %.fort.o
 
+
 PREFIX    ?=
 PRJ       := tomu-fort
 LDSCRIPT  := tomu.ld
@@ -12,7 +13,7 @@ Q         :=
 
 OUT := generated
 CSRC:= $(wildcard src/*.c)
-FSRC:= $(wildcard src/*.fort)
+FSRC:= src/blink.fort
 HS_FILES=$(shell find ../src -name \*.hs) $(shell find ../app -name \*.hs)
 OBJ := $(addprefix $(OUT)/, $(filter %.o,$(CSRC:.c=.o) $(addsuffix .o, $(FSRC))))
 
@@ -58,17 +59,17 @@ LDFLAGS += --script $(LDSCRIPT)
 
 all: $(TARGET_BIN) $(TARGET_LST) $(TARGET_DFU) size
 
-$(OUT)/src/main.fort.hs: src/main.fort $(HS_FILES)
+$(OUT)/$(FSRC).hs: $(FSRC) $(HS_FILES)
 	stack --stack-yaml ../stack.yaml runghc -- -i../src ../app/Main.hs $<
 
-$(OUT)/src/main.fort.ll: $(OUT)/src/main.fort.hs
+$(OUT)/$(FSRC).ll: $(OUT)/$(FSRC).hs
 	stack --stack-yaml ../stack.yaml runghc -- -i../src $<
 
-$(OUT)/src/main.fort.s: $(OUT)/src/main.fort.ll
+$(OUT)/$(FSRC).s: $(OUT)/$(FSRC).ll
 	@echo LLC $^
 	$(Q)$(LLC) $(LLC_FLAGS) $<
 
-$(OUT)/src/main.fort.o: $(OUT)/src/main.fort.s
+$(OUT)/$(FSRC).o: $(OUT)/$(FSRC).s
 	@echo CC $^
 	$(Q)$(CC) $(ARCH_FLAGS) -o $@ -c $<
 
