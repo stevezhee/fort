@@ -13,7 +13,7 @@ Q         :=
 
 OUT := generated
 CSRC:= $(wildcard src/*.c)
-FSRC:= src/blink.fort
+FSRC:= src/main.fort
 HS_FILES=$(shell find ../src -name \*.hs) $(shell find ../app -name \*.hs)
 OBJ := $(addprefix $(OUT)/, $(filter %.o,$(CSRC:.c=.o) $(addsuffix .o, $(FSRC))))
 
