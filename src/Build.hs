@@ -69,8 +69,9 @@ func n params t f = lift $ IR.function n params t $ \vs -> do
   f $ map pure vs
   resolveJumps
 
-idx :: Operand -> Operand -> M Operand
-idx x y = IR.gep x [int 32 0, y]
+gep :: Operand -> Operand -> M Operand
+gep x y = IR.gep x [int 32 0, y]
+
 
 int :: Integer -> Integer -> Operand
 int bits = ConstantOperand . constInt bits
@@ -248,7 +249,7 @@ reduceArray sz x y f = mdo
   loop <- block (lbl <> "_loop")
   i <- phi [(int 32 0, prelbl), (j, loop)]
   b <- phi [(b0, prelbl), (b1, loop)]
-  a <- idx arrp i
+  a <- gep arrp i
   b1 <- f (pure a) (pure b)
   j <- IR.add i (int 32 1)
   IR.switch j loop [(Int 32 sz, done)]
@@ -263,7 +264,7 @@ unreachable t = do
   pure $ undefOperand t
 
 tupleIdx :: Integer -> Operand -> M Operand
-tupleIdx i p = idx p (int 32 i)
+tupleIdx i p = gep p (int 32 i)
 
 mkTag :: Integer -> Integer -> Constant
 mkTag bits = Int (fromInteger bits)
@@ -278,7 +279,7 @@ mkChar = mkEnum 8 . toInteger . fromEnum
 listArray :: [M Operand] -> M Operand -> M ()
 listArray xs y = do
   arrp <- y
-  sequence_ [ store <$> (idx arrp (int 32 i)) <*> x | (i, x) <- zip [0..] xs ]
+  sequence_ [ store <$> (gep arrp (int 32 i)) <*> x | (i, x) <- zip [0..] xs ]
 
 injectTag :: Integer -> Operand -> M Operand
 injectTag tag p = do
@@ -298,7 +299,7 @@ inject tag p a = do
   pa <- variantDataAddr (typeOf a) p
   IR.store pa 0 a
   unit
-
+  
 tagIdx :: Operand -> M Operand
 tagIdx = tupleIdx 0
 

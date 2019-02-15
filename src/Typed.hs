@@ -21,6 +21,7 @@ import qualified Data.HashMap.Strict       as HMS
 import qualified LLVM.AST                  as AST
 import qualified LLVM.AST.IntegerPredicate as AST
 import qualified LLVM.AST.Type             as AST
+import qualified LLVM.AST.Constant         as AST
 import qualified LLVM.IRBuilder            as IR
 
 class Size a where size :: Proxy a -> Integer
@@ -96,13 +97,12 @@ data Expr
 
 data CallType
   = Definition
-  | External
   | Instruction ([Operand] -> B.M Operand)
+  | Extern (B.M Operand) ([Operand] -> B.M Operand)
 
 instance Show CallType where
   show x = case x of
     Definition    -> "defn"
-    External      -> "external"
     Instruction{} -> "instr"
 
 data Atom
@@ -250,16 +250,18 @@ data CExpr
   deriving Show
 
 data Term
-  = Switch Atom ACall [(String, ACall)]
+  = Switch Atom DefnCall [(String, DefnCall)]
   | Branch ACall
   | Return [Atom]
   deriving Show
 
+data DefnCall = DefnCall Name [Atom] deriving Show
+
 data BFunc = BFunc
   Name
   [Var]            -- parameters
-  [([Var], ACall)] -- instructions/externals
-  Term             -- switch or return
+  [([Var], ACall)] -- instructions/calls
+  Term             -- switch, branch, or return
   deriving Show
 
 isDefn ((_,x),_) = case x of
@@ -278,6 +280,15 @@ toBFunc (AFunc x ys z)= do
   bs <- reverse <$> gets instrs
   modify' $ \st -> st{ instrs = instrs0, bfuncs = BFunc x ys bs t : bfuncs st }
 
+toDefnCall :: AExpr -> M DefnCall
+toDefnCall x = case x of
+  CExprA (CallA ((f,Definition),bs)) -> pure $ DefnCall f bs
+  _ -> do
+    f <- freshName "f"
+    let fvs = freeVars [] x
+    toBFunc $ AFunc f fvs x
+    pure $ DefnCall f $ map Var fvs
+
 toACall :: AExpr -> M ACall
 toACall x = case x of
   CExprA (CallA a) -> pure a
@@ -291,13 +302,13 @@ toTerminator :: AExpr -> M Term
 toTerminator x = case x of
   TupleA bs -> pure $ Return bs
   CExprA e -> case e of
-    CallA a -> pure $ Branch a
+    CallA _ -> Branch <$> toACall x
     SwitchA a b cs -> do
-      b' <- toACall b
-      cs' <- mapM (toACall . snd) cs
+      b' <- toDefnCall b
+      cs' <- mapM (toDefnCall . snd) cs
       pure $ Switch a b' $ zip (map fst cs) cs'
   LetA vs e b -> do
-    a <- toACall $ CExprA e
+    a <- toACall $ CExprA e -- BAL: toInstrCall
     emitInstruction vs a
     toTerminator b
 
@@ -310,11 +321,14 @@ fromBFunc (BFunc n xs ys z) = Func n xs $ foldr (\f b -> f b) (goTerm z) $ map g
     goTerm :: Term -> Expr
     goTerm x = case x of
       Branch a      -> goACall a
-      Switch a b cs -> SwitchE a (goACall b) $ map (second goACall) cs
+      Switch a b cs -> SwitchE a (goDefnCall b) $ map (second goDefnCall) cs
       Return bs     -> TupleE $ map AtomE bs
 
     goACall :: ACall -> Expr
     goACall (a,bs) = CallE a $ map AtomE bs
+
+    goDefnCall :: DefnCall -> Expr
+    goDefnCall (DefnCall a bs) = CallE (a, Definition) $ map AtomE bs
 
 codegen :: String -> [M Expr] -> IO ()
 codegen file ds = do
@@ -414,7 +428,7 @@ let_ :: Pat -> E a -> (E a -> E b) -> E b
 let_ pat (E x) f = E $ LetE pat <$> x <*> unE (f (patToExpr pat))
 
 jump :: Name -> E (a -> b)
-jump n = callE Definition n
+jump n = callE n Definition
 
 letFunc :: Name -> Pat -> (E a -> E b) -> M Func
 letFunc n pat f = Func n pat <$> (unE $ f $ patToExpr pat)
@@ -423,7 +437,7 @@ func :: Name -> Pat -> (E a -> E b) -> E (a -> b)
 func n pat f = E $ do
   lbl <- letFunc n pat f
   modify' $ \st -> st{ funcs = HMS.insert n lbl $ funcs st }
-  unE $ callE Definition n
+  unE $ callE n Definition
 
 exprToPat :: Ty a => E a -> Pat
 exprToPat (_ :: E a) = go $ tyFort (Proxy :: Proxy a)
@@ -442,10 +456,14 @@ freshName v = do
   i <- nextUnique
   pure $ v ++ "." ++ show i
 
-callE x n = E $ pure $ CallE (n,x) []
+callE :: Name -> CallType -> E (a -> b)
+callE n x = E $ pure $ CallE (n,x) []
 
 opapp :: E a -> E ((a, b) -> c) -> E (b -> c)
 opapp x f = app (unsafeCast f) x
+
+sndapp :: E ((a, b) -> c) -> E b -> E (a -> c)
+sndapp f x = app (unsafeCast f) x
 
 app :: E (a -> b) -> E a -> E b
 app (E x) (E y) = E $ do
@@ -537,23 +555,26 @@ char = atomE . Char
 volatile :: Integer -> E (Addr a)
 volatile = atomE . Address
 
-output :: E (a -> ())
-output = callE External "output"
-
 noDefault :: E a -> E b
-noDefault _ = app (callE Definition "unreachable") (string "default case")
+noDefault _ = app (callE "unreachable" Definition) (string "default case") -- BAL:
 
-unsafeCon :: (E (Addr b) -> E c) -> (E (Addr a) -> E c)
-unsafeCon f = \x -> f $ app (callE External "unsafeCon") x -- BAL: f . bitcast
+unsafeCon :: (Ty a, Ty b) => (E (Addr b) -> E c) -> (E (Addr a) -> E c)
+unsafeCon f = \x -> f $ app bitcast x
 
-field :: Integer -> String -> E (Addr a -> Addr b)
-field i fld = app (app (callE External "field") (intE 32 i)) (string fld)
+field :: (Ty a, Ty b) => Integer -> String -> E (Addr a -> Addr b)
+field i fld = sndapp (gep "field") (intE 32 i)
+
+index :: E ((Addr (Array sz a), UInt32) -> Addr a)
+index = gep "index"
+
+gep :: String -> E ((Addr a, UInt32) -> Addr b)
+gep s = binop s B.gep
 
 inject :: Integer -> String -> E ((Addr a, b) -> ())
-inject i con = app (app (callE External "inject") (intE 32 i)) (string con)
+inject i con = binop ("inject " ++ con) (B.inject i)
 
 injectTag :: Ty a => Integer -> String -> E (Addr a -> ())
-injectTag i con = app (app (callE External "injectTag") (intE 32 i)) (string con)
+injectTag i con = unop ("injectTag " ++ con) (B.injectTag i)
 
 -- no brainers
 arithop :: Ty a => Name -> (Operand -> Operand -> B.M Operand) -> E ((a,a) -> a)
@@ -586,7 +607,7 @@ signedCmpop s p q = f Proxy
       t -> error $ "unable to compare values of type:" ++ show t
 
 instr :: Name -> ([Operand] -> B.M Operand) -> E (a -> b)
-instr s f = callE (Instruction f) s
+instr s f = callE s (Instruction f)
 
 unop :: Name -> (Operand -> B.M Operand) -> E (a -> b)
 unop s f = instr s (\[x] -> f x)
@@ -610,6 +631,11 @@ bitop s f = g Proxy
 
 tyLLVM :: Ty a => Proxy a -> AST.Type
 tyLLVM = toTyLLVM . tyFort
+
+toArgsLLVM :: Type -> [AST.Type]
+toArgsLLVM x = map toTyLLVM $ case x of
+  TyTuple bs  -> bs
+  _           -> [x]
 
 toTyLLVM :: Type -> AST.Type
 toTyLLVM = go
@@ -656,20 +682,11 @@ tyEnumToTyUnsigned bs = TyUnsigned (neededBitsList bs)
 tyStringToTyAddress :: Type
 tyStringToTyAddress = TyAddress TyChar
 
-index :: E ((Addr (Array sz a), UInt32) -> Addr a)
-index = binop "idx" B.idx
-
 load :: E (Addr a -> a) -- BAL: call B.load_volatile if needed by the type
 load = unop "load" B.load
 
 store :: E ((Addr a, a) -> ()) -- BAL: call B.store_volatile if needed by the type
 store = binop "store" B.store
-
-extern :: Ty a => Name -> E (a -> b)
-extern = callE External
-
-h_get_char :: E (Handle -> Char_)
-h_get_char = extern "fgetc"
 
 instance (Ty a, Ty b, Ty c) => Ty (a,b,c) where
   tyFort _ = TyTuple
@@ -680,6 +697,23 @@ instance (Ty a, Ty b, Ty c) => Ty (a,b,c) where
 
 instance (Ty a, Ty b) => Ty (a,b) where
   tyFort _ = TyTuple [tyFort (Proxy :: Proxy a), tyFort (Proxy :: Proxy b)]
+
+extern :: (Ty a, Ty b) => Name -> E (a -> b)
+extern n = f Proxy Proxy
+  where
+    f :: (Ty a, Ty b) => Proxy a -> Proxy b -> E (a -> b)
+    f pa pb = E $ do
+      let n' = AST.mkName n
+      let tys = toArgsLLVM $ tyFort pa
+      let ty  = toTyLLVM $ tyFort pb
+      let v = AST.ConstantOperand (AST.GlobalReference (AST.FunctionType ty tys False) n')
+      unE $ callE n (Extern (IR.extern n' tys ty) (IR.call v . map (,[])))
+
+output :: Ty a => E (a -> ())
+output = extern "output"
+
+h_get_char :: E (Handle -> Char_)
+h_get_char = extern "fgetc"
 
 h_put_char :: E ((Char_, Handle) -> ())
 h_put_char = extern "fputc"

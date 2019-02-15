@@ -423,7 +423,7 @@ binop f (x, y) = I $ do
   f a b
 
 index :: (Size sz, Ty a) => (I (Addr (Array sz a)), I UInt32) -> I (Addr a)
-index = binop B.idx
+index = binop B.gep
 
 store :: Ty a => (I (Addr a), I a) -> I ()
 store = binop B.store
