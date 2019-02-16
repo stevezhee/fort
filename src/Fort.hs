@@ -413,7 +413,7 @@ ppExprDecl :: Bool -> ExprDecl -> Doc x
 ppExprDecl isTopLevel (ED (VarP v t) e) = case e of
   Lam a b
     | isTopLevel -> lhs <+> "=" <+> "T.func" <+> rhs
-    | otherwise  -> lhs <+> "=" <+> "T.jump" <+> stringifyName v
+    | otherwise  -> lhs <+> "=" <+> "T.callLocal" <+> stringifyName v
     where
       rhs = stringifyName v <+> stringifyPat a <+> ppLam a b
       labelName = ppVar v <> "_label"
