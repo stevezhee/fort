@@ -60,7 +60,8 @@ data St = St
   , lifted :: HMS.HashMap Name AFunc
   , bfuncs :: [BFunc]
   , instrs :: [([Var], ACall)]
-  , conts  :: HMS.HashMap Name [(Integer, Name)]
+  , phis   :: HMS.HashMap Name [(Name, [Atom])]
+  -- , conts  :: HMS.HashMap Name [(Integer, Name)]
   }
 
 type M a = State St a
@@ -263,6 +264,13 @@ type Instr = ([Var], ACall)
 
 data LocalCall = LocalCall Name [Atom] deriving Show
 
+fromSSAFunc (SSAFunc n vs xs t) = fromBFunc $ BFunc n vs xs $ case t of
+  SwitchT a b cs -> Switch a (go b) $ map (second go) cs
+  CallT a        -> Call $ go a
+  ReturnT a      -> Return $ maybe [] (:[]) a
+  where
+    go a = LocalCall a []
+
 data BFunc = BFunc
   Name
   [Var]   -- parameters
@@ -276,6 +284,26 @@ data Term
   | Switch Atom LocalCall [(Tag, LocalCall)]
   deriving Show
 
+toSSAFunc (BFunc n vs ss t) = SSAFunc n vs ss <$> case t of
+  Return bs -> pure $ case bs of
+    []  -> ReturnT Nothing
+    [v] -> ReturnT $ Just v
+    _   -> impossible $ "toSSAFunc:" ++ show bs
+  Call a -> do
+    (na,_) <- go [a]
+    pure $ CallT $ na
+  Switch a b cs -> do
+    (nb,ncs) <- go (b : map snd cs)
+    pure $ SwitchT a nb $ zip (map fst cs) ncs
+  where
+    go :: [LocalCall] -> M (Name, [Name])
+    go bs = do
+      let ds = [ (lbl, (n, cs)) | LocalCall lbl cs <- bs ]
+      let ins = \tbl (lbl, ne) -> HMS.insertWith (++) lbl [ne] tbl
+      let e:es = map fst ds
+      modify' $ \st -> st{ phis = flip (foldl' ins) ds $ phis st }
+      pure (e, es)
+
 data SSAFunc = SSAFunc
   Name
   [Var]   -- parameters
@@ -284,10 +312,21 @@ data SSAFunc = SSAFunc
   deriving Show
 
 data SSATerm
-  = SwitchT Atom Name [(Constant, Name)]
+  = SwitchT Atom Name [(Tag, Name)]
   | CallT Name
-  | ReturnT Atom
+  | ReturnT (Maybe Atom)
   deriving Show
+
+toSSAFuncPost tbl x@(SSAFunc n vs ys t) = case HMS.lookup n tbl of
+  Nothing -> x
+  Just bs -> SSAFunc n [] (zs ++ ys) t
+    where
+      zs :: [Instr]
+      zs = [ ([v], (("phi", Instruction (B.mkPhi $ map snd cs)), map fst cs))
+           | (v, cs :: [(Atom, Name)]) <- zip vs $ transposePhis bs ]
+
+transposePhis :: [(Name, [Atom])] -> [[(Atom, Name)]]
+transposePhis xs = transpose [ [ (c, b) | c <- cs ] | (b, cs) <- xs ]
 
 emitInstruction :: [Var] -> ACall -> M ()
 emitInstruction vs x =
@@ -376,8 +415,8 @@ codegen file ds = do
   print $ ppFuncs (vcat . ((:) "---") . map ppBFunc) bfss
 
   putStrLn "--- single static assignment -----"
-  -- let (ssass, st2) = runState (mapM toSSAFuncs afss) st1
-  -- print $ ppFuncs (vcat . map ppBFunc) ssas
+  let (ssass, st2) = runState (mapM toSSAFuncs bfss) st1
+  print $ ppFuncs (vcat . map ppSSAFunc) ssass
 
   -- putStrLn "--- continuation passing style ---"
   -- let (cfs,st3) = runState (toCPSs [ n | Func n _ _ <- fs ] bfs) st2
@@ -403,6 +442,12 @@ toBFuncs afs = do
   bfs <- gets bfuncs
   modify' $ \st -> st{ bfuncs = mempty }
   return $ reverse bfs
+
+toSSAFuncs :: [BFunc] -> M [SSAFunc]
+toSSAFuncs xs = do
+  bs <- mapM toSSAFunc xs
+  tbl <- gets phis
+  pure $ map (toSSAFuncPost tbl) bs
 
 -- toCPSs :: [Name] -> [BFunc] -> M [BFunc]
 -- toCPSs ns bfs = do
@@ -466,6 +511,7 @@ ppFunc (Func n p e) =
 
 ppAFunc = ppFunc . fromAFunc
 ppBFunc = ppFunc . fromBFunc
+ppSSAFunc = ppFunc . fromSSAFunc
 
 ppPat x = case x of
   [a] -> pretty a
@@ -580,7 +626,7 @@ freshName v = do
   i <- nextUnique
   pure $ v ++ "." ++ show i
 
-callE :: Name -> CallType -> E (a -> b)
+callE :: Name -> CallType -> E a
 callE n x = E $ pure $ CallE (n,x) []
 
 opapp :: E a -> E ((a, b) -> c) -> E (b -> c)
@@ -679,9 +725,6 @@ char = atomE . Char
 volatile :: Integer -> E (Addr a)
 volatile = atomE . Address
 
-noDefault :: E a -> E b
-noDefault _ = undefined -- app (callE "unreachable" Definition) (string "default case") -- BAL:
-
 unsafeCon :: (Ty a, Ty b) => (E (Addr b) -> E c) -> (E (Addr a) -> E c)
 unsafeCon f = \x -> f $ app bitcast x
 
@@ -730,8 +773,12 @@ signedCmpop s p q = f Proxy
       TySigned{}   -> binop s (IR.icmp q)
       t -> error $ "unable to compare values of type:" ++ show t
 
-instr :: Name -> ([Operand] -> B.M Operand) -> E (a -> b)
+instr :: Name -> ([Operand] -> B.M Operand) -> E a
 instr s f = callE s (Instruction f)
+
+noDefault :: E a -> E b
+noDefault _ =
+  instr "noDefault" (\_ -> (IR.unreachable >> pure (B.undefOperand AST.void)))
 
 unop :: Name -> (Operand -> B.M Operand) -> E (a -> b)
 unop s f = instr s (\[x] -> f x)
@@ -939,4 +986,3 @@ ptrtoint = bitop "ptrtoint" IR.ptrtoint
 
 inttoptr :: (Ty a, Ty b) => E (a -> b) -- BAL: make part of bitcast?
 inttoptr = bitop "inttoptr" IR.inttoptr
-

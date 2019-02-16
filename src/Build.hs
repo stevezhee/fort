@@ -33,6 +33,17 @@ import qualified LLVM.IRBuilder.Internal.SnocList as IR
 srem :: Operand -> Operand -> M Operand
 srem a b = IR.emitInstr (typeOf a) $ SRem a b []
 
+mkPhi :: [String] -> ([Operand] -> M Operand)
+mkPhi vs = \bs -> do
+  phi $ zip bs $ map mkName vs
+
+-- phi that ignores unit values
+phi :: [(Operand, Name)] -> M Operand
+phi [] = unit
+phi xs@((x,_):_) = case typeOf x of
+  VoidType -> unit
+  _ -> IR.phi xs
+
 codegen :: FilePath -> M () -> IO ()
 codegen file m = do
   codegenF (T.writeFile oFile) file m
@@ -201,13 +212,6 @@ reduceEnum x f ys = mdo
   -- done block
   done <- block (lbl <> "_done")
   phi ((vdflt, dfltdone) : map snd alts)
-
--- phi that ignores unit values
-phi :: [(Operand, Name)] -> M Operand
-phi [] = unit
-phi xs@((x,_):_) = case typeOf x of
-  VoidType -> unit
-  _ -> IR.phi xs
 
 reduceVariant ::
   M Operand                -> -- ptr (tag, t = max (a|b|...))
