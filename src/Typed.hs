@@ -906,6 +906,9 @@ h_put_uint64 = extern "h_put_uint64"
 h_put_sint64 :: E ((Signed Size64, Handle) -> ())
 h_put_sint64 = extern "h_put_sint64"
 
+tomu_delay :: Ty a => E (a -> ())
+tomu_delay = extern "tomu_delay"
+
 add :: Ty a => E ((a,a) -> a)
 add = arithop "add" IR.add
 

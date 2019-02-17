@@ -447,7 +447,7 @@ h_put_sint64 :: (I (Signed Size64), I Handle) -> I ()
 h_put_sint64 = extern "h_put_sint64"
 
 tomu_delay :: Ty a => I a -> I ()
-tomu_delay = extern "delay"
+tomu_delay = extern "tomu_delay"
 
 add :: Ty a => (I a, I a) -> I a
 add = arithop IR.add
