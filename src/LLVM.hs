@@ -446,6 +446,9 @@ h_put_uint64 = extern "h_put_uint64"
 h_put_sint64 :: (I (Signed Size64), I Handle) -> I ()
 h_put_sint64 = extern "h_put_sint64"
 
+tomu_delay :: Ty a => I a -> I ()
+tomu_delay = extern "delay"
+
 add :: Ty a => (I a, I a) -> I a
 add = arithop IR.add
 
@@ -517,6 +520,12 @@ sign_extend = bitop IR.sext
 
 zero_extend :: (Ty a, Ty b) => I a -> I b
 zero_extend = bitop IR.zext
+
+inttoptr :: (Ty a, Ty b) => I a -> I b
+inttoptr = bitop IR.inttoptr
+
+ptrtoint :: (Ty a, Ty b) => I a -> I b
+ptrtoint = bitop IR.ptrtoint
 
 -- BAL: this should be computing the size for variants, but it's not right because of TyAddress
 -- BAL: write sizeOf :: AST.Type -> Integer in Build.hs and use that
