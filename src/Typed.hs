@@ -123,7 +123,7 @@ type Tag = (String, Constant)
 data Expr
   = AtomE Atom
   | TupleE [Expr]
-  | SwitchE Atom Expr [(Tag, Expr)]
+  | SwitchE Expr Expr [(Tag, Expr)]
   | CallE (Nm, CallType) [Expr]
   | LetFunE Func Expr
   | LetE Pat Expr Expr
@@ -223,7 +223,7 @@ toAExpr x = case x of
   CallE n es -> withAtoms es $ \vs -> pure (CExprA (CallA (n, vs)))
   TupleE es -> withAtoms es $ \vs -> pure (TupleA vs)
   AtomE a -> pure $ TupleA [a]
-  LetFunE a b -> do -- lambda lift local function
+  LetFunE a b -> do -- lambda lift local function -- BAL: can this be simpler? (i.e. don't lift free vars?)
     f@(AFunc n pat e) <- toAFunc a
     n' <- freshNm (nTy n) (nName n)
     let fvs = freeVars pat e
@@ -232,7 +232,7 @@ toAExpr x = case x of
                                    HMS.insert (nName n') (AFunc n' (pat ++ fvs) e) $ lifted st
                         }
     g <$> toAExpr b
-  SwitchE a b cs ->
+  SwitchE e b cs -> withAtom e $ \a ->
     CExprA <$> (SwitchA a <$> toAExpr b <*> Prelude.sequence [ (s,) <$> toAExpr c | (s,c) <- cs ])
 
 fromAExpr :: AExpr -> Expr
@@ -247,7 +247,7 @@ fromAFunc (AFunc n pat e) = Func n pat $ fromAExpr e
 fromCExpr :: CExpr -> Expr
 fromCExpr x = case x of
   CallA a  -> fromACall a
-  SwitchA a b cs -> SwitchE a (fromAExpr b) $ map (second fromAExpr) cs
+  SwitchA a b cs -> SwitchE (AtomE a) (fromAExpr b) $ map (second fromAExpr) cs
   UnreachableA t -> UnreachableE t
 
 fromACall :: ACall -> Expr
@@ -433,9 +433,9 @@ data SSATerm
 toLLVMTerminator x = AST.Do $ case x of
   SwitchT a b cs ->
     I.switch (toOperand a) (AST.mkName $ nName b) [ (c, AST.mkName $ nName n) | ((_,c), n) <- cs ]
-  CallT a -> I.br (AST.mkName $ nName a)
-  ReturnT Nothing -> I.retVoid
-  ReturnT (Just a) -> I.ret (toOperand a)
+  CallT a        -> I.br (AST.mkName $ nName a)
+  ReturnT a      -> maybe I.retVoid (I.ret . toOperand) a
+  UnreachableT{} -> I.unreachable
 
 toOperand :: Atom -> Operand
 toOperand x = case x of
@@ -522,7 +522,7 @@ fromBFunc (BFunc n xs ys z) =
     goTerm :: Term -> Expr
     goTerm x = case x of
       Call a        -> goLocalCall a
-      Switch a b cs -> SwitchE a (goLocalCall b) $ map (second goLocalCall) cs
+      Switch a b cs -> SwitchE (AtomE a) (goLocalCall b) $ map (second goLocalCall) cs
       Return bs     -> TupleE $ map AtomE bs
       Unreachable t -> UnreachableE t
 
@@ -670,7 +670,7 @@ ppExpr x = case x of
   TupleE bs -> ppTuple $ map ppExpr bs
   CallE (a,_) bs -> pretty a <+> ppTuple (map ppExpr bs)
   SwitchE a b cs -> vcat
-    [ "switch" <+> ppAtom a
+    [ "switch" <+> ppExpr a
     , indent 2 $ "default" <> ppAltRHS b
     , indent 2 $ vcat (map ppAlt cs)
     ]
@@ -724,16 +724,32 @@ letFunEs xs y = foldl' (flip LetFunE) y xs
 case_ :: Ty a => E a -> (E a -> E b) -> [(String, E a -> E b)] -> E b
 case_ (E x :: E a) f ys = E $ do
   e <- x
-  let h a = do
-        let mkAlt g = unE $ g $ E $ pure $ AtomE a
+  let
+    h :: Atom -> M Expr
+    h a = do
+        let ea = AtomE a
+        let
+          tg :: Expr
+          tg = case ty of
+              TyAddress (TyVariant tags) -> -- BAL: this mess can be cleaned up
+                let tagTy = TyUnsigned $ neededBitsList tags in
+                CallE (Nm (TyFun (TyAddress tagTy) tagTy) "loadtag", Instruction (\[p] -> I.load p))
+                  [CallE (Nm (TyFun (TyTuple [ty, TyUnsigned 32]) (TyAddress tagTy)) "tagof"
+                         , Instruction (\[p,q] -> I.gep p q)) [AtomE a, AtomE $ Int 32 0]
+                  ]
+              _ -> ea
+
+        let mkAlt g = unE $ g $ E $ pure ea
         b  <- mkAlt f
         bs <- mapM mkAlt $ map snd ys
-        pure $ SwitchE a b $ zip (map (readTag (tyFort (Proxy :: Proxy a)) . fst) ys) bs
+        pure $ SwitchE tg b $ zip (map (readTag ty . fst) ys) bs
   case e of
     AtomE a -> h a
     _ -> do
-      v <- freshVar (tyFort (Proxy :: Proxy a)) "c"
+      v <- freshVar ty "c"
       LetE [v] e <$> h (Var v)
+  where
+    ty = tyFort (Proxy :: Proxy a)
 
 readTag :: Type -> String -> Tag
 readTag x s = (s, go x)
@@ -742,11 +758,11 @@ readTag x s = (s, go x)
       TyChar -> constInt 8 $ toInteger $ fromEnum (read s :: Char)
       TySigned sz   -> constInt sz (read s)
       TyUnsigned sz -> constInt sz (read s)
-      TyVariant bs -> go (TyEnum $ map fst bs)
+      TyAddress (TyVariant bs) -> go (TyEnum $ map fst bs)
       TyEnum tags -> constInt (neededBitsList tags) $
         maybe err id (lookup s $ zip tags [0 ..])
       _ -> err
-    err = impossible $ "readTag:" ++ s
+    err = impossible $ "readTag:" ++ show (s,x)
 
 constInt :: Integer -> Integer -> Constant
 constInt bits = AST.Int (fromInteger bits)
@@ -931,7 +947,10 @@ exprToPat (_ :: E a) = go $ tyFort (Proxy :: Proxy a)
       _            -> [ V x "x" ]
 
 injectTagF :: (Ty a, Ty c) => String -> E c -> E (Addr a) -> E ()
-injectTagF con i e = app (opapp i storeR) (app (field "tag" 0) e)
+injectTagF con i e = app (opapp i storeR) (tagField e)
+
+tagField :: (Ty a, Ty c) => E (Addr a) -> E (Addr c)
+tagField = app (field "tag" 0)
 
 injectValueF :: (Ty a, Ty b) => String -> E b -> E (Addr a) -> E ()
 injectValueF con x e =
@@ -1160,7 +1179,7 @@ tyRecordToTyTuple bs = TyTuple $ map snd bs
 tyVariantToTyTuple :: [(String, Type)] -> Type
 tyVariantToTyTuple bs = TyTuple
   [ tyEnumToTyUnsigned bs
-  , maximumBy (\a b -> compare (sizeFort a) (sizeFort b)) $ map snd bs
+  , TyUnsigned 64 -- BAL: just make it 64 bits for now -- maximumBy (\a b -> compare (sizeFort a) (sizeFort b)) $ map snd bs
   ]
 
 -- BAL: write sizeOf :: AST.Type -> Integer in Build.hs and use that
