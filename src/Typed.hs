@@ -1,11 +1,12 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE FlexibleInstances   #-}
 {-# LANGUAGE TupleSections       #-}
-{-# LANGUAGE OverloadedStrings      #-}
-{-# LANGUAGE OverloadedStrings      #-}
+{-# LANGUAGE OverloadedStrings   #-}
 
 module Typed where
 
+-- import qualified Build                     as B
+-- import qualified LLVM.IRBuilder            as IR
 import Control.Monad.State
 import Data.Bifunctor
 import Data.List
@@ -13,16 +14,17 @@ import Data.Proxy
 import Data.String
 import Data.Text.Prettyprint.Doc
 import Fort (neededBitsList, ppTuple, ppListV)
-import LLVM.AST (Operand)
+import LLVM.AST (Operand, Instruction)
 import LLVM.AST.Constant (Constant)
 import Prelude hiding (seq)
-import qualified Build                     as B
 import qualified Data.HashMap.Strict       as HMS
+import qualified Instr as I
 import qualified LLVM.AST                  as AST
+import qualified LLVM.AST.Global           as AST
+import qualified LLVM.AST.Constant         as AST
 import qualified LLVM.AST.IntegerPredicate as AST
 import qualified LLVM.AST.Type             as AST
-import qualified LLVM.AST.Constant         as AST
-import qualified LLVM.IRBuilder            as IR
+import Data.Hashable
 
 class Size a where size :: Proxy a -> Integer
 class Ty a where tyFort :: Proxy a -> Type
@@ -35,8 +37,9 @@ data Unsigned a
 data Addr a
 data Array sz a
 
-type Handle = Addr UInt32
+type Handle = Addr UInt64
 type UInt32 = Unsigned Size32
+type UInt64 = Unsigned Size64
 
 data Size32
 data Size64
@@ -51,20 +54,34 @@ instance Ty String_ where tyFort _ = TyString
 instance Size sz => Ty (Signed sz) where tyFort _ = TySigned (size (Proxy :: Proxy sz))
 instance Size sz => Ty (Unsigned sz) where tyFort _ = TyUnsigned (size (Proxy :: Proxy sz))
 instance Ty a => Ty (Addr a) where tyFort _  = TyAddress (tyFort (Proxy :: Proxy a))
+instance (Ty a, Ty b) => Ty (a -> b) where
+  tyFort _ = TyFun (tyFort (Proxy :: Proxy a)) (tyFort (Proxy :: Proxy b))
+
 instance (Size sz, Ty a) => Ty (Array sz a) where
   tyFort _ = TyArray (size (Proxy :: Proxy sz)) (tyFort (Proxy :: Proxy a))
 
+instance (Ty a, Ty b) => Ty (a,b) where
+  tyFort _ = TyTuple [tyFort (Proxy :: Proxy a), tyFort (Proxy :: Proxy b)]
+
+instance (Ty a, Ty b, Ty c) => Ty (a,b,c) where
+  tyFort _ = TyTuple
+    [ tyFort (Proxy :: Proxy a)
+    , tyFort (Proxy :: Proxy b)
+    , tyFort (Proxy :: Proxy c)
+    ]
+
 data St = St
-  { unique :: Integer
-  , funcs  :: HMS.HashMap Name Func
-  , lifted :: HMS.HashMap Name AFunc
-  , bfuncs :: [BFunc]
-  , instrs :: [([Var], ACall)]
-  , phis   :: HMS.HashMap Name [(Name, [Atom])]
-  -- , conts  :: HMS.HashMap Name [(Integer, Name)]
+  { unique  :: Integer
+  , strings :: HMS.HashMap String Name
+  , externs :: HMS.HashMap Name Type
+  , funcs   :: HMS.HashMap Name Func
+  , lifted  :: HMS.HashMap Name AFunc
+  , bfuncs  :: [BFunc]
+  , instrs  :: [([Var], ACall)]
+  , phis    :: HMS.HashMap Name [(Name, [Atom])]
   }
 
-type M a = State St a
+type M a = State St a -- BAL: break up into multiple monads
 
 data Type
   = TyChar
@@ -77,16 +94,26 @@ data Type
   | TyRecord [(String, Type)]
   | TyVariant [(String, Type)]
   | TyEnum [String]
+  | TyFun Type Type
   deriving Show
 
-type Var = String
-type Name = String
+data Var = V{ vTy :: Type, vName :: String } deriving Show
+instance Pretty Var where pretty = pretty . vName
+instance Eq Var where x == y = vName x == vName y
+instance Hashable Var where hashWithSalt i = hashWithSalt i . vName
+
+instance Pretty Nm where pretty = pretty . nName
+instance Eq Nm where x == y = nName x == nName y
+
+data Nm = Nm{ nTy :: Type, nName :: String } deriving Show
+
+type Name = String -- BAL: Add type
 
 type Pat = [Var] -- BAL: Handle nested tuples
 
 newtype E a = E{ unE :: M Expr }
 
-data Func = Func Name Pat Expr deriving Show
+data Func = Func Nm Pat Expr deriving Show
 
 type Tag = (String, Constant)
 
@@ -94,18 +121,17 @@ data Expr
   = AtomE Atom
   | TupleE [Expr]
   | SwitchE Atom Expr [(Tag, Expr)]
-  | CallE (Name, CallType) [Expr]
+  | CallE (Nm, CallType) [Expr]
   | LetFunE Func Expr
   | LetE Pat Expr Expr
+  | UnreachableE
   deriving Show
-
--- BAL: don't need B.M anymore
 
 data CallType
   = LocalDefn
-  | Defn ([Operand] -> B.M Operand)
-  | Instruction ([Operand] -> B.M Operand)
-  | Extern (B.M Operand) ([Operand] -> B.M Operand)
+  | Defn ([Operand] -> Instruction)
+  | Instruction ([Operand] -> Instruction)
+  | Extern Nm ([Operand] -> Instruction)
 
 instance Show CallType where
   show x = case x of
@@ -116,11 +142,10 @@ instance Show CallType where
 
 data Atom
   = Int Integer Integer
-  | Enum (String, Integer)
-  | Address Integer
-  | String String
+  | Enum (String, (Type, Integer))
   | Char Char
   | Var Var
+  | String String Name
   deriving Show
 
 var :: Var -> Expr
@@ -133,7 +158,7 @@ withAtom :: Expr -> (Atom -> M AExpr) -> M AExpr
 withAtom x f = case x of
   AtomE a -> f a
   _ -> do
-    a <- freshName "a"
+    a <- freshVar (tyExpr x) "a"
     b <- f (Var a)
     toAExpr $ LetE [a] x $ fromAExpr b
 
@@ -158,10 +183,12 @@ freeVars bvs = go
     goCExpr x = nub $ case x of
       CallA a -> goACall a
       SwitchA a b cs -> goAtom a ++ go b ++ concatMap (go . snd) cs
+      UnreachableA -> []
     goACall (_,bs) = concatMap goAtom bs
 
 toAExpr :: Expr -> M AExpr
 toAExpr x = case x of
+  UnreachableE -> pure $ CExprA $ UnreachableA
   LetE pat a b -> do
     ea <- toAExpr a
     case ea of
@@ -176,11 +203,11 @@ toAExpr x = case x of
   AtomE a -> pure $ TupleA [a]
   LetFunE a b -> do -- lambda lift local function
     f@(AFunc n pat e) <- toAFunc a
-    n' <- freshName n
+    n' <- freshNm (nTy n) (nName n)
     let fvs = freeVars pat e
     let g = lambdaLift n n' $ map Var fvs
     modify' $ \st -> st { lifted = HMS.map (mapAFunc g) $
-                                   HMS.insert n' (AFunc n' (pat ++ fvs) e) $ lifted st
+                                   HMS.insert (nName n') (AFunc n' (pat ++ fvs) e) $ lifted st
                         }
     g <$> toAExpr b
   SwitchE a b cs ->
@@ -199,6 +226,7 @@ fromCExpr :: CExpr -> Expr
 fromCExpr x = case x of
   CallA a  -> fromACall a
   SwitchA a b cs -> SwitchE a (fromAExpr b) $ map (second fromAExpr) cs
+  UnreachableA -> UnreachableE
 
 fromACall :: ACall -> Expr
 fromACall (a,bs) = CallE a $ map AtomE bs
@@ -206,7 +234,7 @@ fromACall (a,bs) = CallE a $ map AtomE bs
 mapAFunc :: (AExpr -> AExpr) -> AFunc -> AFunc
 mapAFunc f (AFunc n vs e) = AFunc n vs $ f e
 
-lambdaLift :: Name -> Name -> [Atom] -> AExpr -> AExpr
+lambdaLift :: Nm -> Nm -> [Atom] -> AExpr -> AExpr
 lambdaLift n n' fvs = go
   where
     go x = case x of
@@ -240,14 +268,19 @@ subst tbl = go
       _ -> x
     remove pat = HMS.filterWithKey (\k _ -> k `elem` pat) tbl
 
+impossible :: String -> a
+impossible s = error $ "the impossible happened:" ++ s
+
 mkSubst :: [Var] -> [Atom] -> HMS.HashMap Var Atom
 mkSubst xs ys
   | length xs /= length ys = impossible $ "mkSubst:" ++ show (xs,ys)
   | otherwise = HMS.fromList $ zip xs ys
 
-data AFunc = AFunc Name Pat AExpr deriving Show -- BAL: Pat should be reduced to [Var]
+data AFunc = AFunc Nm Pat AExpr deriving Show -- BAL: Pat should be reduced to [Var]
 
-type ACall = ((Name, CallType), [Atom])
+type ACall = ((Nm, CallType), [Atom])
+
+type Instr = ([Var], ACall)
 
 data AExpr
   = TupleA [Atom]
@@ -258,21 +291,21 @@ data AExpr
 data CExpr
   = CallA ACall
   | SwitchA Atom AExpr [(Tag, AExpr)]
+  | UnreachableA
   deriving Show
 
-type Instr = ([Var], ACall)
-
-data LocalCall = LocalCall Name [Atom] deriving Show
+data LocalCall = LocalCall Nm [Atom] deriving Show
 
 fromSSAFunc (SSAFunc n vs xs t) = fromBFunc $ BFunc n vs xs $ case t of
   SwitchT a b cs -> Switch a (go b) $ map (second go) cs
   CallT a        -> Call $ go a
   ReturnT a      -> Return $ maybe [] (:[]) a
+  UnreachableT   -> Unreachable
   where
     go a = LocalCall a []
 
 data BFunc = BFunc
-  Name
+  Nm
   [Var]   -- parameters
   [Instr] -- instructions/calls
   Term    -- switch, call, or return
@@ -282,9 +315,11 @@ data Term
   = Return [Atom]
   | Call LocalCall
   | Switch Atom LocalCall [(Tag, LocalCall)]
+  | Unreachable
   deriving Show
 
 toSSAFunc (BFunc n vs ss t) = SSAFunc n vs ss <$> case t of
+  Unreachable -> pure UnreachableT
   Return bs -> pure $ case bs of
     []  -> ReturnT Nothing
     [v] -> ReturnT $ Just v
@@ -296,34 +331,84 @@ toSSAFunc (BFunc n vs ss t) = SSAFunc n vs ss <$> case t of
     (nb,ncs) <- go (b : map snd cs)
     pure $ SwitchT a nb $ zip (map fst cs) ncs
   where
-    go :: [LocalCall] -> M (Name, [Name])
+    go :: [LocalCall] -> M (Nm, [Nm])
     go bs = do
       let ds = [ (lbl, (n, cs)) | LocalCall lbl cs <- bs ]
-      let ins = \tbl (lbl, ne) -> HMS.insertWith (++) lbl [ne] tbl
+      let
+        ins ::
+          HMS.HashMap Name [(Name, [Atom])] ->
+          (Nm, (Nm, [Atom])) ->
+          HMS.HashMap Name [(Name, [Atom])]
+        ins tbl (lbl, (n,e)) = HMS.insertWith (++) (nName lbl) [(nName n,e)] tbl
       let e:es = map fst ds
       modify' $ \st -> st{ phis = flip (foldl' ins) ds $ phis st }
       pure (e, es)
 
 data SSAFunc = SSAFunc
-  Name
+  Nm
   [Var]   -- parameters
   [Instr] -- instructions/calls
-  SSATerm -- switch, call, or return
+  SSATerm -- switch, call, unreachable, or return
   deriving Show
+
+toLLVMFunction :: [SSAFunc] -> AST.Definition
+toLLVMFunction (SSAFunc n vs xs t : ys) =
+  AST.GlobalDefinition AST.functionDefaults
+    { AST.name        = AST.mkName $ nName n
+    , AST.parameters  = ([ AST.Parameter (toTyLLVM $ vTy v) (AST.mkName $ vName v) [] | v <- vs ], False)
+    , AST.returnType  = case nTy n of
+        TyFun _ b -> toTyLLVM b
+        _         -> impossible "toLLVMFunction"
+    , AST.basicBlocks = map toLLVMBasicBlock ys
+    }
+toLLVMFunction _ = impossible "toLLVMFunction"
+
+toLLVMBasicBlock :: SSAFunc -> AST.BasicBlock
+toLLVMBasicBlock (SSAFunc n _vs xs t) =
+  AST.BasicBlock (AST.mkName $ nName n) (map toLLVMInstruction xs) (toLLVMTerminator t)
+
+toLLVMInstruction :: Instr -> AST.Named AST.Instruction
+toLLVMInstruction (vs, ((n,ct), xs)) = f (g $ map toOperand xs)
+  where
+    f = case vs of
+      []      -> AST.Do
+      [V _ v] -> (AST.:=) (AST.mkName v)
+      _       -> impossible "toLLVMInstruction"
+    g = case ct of
+      LocalDefn     -> impossible ("toLLVMInstruction:" ++ show n)
+      Defn h        -> h
+      Instruction h -> h
+      Extern _ h    -> h
 
 data SSATerm
-  = SwitchT Atom Name [(Tag, Name)]
-  | CallT Name
+  = SwitchT Atom Nm [(Tag, Nm)]
+  | CallT Nm
   | ReturnT (Maybe Atom)
+  | UnreachableT
   deriving Show
 
-toSSAFuncPost tbl x@(SSAFunc n vs ys t) = case HMS.lookup n tbl of
+toLLVMTerminator x = AST.Do $ case x of
+  SwitchT a b cs ->
+    I.switch (toOperand a) (AST.mkName $ nName b) [ (c, AST.mkName $ nName n) | ((_,c), n) <- cs ]
+  CallT a -> I.br (AST.mkName $ nName a)
+  ReturnT Nothing -> I.retVoid
+  ReturnT (Just a) -> I.ret (toOperand a)
+
+toOperand :: Atom -> Operand
+toOperand x = case x of
+  Enum (_, (t, i)) -> AST.ConstantOperand $ constInt (sizeFort t) i
+  Int sz i -> AST.ConstantOperand $ constInt sz i
+  Char a   -> AST.ConstantOperand $ constInt 8 $ fromIntegral $ fromEnum a
+  Var a    -> AST.LocalReference (toTyLLVM $ vTy a) (AST.mkName $ vName a)
+
+toSSAFuncPost tbl x@(SSAFunc n vs ys t) = case HMS.lookup (nName n) tbl of
   Nothing -> x
   Just bs -> SSAFunc n [] (zs ++ ys) t
     where
       zs :: [Instr]
-      zs = [ ([v], (("phi", Instruction (B.mkPhi $ map snd cs)), map fst cs))
-           | (v, cs :: [(Atom, Name)]) <- zip vs $ transposePhis bs ]
+      zs = [ ([v], ((Nm (tyAtom $ fst $ head cs) "phi", Instruction (f $ map snd cs)), map fst cs))
+           | (v, cs :: [(Atom, Name)]) <- zip vs $ transposePhis bs, length cs > 1 ]
+      f bs = \cs -> I.phi (zip cs $ map AST.mkName bs)
 
 transposePhis :: [(Name, [Atom])] -> [[(Atom, Name)]]
 transposePhis xs = transpose [ [ (c, b) | c <- cs ] | (b, cs) <- xs ]
@@ -344,16 +429,25 @@ toLocalCall :: AExpr -> M LocalCall
 toLocalCall x = case x of
   CExprA (CallA ((f,LocalDefn),bs)) -> pure $ LocalCall f bs
   _ -> do
-    f <- freshName "g"
+    f <- freshNm (tyAExpr x) "g"
     let fvs = freeVars [] x
     toBFunc $ AFunc f fvs x
     pure $ LocalCall f $ map Var fvs
+
+tyExpr :: Expr -> Type
+tyExpr = undefined
+
+tyAtom :: Atom -> Type
+tyAtom = undefined
+
+tyAExpr :: AExpr -> Type
+tyAExpr = tyExpr . fromAExpr
 
 toACall :: AExpr -> M ACall
 toACall x = case x of
   CExprA (CallA a) -> pure a
   _ -> do
-    f <- freshName "f"
+    f <- freshNm (tyAExpr x) "f"
     let fvs = freeVars [] x
     toBFunc $ AFunc f fvs x
     pure $ ((f, LocalDefn), map Var fvs)
@@ -362,10 +456,11 @@ toTerminator :: AExpr -> M Term
 toTerminator x = case x of
   TupleA bs -> pure $ Return bs
   CExprA e -> case e of
+    UnreachableA -> pure Unreachable
     CallA a -> case a of
       ((n,LocalDefn), vs) -> pure $ Call $ LocalCall n vs
       _ -> do
-        v <- freshName "r" -- BAL: what if it's void?
+        v <- freshVar (tyAExpr x) "r" -- BAL: what if it's void?
         toTerminator $ LetA [v] e $ TupleA [Var v]
     SwitchA a b cs -> do
       b' <- toLocalCall b
@@ -388,6 +483,7 @@ fromBFunc (BFunc n xs ys z) =
       Call a        -> goLocalCall a
       Switch a b cs -> SwitchE a (goLocalCall b) $ map (second goLocalCall) cs
       Return bs     -> TupleE $ map AtomE bs
+      Unreachable   -> UnreachableE
 
     goACall :: ACall -> Expr
     goACall (a@(n1,ct), bs) = case ct of
@@ -403,7 +499,7 @@ codegen file ds = do
   putStrLn file
 
   putStrLn "--- input ------------------------"
-  let (fs, st) = runState (toFuncs ds) $ St 0 mempty mempty mempty mempty mempty
+  let (fs, st) = runState (toFuncs ds) $ St 0 mempty mempty mempty mempty mempty mempty mempty
   print $ ppFuncs ppFunc fs
 
   putStrLn "--- a-normalization --------------"
@@ -445,7 +541,7 @@ toBFuncs afs = do
 
 toSSAFuncs :: [BFunc] -> M [SSAFunc]
 toSSAFuncs xs = do
-  bs <- mapM toSSAFunc xs
+  bs  <- mapM toSSAFunc xs
   tbl <- gets phis
   pure $ map (toSSAFuncPost tbl) bs
 
@@ -507,7 +603,7 @@ nextUnique = do
   return i
 
 ppFunc (Func n p e) =
-  pretty n <+> ppPat p <+> "=" <> line <> indent 2 (ppExpr e)
+  pretty (nName n) <+> ppPat p <+> "=" <> line <> indent 2 (ppExpr e)
 
 ppAFunc = ppFunc . fromAFunc
 ppBFunc = ppFunc . fromBFunc
@@ -536,6 +632,7 @@ ppExpr x = case x of
     [ "fun" <+> ppFunc a
     , ppExpr b
     ]
+  UnreachableE -> "unreachable"
 
 ppAlt :: (Tag, Expr) -> Doc ann
 ppAlt ((s,_),e) = pretty s <> ppAltRHS e
@@ -545,12 +642,28 @@ ppAltRHS e = ":" <> line <> indent 2 (ppExpr e)
 ppAtom x = case x of
   Int _ i    -> pretty i
   Enum (s,_) -> pretty s
-  Address i  -> "@" <> pretty i
-  String s   -> pretty (show s)
   Char c     -> pretty (show c)
   Var v      -> pretty v
+  String s _ -> pretty s
 
-where_ :: E a -> [M Func] -> E a
+freshPat :: Pat -> M Pat
+freshPat xs = Prelude.sequence [ freshVar t s | V t s <- xs ]
+
+freshNm :: Type -> Name -> M Nm
+freshNm t n = Nm t <$> freshName n
+
+freshVar :: Type -> Name -> M Var
+freshVar t n = V t <$> freshName n
+
+freshName :: Name -> M Name
+freshName v = do
+  i <- nextUnique
+  pure $ v ++ "." ++ show i
+
+callE :: Nm -> CallType -> E a
+callE n x = E $ pure $ CallE (n,x) []
+
+where_ :: Ty a => E a -> [M Func] -> E a
 where_ e ms = E $ letFunEs <$> Prelude.sequence ms <*> unE e
 
 letFunEs :: [Func] -> Expr -> Expr
@@ -567,7 +680,7 @@ case_ (E x :: E a) f ys = E $ do
   case e of
     AtomE a -> h a
     _ -> do
-      v <- freshName "c"
+      v <- freshVar (tyFort (Proxy :: Proxy a)) "c"
       LetE [v] e <$> h (Var v)
 
 readTag :: Type -> String -> Tag
@@ -586,48 +699,56 @@ readTag x s = (s, go x)
 constInt :: Integer -> Integer -> Constant
 constInt bits = AST.Int (fromInteger bits)
 
-let_ :: Pat -> E a -> (E a -> E b) -> E b
-let_ pat (E x) f = E $ LetE pat <$> x <*> unE (f (patToExpr pat))
+let_ :: (Ty a, Ty b) => UPat -> E a -> (E a -> E b) -> E b
+let_ upat (E x) (f :: E a -> E b) = E $ LetE pat <$> x <*> unE (f (patToExpr pat))
+  where
+    pat = fromUPat (tyFort (Proxy :: Proxy a)) upat
 
-letFunc :: Name -> Pat -> (E a -> E b) -> M Func
-letFunc n pat f = Func n pat <$> (unE $ f $ patToExpr pat)
+fromUPat :: Type -> UPat -> Pat
+fromUPat ty upat = zipWith V (toArgTys ty) upat
+
+letFunc :: (Ty a, Ty b) => Name -> UPat -> (E a -> E b) -> M Func
+letFunc n upat (f :: E a -> E b) = Func nm pat <$> (unE $ f $ patToExpr pat)
+  where
+    nm = Nm (tyFort (Proxy :: Proxy (a -> b))) n
+    pat = fromUPat (tyFort (Proxy :: Proxy a)) upat
 
 callLocal :: (Ty a, Ty b) => Name -> E (a -> b)
-callLocal n = callE n LocalDefn
-
-func :: (Ty a, Ty b) => Name -> Pat -> (E a -> E b) -> E (a -> b)
-func n pat (fn :: (E a -> E b)) = f Proxy Proxy
+callLocal n = go Proxy
   where
-    f :: (Ty a, Ty b) => Proxy a -> Proxy b -> E (a -> b)
-    f pa pb = E $ do
-      tbl <- gets funcs
-      case HMS.lookup n tbl of
-        Just _ -> pure ()
-        Nothing -> do
-          lbl <- letFunc n pat fn
-          modify' $ \st -> st{ funcs = HMS.insert n lbl $ funcs st }
-      let (_,_,_,g) = funTys n pa pb
-      unE (callE n (Defn g) :: E (a -> b))
+    go :: (Ty a, Ty b) => Proxy (a -> b) -> E (a -> b)
+    go proxy = callE (Nm (tyFort proxy) n) LocalDefn
 
-exprToPat :: Ty a => E a -> Pat
-exprToPat (_ :: E a) = go $ tyFort (Proxy :: Proxy a)
+type UPat = [Name] -- BAL: handle nested patterns
+
+func :: (Ty a, Ty b) => Name -> UPat -> (E a -> E b) -> E (a -> b)
+func n pat (f :: (E a -> E b)) = E $ do
+  tbl <- gets funcs
+  let (nm,g) = funTys n (Proxy :: Proxy (a -> b))
+  case HMS.lookup n tbl of
+    Just _  -> pure ()
+    Nothing -> do
+      lbl <- letFunc n pat f
+      modify' $ \st -> st{ funcs = HMS.insert n lbl $ funcs st }
+  unE (callE nm (Defn g) :: E (a -> b))
+
+global :: Ty a => String -> E a -- BAL: combine with extern and make accessable to the user
+global s = f Proxy
   where
-    go t = case t of
-      TyTuple bs  -> [ "v" ++ show i | (_,i) <- zip bs [0::Int ..] ]
-      TyRecord bs -> go $ TyTuple $ map snd bs
-      TyVariant{} -> ["tag","data"]
-      _           -> ["x"]
+    f :: Ty a => Proxy a -> E a
+    f proxy = E $ do
+      let t = tyFort proxy
+      modify' $ \st -> st{ externs = HMS.insert s t $ externs st }
+      pure $ AtomE $ Var $ V t s
 
-freshPat :: Pat -> M Pat
-freshPat = mapM freshName
-
-freshName :: String -> M String
-freshName v = do
-  i <- nextUnique
-  pure $ v ++ "." ++ show i
-
-callE :: Name -> CallType -> E a
-callE n x = E $ pure $ CallE (n,x) []
+extern :: (Ty a, Ty b) => Name -> E (a -> b)
+extern n = f Proxy
+  where
+    f :: (Ty a, Ty b) => Proxy (a -> b) -> E (a -> b)
+    f proxy = E $ do
+      let (nm, g) = funTys n proxy
+      modify' $ \st -> st{ externs = HMS.insert n (nTy nm) $ externs st }
+      unE $ callE nm (Extern nm g)
 
 opapp :: E a -> E ((a, b) -> c) -> E (b -> c)
 opapp x f = app (unsafeCast f) x
@@ -660,7 +781,7 @@ argTupleN i (E x) = E $ do
   a <- x
   case a of
     TupleE bs -> pure $ bs !! i
-    _ -> impossible "argTupleN"
+    _ -> impossible $ "argTupleN:" ++ show a
 
 argTuple2 :: E (a,b) -> (E a, E b)
 argTuple2 x = (argTupleN 0 x, argTupleN 1 x)
@@ -671,12 +792,10 @@ argTuple3 x = (argTupleN 0 x, argTupleN 1 x, argTupleN 2 x)
 tupleE :: [M Expr] -> E a
 tupleE xs = E $ case xs of
   [x] -> x
-  _ -> TupleE <$> Prelude.sequence xs
+  _   -> TupleE <$> Prelude.sequence xs
 
 varE :: Var -> E a
 varE = atomE . Var
-
-impossible s = error $ "the impossible happened:" ++ s
 
 -- easy primitives
 unsafeCast :: E a -> E b
@@ -691,10 +810,24 @@ int i = f Proxy
     f :: Ty a => Proxy a -> E a
     f proxy = intE (sizeFort $ tyFort proxy) i
 
+intE :: Integer -> Integer -> E a
 intE sz = atomE . Int sz
 
 string :: String -> E String_
-string = atomE . String
+string s = app f str
+  where
+    f :: E (a -> String_)
+    f = uinstr (TyFun t TyString) "string" (\[a] -> I.bitcast a (toTyLLVM t))
+    t = TyAddress (TyArray (genericLength s + 1) TyChar)
+    str = E $ do
+      tbl <- gets strings
+      n <- case HMS.lookup s tbl of
+        Nothing -> do
+          n <- freshName "s"
+          modify' $ \st -> st{ strings = HMS.insert s n $ strings st }
+          pure n
+        Just n -> pure n
+      pure $ AtomE $ String s n
 
 atomE :: Atom -> E a
 atomE = E . pure . AtomE
@@ -716,41 +849,73 @@ sequence xs y = foldl' (flip seq) y xs
 seq :: E () -> E a -> E a
 seq (E x) (E y) = E $ LetE [] <$> x <*> y
 
-enum :: (String, Integer) -> E a
-enum = atomE . Enum
+enum :: Ty a => (String, Integer) -> E a
+enum (x,i) = f Proxy
+  where
+    f :: Ty a => Proxy a -> E a
+    f proxy = atomE $ Enum (x, (tyFort proxy,i))
 
 char :: Char -> E Char_
 char = atomE . Char
 
-volatile :: Integer -> E (Addr a)
-volatile = atomE . Address
+volatile :: Ty a => Integer -> E (Addr a)
+volatile x = app inttoptr (intE ptrSize x :: E UInt64)
+
+field :: (Ty a, Ty b) => String -> Integer -> E (Addr a -> Addr b)
+field fld i = sndapp (gep fld) (intE 32 i)
+
+index :: (Size sz, Ty a) => E ((Addr (Array sz a), UInt32) -> Addr a)
+index = gep "index"
+
+gep :: (Ty a, Ty b) => String -> E ((Addr a, UInt32) -> Addr b)
+gep s = binop s I.gep
+
+exprToPat :: Ty a => E a -> Pat
+exprToPat (_ :: E a) = go $ tyFort (Proxy :: Proxy a)
+  where
+    go x = case x of
+      TyTuple bs   -> [ V b $ "v" ++ show i | (b,i) <- zip bs [0::Int ..] ]
+      TyRecord bs  -> go $ TyTuple $ map snd bs
+      _            -> [ V x "x" ]
+
+injectTagF :: (Ty a, Ty c) => String -> E c -> E (Addr a) -> E ()
+injectTagF con i e = app (sndapp store i) (app (field "tag" 0) e)
+
+injectValueF :: (Ty a, Ty b) => String -> E b -> E (Addr a) -> E ()
+injectValueF con x e =
+  app (sndapp store x) (app bitcast (app (field ("val" ++ con) 1) e :: E (Addr UInt64)))
+
+injectTag :: (Ty a, Ty c) => String -> E c -> E (Addr a -> ())
+injectTag con i = func ("injectTag" ++ con) ["e"] (injectTagF con i)
 
 unsafeCon :: (Ty a, Ty b) => (E (Addr b) -> E c) -> (E (Addr a) -> E c)
 unsafeCon f = \x -> f $ app bitcast x
 
-field :: (Ty a, Ty b) => Integer -> String -> E (Addr a -> Addr b)
-field i fld = sndapp (gep "field") (intE 32 i)
+inject :: (Ty a, Ty b, Ty c) => String -> E c -> E ((Addr a, b) -> ())
+inject con i = func ("inject" ++ con) ["x","y"] $ \e ->
+  let (p, b) = argTuple2 e in seq
+    (injectTagF con i p)
+    (injectValueF con b p)
 
-index :: E ((Addr (Array sz a), UInt32) -> Addr a)
-index = gep "index"
+noDefault :: E a -> E b -- BAL: unreachable is a terminator
+noDefault _ = E $ pure UnreachableE
 
-gep :: String -> E ((Addr a, UInt32) -> Addr b)
-gep s = binop s B.gep
+funTys :: (Ty a, Ty b) =>
+  Name -> Proxy (a -> b) ->
+  (Nm, [Operand] -> Instruction)
+funTys n proxy = (Nm t n, f)
+  where
+    t = tyFort proxy
+    v = AST.ConstantOperand (AST.GlobalReference (toTyLLVM t) $ AST.mkName n)
+    f = I.call v . map (,[])
 
-inject :: Integer -> String -> E ((Addr a, b) -> ())
-inject i con = binop ("inject " ++ con) (B.inject i)
-
-injectTag :: Ty a => Integer -> String -> E (Addr a -> ())
-injectTag i con = unop ("injectTag " ++ con) (B.injectTag i)
-
--- no brainers
-arithop :: Ty a => Name -> (Operand -> Operand -> B.M Operand) -> E ((a,a) -> a)
+arithop :: Ty a => Name -> (Operand -> Operand -> Instruction) -> E ((a,a) -> a)
 arithop s f = signedArithop s f f
 
 signedArithop :: Ty a =>
   Name ->
-  (Operand -> Operand -> B.M Operand) ->
-  (Operand -> Operand -> B.M Operand) ->
+  (Operand -> Operand -> Instruction) ->
+  (Operand -> Operand -> Instruction) ->
   E ((a, a) -> a)
 signedArithop s f g = h Proxy
   where
@@ -768,28 +933,30 @@ signedCmpop s p q = f Proxy
   where
     f :: Ty a => Proxy a -> E ((a,a) -> Bool_)
     f proxy = case tyFort proxy of
-      TyChar       -> binop s (IR.icmp p)
-      TyUnsigned{} -> binop s (IR.icmp p)
-      TySigned{}   -> binop s (IR.icmp q)
+      TyChar       -> binop s (I.icmp p)
+      TyUnsigned{} -> binop s (I.icmp p)
+      TySigned{}   -> binop s (I.icmp q)
       t -> error $ "unable to compare values of type:" ++ show t
 
-instr :: Name -> ([Operand] -> B.M Operand) -> E a
-instr s f = callE s (Instruction f)
+uinstr :: Type -> Name -> ([Operand] -> Instruction) -> E a
+uinstr t s f = callE (Nm t s) (Instruction f)
 
-noDefault :: E a -> E b
-noDefault _ =
-  instr "noDefault" (\_ -> (IR.unreachable >> pure (B.undefOperand AST.void)))
+instr :: Ty a => Name -> ([Operand] -> Instruction) -> E a
+instr s f = go Proxy
+  where
+    go :: Ty a => Proxy a -> E a
+    go proxy = uinstr (tyFort proxy) s f
 
-unop :: Name -> (Operand -> B.M Operand) -> E (a -> b)
+unop :: (Ty a, Ty b) => Name -> (Operand -> Instruction) -> E (a -> b)
 unop s f = instr s (\[x] -> f x)
 
-binop :: Name -> (Operand -> Operand -> B.M Operand) -> E ((a, b) -> c)
+binop :: (Ty a, Ty b, Ty c) => Name -> (Operand -> Operand -> Instruction) -> E ((a, b) -> c)
 binop s f = instr s (\[x,y] -> f x y)
 
-bitop :: Ty b => Name -> (Operand -> AST.Type -> B.M Operand) -> E (a -> b)
+bitop :: (Ty a, Ty b) => Name -> (Operand -> AST.Type -> Instruction) -> E (a -> b)
 bitop s f = g Proxy
   where
-    g :: Ty b => Proxy b -> E (a -> b)
+    g :: (Ty a, Ty b) => Proxy b -> E (a -> b)
     g proxy =
       case tyFort proxy of
         TySigned{}   -> ok
@@ -800,126 +967,26 @@ bitop s f = g Proxy
         t -> error $ "unable to perform bit operations on values of type:" ++ show t
       where ok = unop s (flip f (tyLLVM proxy))
 
-tyLLVM :: Ty a => Proxy a -> AST.Type
-tyLLVM = toTyLLVM . tyFort
+load :: Ty a => E (Addr a -> a) -- BAL: call B.load_volatile if needed by the type
+load = unop "load" I.load
 
-toArgsLLVM :: Type -> [AST.Type]
-toArgsLLVM x = map toTyLLVM $ case x of
-  TyTuple bs  -> bs
-  _           -> [x]
-
-toTyLLVM :: Type -> AST.Type
-toTyLLVM = go
-  where
-    go x = case x of
-      TyChar        -> B.tyInt 8
-      TySigned sz   -> B.tyInt sz
-      TyUnsigned sz -> B.tyInt sz
-      TyString      -> go tyStringToTyAddress
-      TyAddress a   -> AST.ptr (go a)
-      TyArray sz a  -> AST.ArrayType (fromInteger sz) (go a)
-      TyTuple []    -> AST.void
-      TyTuple bs    -> AST.StructureType False $ map go bs
-      TyRecord bs   -> go $ tyRecordToTyTuple bs
-      TyVariant bs  -> go $ tyVariantToTyTuple bs
-      TyEnum bs     -> go $ tyEnumToTyUnsigned bs
-
-tyRecordToTyTuple :: [(String, Type)] -> Type
-tyRecordToTyTuple bs = TyTuple $ map snd bs
-
-tyVariantToTyTuple :: [(String, Type)] -> Type
-tyVariantToTyTuple bs = TyTuple
-  [ tyEnumToTyUnsigned bs
-  , maximumBy (\a b -> compare (sizeFort a) (sizeFort b)) $ map snd bs
-  ]
-
--- BAL: write sizeOf :: AST.Type -> Integer in Build.hs and use that
-sizeFort :: Type -> Integer
-sizeFort x = case x of
-  TyChar        -> 8
-  TySigned sz   -> sz
-  TyUnsigned sz -> sz
-  TyString      -> sizeFort tyStringToTyAddress
-  TyAddress _   -> 64 -- BAL: architecture dependent
-  TyArray sz a  -> sz * sizeFort a
-  TyTuple bs    -> sum $ map sizeFort bs
-  TyRecord bs   -> sizeFort $ tyRecordToTyTuple bs
-  TyVariant bs  -> sizeFort $ tyVariantToTyTuple bs
-  TyEnum bs     -> sizeFort $ tyEnumToTyUnsigned bs
-
-tyEnumToTyUnsigned :: [a] -> Type
-tyEnumToTyUnsigned bs = TyUnsigned (neededBitsList bs)
-
-tyStringToTyAddress :: Type
-tyStringToTyAddress = TyAddress TyChar
-
-load :: E (Addr a -> a) -- BAL: call B.load_volatile if needed by the type
-load = unop "load" B.load
-
-store :: E ((Addr a, a) -> ()) -- BAL: call B.store_volatile if needed by the type
-store = binop "store" B.store
-
-instance (Ty a, Ty b, Ty c) => Ty (a,b,c) where
-  tyFort _ = TyTuple
-    [ tyFort (Proxy :: Proxy a)
-    , tyFort (Proxy :: Proxy b)
-    , tyFort (Proxy :: Proxy c)
-    ]
-
-instance (Ty a, Ty b) => Ty (a,b) where
-  tyFort _ = TyTuple [tyFort (Proxy :: Proxy a), tyFort (Proxy :: Proxy b)]
-
-extern :: (Ty a, Ty b) => Name -> E (a -> b)
-extern n = f Proxy Proxy
-  where
-    f :: (Ty a, Ty b) => Proxy a -> Proxy b -> E (a -> b)
-    f pa pb = E $ do
-      let (n', ty, tys, g) = funTys n pa pb
-      unE $ callE n (Extern (IR.extern n' tys ty) g)
-
-funTys :: (Ty a, Ty b) =>
-  Name -> Proxy a -> Proxy b ->
-  (AST.Name, AST.Type, [AST.Type], [Operand] -> B.M Operand)
-funTys n pa pb = (n', ty, tys, f)
-  where
-    n' = AST.mkName n
-    tys = toArgsLLVM $ tyFort pa
-    ty  = toTyLLVM $ tyFort pb
-    v = AST.ConstantOperand (AST.GlobalReference (AST.FunctionType ty tys False) n')
-    f = IR.call v . map (,[])
-
-output :: Ty a => E (a -> ())
-output = extern "output"
-
-h_get_char :: E (Handle -> Char_)
-h_get_char = extern "fgetc"
-
-h_put_char :: E ((Char_, Handle) -> ())
-h_put_char = extern "fputc"
-
-h_put_string :: E ((String_, Handle) -> ())
-h_put_string = extern "fputs"
-
-h_put_uint64 :: E ((Unsigned Size64, Handle) -> ())
-h_put_uint64 = extern "h_put_uint64"
-
-h_put_sint64 :: E ((Signed Size64, Handle) -> ())
-h_put_sint64 = extern "h_put_sint64"
+store :: Ty a => E ((Addr a, a) -> ()) -- BAL: call B.store_volatile if needed by the type
+store = binop "store" I.store
 
 add :: Ty a => E ((a,a) -> a)
-add = arithop "add" IR.add
+add = arithop "add" I.add
 
 subtract :: Ty a => E ((a,a) -> a)
-subtract = arithop "sub" IR.sub
+subtract = arithop "sub" I.sub
 
 multiply :: Ty a => E ((a,a) -> a)
-multiply = arithop "mul" IR.mul
+multiply = arithop "mul" I.mul
 
 divide :: Ty a => E ((a,a) -> a)
-divide = signedArithop "div" IR.udiv IR.sdiv
+divide = signedArithop "div" I.udiv I.sdiv
 
 remainder :: Ty a => E ((a,a) -> a)
-remainder = signedArithop "rem" IR.urem B.srem
+remainder = signedArithop "rem" I.urem I.srem
 
 equals :: Ty a => E ((a,a) -> Bool_)
 equals = cmpop "eq" AST.EQ
@@ -940,26 +1007,42 @@ less_than_or_equals :: Ty a => E ((a,a) -> Bool_)
 less_than_or_equals = signedCmpop "lte" AST.ULE AST.SLE
 
 bitwise_and :: Ty a => E ((a,a) -> a)
-bitwise_and = arithop "and" IR.and
+bitwise_and = arithop "and" I.and
 
 bitwise_or :: Ty a => E ((a,a) -> a)
-bitwise_or = arithop "or" IR.or
+bitwise_or = arithop "or" I.or
 
 bitwise_xor :: Ty a => E ((a,a) -> a)
-bitwise_xor = arithop "xor" IR.xor
+bitwise_xor = arithop "xor" I.xor
 
 arithmetic_shift_right :: Ty a => E ((a,a) -> a)
-arithmetic_shift_right = arithop "ashr" IR.ashr
+arithmetic_shift_right = arithop "ashr" I.ashr
 
 logical_shift_right :: Ty a => E ((a,a) -> a)
-logical_shift_right = arithop "lshr" IR.lshr
+logical_shift_right = arithop "lshr" I.lshr
 
 shift_left :: Ty a => E ((a,a) -> a)
-shift_left = arithop "shl" IR.shl
+shift_left = arithop "shl" I.shl
 
-global :: Ty a => String -> E a
-global = varE
+bitcast :: (Ty a, Ty b) => E (a -> b)
+bitcast = bitop "bitcast" I.bitcast
 
+truncate :: (Ty a, Ty b) => E (a -> b)
+truncate = bitop "trunc" I.trunc
+
+sign_extend :: (Ty a, Ty b) => E (a -> b)
+sign_extend = bitop "sext" I.sext
+
+zero_extend :: (Ty a, Ty b) => E (a -> b)
+zero_extend = bitop "zext" I.zext
+
+ptrtoint :: (Ty a, Ty b) => E (a -> b) -- BAL: make part of bitcast?
+ptrtoint = bitop "ptrtoint" I.ptrtoint
+
+inttoptr :: (Ty a, Ty b) => E (a -> b) -- BAL: make part of bitcast?
+inttoptr = bitop "inttoptr" I.inttoptr
+
+-- BAL: define in .fort
 stdin :: E Handle
 stdin = global "g_stdin"
 
@@ -969,20 +1052,75 @@ stdout = global "g_stdout"
 stderr :: E Handle
 stderr = global "g_stderr"
 
-bitcast :: (Ty a, Ty b) => E (a -> b)
-bitcast = bitop "bitcast" IR.bitcast
+output :: Ty a => E (a -> ())
+output = extern "output"
 
-truncate :: (Ty a, Ty b) => E (a -> b)
-truncate = bitop "trunc" IR.trunc
+h_get_char :: E (Handle -> Char_)
+h_get_char = extern "fgetc"
 
-sign_extend :: (Ty a, Ty b) => E (a -> b)
-sign_extend = bitop "sext" IR.sext
+h_put_char :: E ((Char_, Handle) -> ())
+h_put_char = extern "fputc"
 
-zero_extend :: (Ty a, Ty b) => E (a -> b)
-zero_extend = bitop "zext" IR.zext
+h_put_string :: E ((String_, Handle) -> ())
+h_put_string = extern "fputs"
 
-ptrtoint :: (Ty a, Ty b) => E (a -> b) -- BAL: make part of bitcast?
-ptrtoint = bitop "ptrtoint" IR.ptrtoint
+h_put_uint64 :: E ((Unsigned Size64, Handle) -> ())
+h_put_uint64 = extern "h_put_uint64"
 
-inttoptr :: (Ty a, Ty b) => E (a -> b) -- BAL: make part of bitcast?
-inttoptr = bitop "inttoptr" IR.inttoptr
+h_put_sint64 :: E ((Signed Size64, Handle) -> ())
+h_put_sint64 = extern "h_put_sint64"
+
+tyLLVM :: Ty a => Proxy a -> AST.Type
+tyLLVM = toTyLLVM . tyFort
+
+toArgTys :: Type -> [Type]
+toArgTys x = case x of
+  TyTuple bs  -> bs
+  _           -> [x]
+
+toTyLLVM :: Type -> AST.Type
+toTyLLVM = go
+  where
+    go :: Type -> AST.Type
+    go x = case x of
+      TyChar        -> go $ TyUnsigned 8
+      TySigned sz   -> go $ TyUnsigned sz
+      TyUnsigned sz -> AST.IntegerType $ fromInteger sz
+      TyString      -> AST.ptr (go TyChar)
+      TyAddress a   -> AST.ptr (go a)
+      TyArray sz a  -> AST.ArrayType (fromInteger sz) (go a)
+      TyTuple []    -> AST.void
+      TyTuple bs    -> AST.StructureType False $ map go bs
+      TyRecord bs   -> go $ tyRecordToTyTuple bs
+      TyVariant bs  -> go $ tyVariantToTyTuple bs
+      TyEnum bs     -> go $ tyEnumToTyUnsigned bs
+      TyFun a b     -> AST.FunctionType (toTyLLVM b) (map toTyLLVM $ toArgTys b) False
+
+tyRecordToTyTuple :: [(String, Type)] -> Type
+tyRecordToTyTuple bs = TyTuple $ map snd bs
+
+tyVariantToTyTuple :: [(String, Type)] -> Type
+tyVariantToTyTuple bs = TyTuple
+  [ tyEnumToTyUnsigned bs
+  , maximumBy (\a b -> compare (sizeFort a) (sizeFort b)) $ map snd bs
+  ]
+
+-- BAL: write sizeOf :: AST.Type -> Integer in Build.hs and use that
+sizeFort :: Type -> Integer
+sizeFort x = case x of
+  TyChar        -> 8
+  TySigned sz   -> sz
+  TyUnsigned sz -> sz
+  TyString      -> ptrSize
+  TyAddress _   -> ptrSize
+  TyArray sz a  -> sz * sizeFort a
+  TyTuple bs    -> sum $ map sizeFort bs
+  TyRecord bs   -> sizeFort $ tyRecordToTyTuple bs
+  TyVariant bs  -> sizeFort $ tyVariantToTyTuple bs
+  TyEnum bs     -> sizeFort $ tyEnumToTyUnsigned bs
+
+ptrSize = 64 -- BAL: architecture dependent
+
+tyEnumToTyUnsigned :: [a] -> Type
+tyEnumToTyUnsigned bs = TyUnsigned (neededBitsList bs)
+

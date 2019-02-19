@@ -303,7 +303,7 @@ inject tag p a = do
   pa <- variantDataAddr (typeOf a) p
   IR.store pa 0 a
   unit
-  
+
 tagIdx :: Operand -> M Operand
 tagIdx = tupleIdx 0
 

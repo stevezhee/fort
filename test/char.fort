@@ -1,6 +1,6 @@
 ;; types
 Char = /char
-Handle = /address (/unsigned 32)
+Handle = /address (/unsigned 64)
 String = /string
 
 ;; primitives

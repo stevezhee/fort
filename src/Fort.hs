@@ -124,7 +124,7 @@ typeSizes x = case x of
   TyLam _ b -> typeSizes b
   TyFun a b -> typeSizes a ++ typeSizes b
   TyRecord bs -> concatMap (typeSizes . snd) bs
-  TyVariant bs -> concatMap typeSizes $ catMaybes $ map snd bs
+  TyVariant bs -> neededBits (genericLength bs) : concatMap typeSizes (catMaybes $ map snd bs)
   TyTuple bs -> concatMap typeSizes bs
   TyVar{} -> []
   TyCon{} -> []
@@ -274,7 +274,7 @@ ppTopDecl x = case x of
             [ ppTuple [ stringifyName n, "T.tyFort" <+> ppProxy t ] | (n,t) <- bs ]
         ]
     ] ++
-    [ ppAscription (ppVar v) (Just $ TyFun (tyAddress $ TyCon a) (tyAddress t)) <+> "= T.field" <+> pretty i <+> stringifyName v
+    [ ppAscription (ppVar v) (Just $ TyFun (tyAddress $ TyCon a) (tyAddress t)) <+> "= T.field" <+> stringifyName v <+> pretty i
     | ((v,t), i) <- zip bs [0 :: Int ..]]
   TyDecl a (TyVariant bs)
     | isTyEnum bs -> vcat $
@@ -295,7 +295,7 @@ ppTopDecl x = case x of
                   [ ppTuple [ stringifyName n, "T.tyFort" <+> ppProxy (maybe (TyTuple []) id mt) ] | (n,mt) <- bs ]
               ]
           ] ++
-          map (ppInject a) alts ++
+          map (ppInject (length bs) a) alts ++
           map (ppUnsafeCon a) bs
         where
           alts = zip bs [0 :: Int ..]
@@ -319,14 +319,16 @@ ppUnsafeCon a (c, Just t) = vcat
   , pretty (unsafeUnConName c) <+> "= T.unsafeCon"
   ]
 
-ppInject :: Pretty a => Con -> ((Con, Maybe Type), a) -> Doc x
-ppInject a ((c, Nothing), i) = vcat
+ascribeTag n i = parens $ ppAscription (parens ("T.int" <+> pretty i)) (Just (TyApp TyUnsigned $ TySize (L NoLoc $ neededBits $ toInteger n)))
+
+ppInject :: Pretty a => Int -> Con -> ((Con, Maybe Type), a) -> Doc x
+ppInject n a ((c, Nothing), i) = vcat
   [ pretty (conToVarName c) <+> ":: T.E" <+> parens (ppType (TyFun (tyAddress $ TyCon a) (TyTuple [])))
-  , pretty (conToVarName c) <+> "= T.injectTag" <+> pretty i <+> stringifyName c
+  , pretty (conToVarName c) <+> "= T.injectTag" <+> stringifyName c <+> ascribeTag n i
   ]
-ppInject a ((c, Just t), i) = vcat
+ppInject n a ((c, Just t), i) = vcat
   [ pretty (conToVarName c) <+> ":: T.E" <+> parens (ppType (TyFun (TyTuple [tyAddress $ TyCon a, t]) (TyTuple [])))
-  , pretty (conToVarName c) <+> "= T.inject" <+> pretty i <+> stringifyName c
+  , pretty (conToVarName c) <+> "= T.inject" <+> stringifyName c <+> ascribeTag n i
   ]
 
 neededBits :: Integral n => Integer -> n
@@ -423,8 +425,10 @@ ppExprDecl isTopLevel (ED (VarP v t) e) = case e of
 
 ppExprDeclLabelBody :: ExprDecl -> Maybe (Doc x)
 ppExprDeclLabelBody (ED (VarP v t) e) = case e of
-  Lam a b -> Just ("T.letFunc" <+> stringifyName v <+> stringifyPat a <+> ppLam a b)
+  Lam a b -> Just ("T.letFunc" <+> stringifyName v <+> stringifyPat a <+> ascribeLetFunc t (ppLam a b))
   _ -> Nothing
+
+ascribeLetFunc (Just (TyFun a b)) d = parens (parens d <+> ":: T.E" <+> ppType a <+> "-> T.E" <+> ppType b)
 
 ppLam x y = parens ("\\" <> ppVar v <+> "->" <> line <>
                     indent 2 (
