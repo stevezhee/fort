@@ -4,9 +4,10 @@
 TEST_DIR=test
 HS_FILES=$(shell find src -name \*.hs) $(shell find app -name \*.hs)
 FORT_FILES=$(wildcard $(TEST_DIR)/*.fort)
-FORT_FILES=test/powi.fort
+# FORT_FILES=test/powi.fort
 # FORT_FILES=test/todd.fort
 # FORT_FILES=test/enum.fort
+FORT_FILES=test/array.fort
 # FORT_FILES=test/struct.fort
 # FORT_FILES=test/address.fort test/powi.fort
 GEN_HS_FILES=$(addsuffix .hs, $(FORT_FILES))

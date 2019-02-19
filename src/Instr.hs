@@ -76,7 +76,7 @@ store :: Operand -> Operand -> Instruction
 store addr val = Store False addr val Nothing 0 []
 
 gep :: Operand -> Operand -> Instruction
-gep addr i = GetElementPtr False addr [i] []
+gep addr i = GetElementPtr False addr [ConstantOperand $ C.Int 32 0, i] []
 
 trunc :: Operand -> Type -> Instruction
 trunc a to = Trunc a to []

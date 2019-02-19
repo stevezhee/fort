@@ -25,6 +25,7 @@ import qualified LLVM.AST.Global           as AST
 import qualified LLVM.AST.IntegerPredicate as AST
 import qualified LLVM.AST.Type             as AST
 import qualified LLVM.Pretty               as AST
+import Debug.Trace
 
 class Size a where size :: Proxy a -> Integer
 class Ty a where tyFort :: Proxy a -> Type
@@ -271,20 +272,20 @@ subst :: HMS.HashMap Var Atom -> AExpr -> AExpr
 subst tbl = go
   where
     go x = case x of
-      TupleA bs -> TupleA $ map goAtom bs
-      CExprA a -> CExprA $ goCExpr a
+      TupleA bs    -> TupleA $ map goAtom bs
+      CExprA a     -> CExprA $ goCExpr a
       LetA pat a b -> LetA pat (goCExpr a) (subst (remove pat) b)
     goAFunc (AFunc n pat e) = AFunc n pat (subst (remove pat) e)
     goACall (n, bs) = (n, map goAtom bs)
     goCExpr x = case x of
-      CallA a -> CallA $ goACall a
+      CallA a        -> CallA $ goACall a
       SwitchA a b cs -> SwitchA (goAtom a) (go b) $ map (second go) cs
     goAtom x = case x of
       Var a -> case HMS.lookup a tbl of
         Just b  -> b
         Nothing -> x
       _ -> x
-    remove pat = HMS.filterWithKey (\k _ -> k `elem` pat) tbl
+    remove pat = HMS.filterWithKey (\k _ -> k `notElem` pat) tbl
 
 impossible :: String -> a
 impossible s = error $ "the impossible happened:" ++ s
@@ -475,9 +476,11 @@ toTerminator x = case x of
     UnreachableA t -> pure $ Unreachable t
     CallA a -> case a of
       ((n,LocalDefn), vs) -> pure $ Call $ LocalCall n vs
-      _ -> do
-        v <- freshVar (tyAExpr x) "r" -- BAL: what if it's void?
-        toTerminator $ LetA [v] e $ TupleA [Var v]
+      _ -> case tyAExpr x of
+        TyTuple [] -> toTerminator $ LetA [] e $ TupleA []
+        t -> do
+          v <- freshVar t "r"
+          toTerminator $ LetA [v] e $ TupleA [Var v]
     SwitchA a b cs -> do
       b' <- toLocalCall b
       cs' <- mapM (toLocalCall . snd) cs
@@ -868,7 +871,7 @@ argUnit :: E () -> ()
 argUnit = \_ -> ()
 
 sequence :: [E ()] -> E a -> E a
-sequence xs y = foldl' (flip seq) y xs
+sequence xs y = foldr seq y xs
 
 seq :: E () -> E a -> E a
 seq (E x) (E y) = E $ LetE [] <$> x <*> y
