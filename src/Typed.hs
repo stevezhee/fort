@@ -380,6 +380,18 @@ toLLVMModule file exts xs = AST.defaultModule
   , AST.moduleDefinitions = map toLLVMExternDefn exts ++ map toLLVMFunction xs
   }
 
+toLLVMFunction :: [SSAFunc] -> AST.Definition
+toLLVMFunction xs@(SSAFunc n vs _ _ : _) =
+  AST.GlobalDefinition AST.functionDefaults
+    { AST.name        = AST.mkName $ nName n
+    , AST.parameters  = ([ AST.Parameter (toTyLLVM $ vTy v) (AST.mkName $ vName v) [] | v <- vs ], False)
+    , AST.returnType  = case nTy n of
+        TyFun _ b -> toTyLLVM b
+        t         -> impossible $ "toLLVMFunction:" ++ show (t, [ a | SSAFunc a _ _ _ <- xs ])
+    , AST.basicBlocks = map toLLVMBasicBlock xs
+    }
+toLLVMFunction xs = impossible $ "toLLVMFunction:" ++ show xs
+
 toLLVMExternDefn :: (Name, Type) -> AST.Definition
 toLLVMExternDefn (n, ty) = AST.GlobalDefinition $ case ty of
   TyFun a b -> AST.functionDefaults
@@ -395,18 +407,6 @@ toLLVMExternDefn (n, ty) = AST.GlobalDefinition $ case ty of
         TyAddress a -> a
         _ -> impossible "toLLVMExternDefn"
     }
-
-toLLVMFunction :: [SSAFunc] -> AST.Definition
-toLLVMFunction xs@(SSAFunc n vs _ _ : _) =
-  AST.GlobalDefinition AST.functionDefaults
-    { AST.name        = AST.mkName $ nName n
-    , AST.parameters  = ([ AST.Parameter (toTyLLVM $ vTy v) (AST.mkName $ vName v) [] | v <- vs ], False)
-    , AST.returnType  = case nTy n of
-        TyFun _ b -> toTyLLVM b
-        _         -> impossible "toLLVMFunction"
-    , AST.basicBlocks = map toLLVMBasicBlock xs
-    }
-toLLVMFunction _ = impossible "toLLVMFunction"
 
 toLLVMBasicBlock :: SSAFunc -> AST.BasicBlock
 toLLVMBasicBlock (SSAFunc n _vs xs t) =
@@ -454,7 +454,10 @@ toSSAFuncPost tbl x@(SSAFunc n vs ys t) = case HMS.lookup (nName n) tbl of
     where
       zs :: [Instr]
       zs = [ ([v], ((Nm (tyAtom $ fst $ head cs) "phi", Instruction (f $ map snd cs)), map fst cs))
-           | (v, cs :: [(Atom, Name)]) <- zip vs $ transposePhis bs, length cs > 1 ]
+           | (v, cs :: [(Atom, Name)]) <- zip vs $ transposePhis bs, length cs > 1, not (all (isV v) cs) ]
+      isV a (b, _) = case b of
+        Var v -> vName v == vName a
+        _ -> False
       f bs = \cs -> I.phi (zip cs $ map AST.mkName bs)
 
 transposePhis :: [(Name, [Atom])] -> [[(Atom, Name)]]
@@ -544,7 +547,7 @@ codegen file ds = do
 
   putStrLn "--- a-normalization --------------"
   let (afss, st1) = runState (mapM toAFuncs fs) st
-  print $ ppFuncs (vcat . map ppAFunc) afss
+  print $ ppFuncs (vcat . ((:) "---") . map ppAFunc) afss
 
   putStrLn "--- block functions --------------"
   let (bfss, st2) = runState (mapM toBFuncs afss) st1
@@ -552,7 +555,7 @@ codegen file ds = do
 
   putStrLn "--- single static assignment -----"
   let (ssass, st2) = runState (mapM toSSAFuncs bfss) st1
-  print $ ppFuncs (vcat . map ppSSAFunc) ssass
+  print $ ppFuncs (vcat . ((:) "---") . map ppSSAFunc) ssass
 
   -- putStrLn "--- continuation passing style ---"
   -- let (cfs,st3) = runState (toCPSs [ n | Func n _ _ <- fs ] bfs) st2
@@ -581,11 +584,13 @@ toAFuncs x  = do
   modify' $ \st -> st{ lifted = mempty }
   pure (af : HMS.elems bs)
 
-toBFuncs afs = do
+toBFuncs afs@(AFunc n _ _ : _) = do
   mapM_ toBFunc afs
   bfs <- gets bfuncs
   modify' $ \st -> st{ bfuncs = mempty }
-  return $ reverse bfs
+  let (a,b) = partition (\(BFunc n1 _ _ _) -> n == n1) bfs
+  return (a ++ b)
+toBFuncs _ = impossible "toBFuncs"
 
 toSSAFuncs :: [BFunc] -> M [SSAFunc]
 toSSAFuncs xs = do
