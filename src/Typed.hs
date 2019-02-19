@@ -22,6 +22,8 @@ import qualified Instr as I
 import qualified LLVM.AST                  as AST
 import qualified LLVM.AST.Constant         as AST
 import qualified LLVM.AST.Global           as AST
+import qualified LLVM.AST.Linkage          as AST
+import qualified LLVM.AST.Global
 import qualified LLVM.AST.IntegerPredicate as AST
 import qualified LLVM.AST.Type             as AST
 import qualified LLVM.Pretty               as AST
@@ -73,7 +75,7 @@ instance (Ty a, Ty b, Ty c) => Ty (a,b,c) where
 
 data St = St
   { unique  :: Integer
-  , strings :: HMS.HashMap String Name
+  , strings :: HMS.HashMap String (Type, Name)
   , externs :: HMS.HashMap Name Type
   , funcs   :: HMS.HashMap Name Func
   , lifted  :: HMS.HashMap Name AFunc
@@ -164,7 +166,8 @@ data Atom
   | Enum (String, (Type, Integer))
   | Char Char
   | Var Var
-  | String String Name
+  | Global Var
+  | String String (Type, Name)
   deriving Show
 
 var :: Var -> Expr
@@ -370,12 +373,28 @@ data SSAFunc = SSAFunc
   SSATerm -- switch, call, unreachable, or return
   deriving Show
 
-toLLVMModule :: FilePath -> [[SSAFunc]] -> AST.Module
-toLLVMModule file xs = AST.defaultModule
+toLLVMModule :: FilePath -> [(Name, Type)] -> [[SSAFunc]] -> AST.Module
+toLLVMModule file exts xs = AST.defaultModule
   { AST.moduleSourceFileName = fromString file
   , AST.moduleName = fromString file
-  , AST.moduleDefinitions = map toLLVMFunction xs
+  , AST.moduleDefinitions = map toLLVMExternDefn exts ++ map toLLVMFunction xs
   }
+
+toLLVMExternDefn :: (Name, Type) -> AST.Definition
+toLLVMExternDefn (n, ty) = AST.GlobalDefinition $ case ty of
+  TyFun a b -> AST.functionDefaults
+    { AST.linkage    = AST.External
+    , AST.name       = AST.mkName n
+    , AST.parameters = ([ AST.Parameter (toTyLLVM t) (AST.mkName "") [] | t <- toArgTys a ], False)
+    , AST.returnType = toTyLLVM b
+    }
+  _ -> AST.globalVariableDefaults
+    { AST.linkage           = AST.External
+    , AST.name              = AST.mkName n
+    , LLVM.AST.Global.type' = toTyLLVM $ case ty of -- BAL: broken on non-ptr variables?
+        TyAddress a -> a
+        _ -> impossible "toLLVMExternDefn"
+    }
 
 toLLVMFunction :: [SSAFunc] -> AST.Definition
 toLLVMFunction xs@(SSAFunc n vs _ _ : _) =
@@ -423,9 +442,11 @@ toLLVMTerminator x = AST.Do $ case x of
 toOperand :: Atom -> Operand
 toOperand x = case x of
   Enum (_, (t, i)) -> AST.ConstantOperand $ constInt (sizeFort t) i
-  Int sz i -> AST.ConstantOperand $ constInt sz i
-  Char a   -> AST.ConstantOperand $ constInt 8 $ fromIntegral $ fromEnum a
-  Var a    -> AST.LocalReference (toTyLLVM $ vTy a) (AST.mkName $ vName a)
+  Int sz i         -> AST.ConstantOperand $ constInt sz i
+  Char a           -> AST.ConstantOperand $ constInt 8 $ fromIntegral $ fromEnum a
+  Var a            -> AST.LocalReference (toTyLLVM $ vTy a) (AST.mkName $ vName a)
+  Global a         -> AST.ConstantOperand $ AST.GlobalReference (toTyLLVM $ vTy a) (AST.mkName $ vName a)
+  String _ (t, a)  -> AST.ConstantOperand $ AST.GlobalReference (toTyLLVM t) (AST.mkName a)
 
 toSSAFuncPost tbl x@(SSAFunc n vs ys t) = case HMS.lookup (nName n) tbl of
   Nothing -> x
@@ -538,7 +559,7 @@ codegen file ds = do
   -- print $ ppFuncs ppBFunc cfs
 
   putStrLn "--- LLVM -----"
-  let m = toLLVMModule file ssass
+  let m = toLLVMModule file (HMS.toList $ externs st2) ssass
   let s = AST.ppllvm m
   T.putStrLn s
   let oFile = file ++ ".ll"
@@ -671,6 +692,7 @@ ppAtom x = case x of
   Enum (s,_) -> pretty s
   Char c     -> pretty (show c)
   Var v      -> pretty v
+  Global v   -> pretty v
   String s _ -> pretty s
 
 freshPat :: Pat -> M Pat
@@ -760,13 +782,13 @@ func n pat (f :: (E a -> E b)) = E $ do
   unE (callE nm (Defn g) :: E (a -> b))
 
 global :: Ty a => String -> E a -- BAL: combine with extern and make accessable to the user
-global s = f Proxy
+global s = app load (f Proxy)
   where
     f :: Ty a => Proxy a -> E a
     f proxy = E $ do
       let t = tyFort proxy
       modify' $ \st -> st{ externs = HMS.insert s t $ externs st }
-      pure $ AtomE $ Var $ V t s
+      pure $ AtomE $ Global $ V t s
 
 extern :: (Ty a, Ty b) => Name -> E (a -> b)
 extern n = f Proxy
@@ -844,16 +866,16 @@ string :: String -> E String_
 string s = app f str
   where
     f :: E (a -> String_)
-    f = uinstr (TyFun t TyString) "string" (\[a] -> I.bitcast a (toTyLLVM t))
+    f = uinstr (TyFun t TyString) "string" (\[a] -> I.bitcast a (toTyLLVM TyString))
     t = TyAddress (TyArray (genericLength s + 1) TyChar)
     str = E $ do
       tbl <- gets strings
       n <- case HMS.lookup s tbl of
         Nothing -> do
           n <- freshName "s"
-          modify' $ \st -> st{ strings = HMS.insert s n $ strings st }
-          pure n
-        Just n -> pure n
+          modify' $ \st -> st{ strings = HMS.insert s (t,n) $ strings st }
+          pure (t,n)
+        Just a -> pure a
       pure $ AtomE $ String s n
 
 atomE :: Atom -> E a
