@@ -21,10 +21,10 @@ nested-if-bar: (Bool, Char) -> Char = \(p, c) => /if
       p = c
       _ = #"z"
 
-nested-if-seq: Char -> () = \c => /do
-    /if
-      c == #"c" = output "one"
-      _         = output "two"
-    /if
-      c == #"a" = output "three"
-      _ = output "four"
+;; nested-if-seq: Char -> () = \c => /do
+;;     /if
+;;       c == #"c" = output "one"
+;;       _         = output "two"
+;;     /if
+;;       c == #"a" = output "three"
+;;       _ = output "four"

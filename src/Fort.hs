@@ -442,11 +442,6 @@ ppLabelType x = case x of
   TyFun a b -> "T.Label" <+> parens (ppType a) <+> parens (ppType b)
   _ -> ppType x
 
--- edLabel :: ExprDecl -> String
--- edLabel (ED p _)= case p of
---  VarP v _ -> unLoc v
---  _ -> undefined
-
 ppType :: Type -> Doc x
 ppType x = case x of
   TyApp TySigned (TySize a) | unLoc a > 64 -> error "maximum integer size is 64"

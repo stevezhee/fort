@@ -108,9 +108,9 @@ instance Hashable Var where hashWithSalt i = hashWithSalt i . vName
 instance Pretty Nm where pretty = pretty . nName
 instance Eq Nm where x == y = nName x == nName y
 
-data Nm = Nm{ nTy :: Type, nName :: String } deriving Show
+data Nm = Nm{ nTy :: Type, nName :: Name } deriving Show
 
-type Name = String -- BAL: Add type
+type Name = String
 
 type Pat = [Var] -- BAL: Handle nested tuples
 
@@ -403,9 +403,7 @@ toLLVMExternDefn (n, ty) = AST.GlobalDefinition $ case ty of
   _ -> AST.globalVariableDefaults
     { AST.linkage           = AST.External
     , AST.name              = AST.mkName n
-    , LLVM.AST.Global.type' = toTyLLVM $ case ty of -- BAL: broken on non-ptr variables?
-        TyAddress a -> a
-        _ -> impossible "toLLVMExternDefn"
+    , LLVM.AST.Global.type' = toTyLLVM ty
     }
 
 toLLVMBasicBlock :: SSAFunc -> AST.BasicBlock
@@ -789,11 +787,11 @@ func n pat (f :: (E a -> E b)) = E $ do
 global :: Ty a => String -> E a -- BAL: combine with extern and make accessable to the user
 global s = app load (f Proxy)
   where
-    f :: Ty a => Proxy a -> E a
+    f :: Ty a => Proxy a -> E (Addr a)
     f proxy = E $ do
       let t = tyFort proxy
       modify' $ \st -> st{ externs = HMS.insert s t $ externs st }
-      pure $ AtomE $ Global $ V t s
+      pure $ AtomE $ Global $ V (TyAddress t) s
 
 extern :: (Ty a, Ty b) => Name -> E (a -> b)
 extern n = f Proxy
