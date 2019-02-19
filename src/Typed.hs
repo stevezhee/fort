@@ -805,9 +805,6 @@ extern n = f Proxy
 opapp :: E a -> E ((a, b) -> c) -> E (b -> c)
 opapp x f = app (unsafeCast f) x
 
-sndapp :: E ((a, b) -> c) -> E b -> E (a -> c)
-sndapp f x = app (unsafeCast f) x
-
 app :: E (a -> b) -> E a -> E b
 app (E x) (E y) = E $ do
   a <- x
@@ -914,13 +911,16 @@ volatile :: Ty a => Integer -> E (Addr a)
 volatile x = app inttoptr (intE ptrSize x :: E UInt64)
 
 field :: (Ty a, Ty b) => String -> Integer -> E (Addr a -> Addr b)
-field fld i = sndapp (gep fld) (intE 32 i)
+field fld i = opapp (intE 32 i) (gepR ("field." ++ fld))
 
 index :: (Size sz, Ty a) => E ((Addr (Array sz a), UInt32) -> Addr a)
 index = gep "index"
 
 gep :: (Ty a, Ty b) => String -> E ((Addr a, UInt32) -> Addr b)
 gep s = binop s I.gep
+
+gepR :: (Ty a, Ty b) => String -> E ((UInt32, Addr a) -> Addr b)
+gepR s = binop s (flip I.gep)
 
 exprToPat :: Ty a => E a -> Pat
 exprToPat (_ :: E a) = go $ tyFort (Proxy :: Proxy a)
@@ -931,11 +931,11 @@ exprToPat (_ :: E a) = go $ tyFort (Proxy :: Proxy a)
       _            -> [ V x "x" ]
 
 injectTagF :: (Ty a, Ty c) => String -> E c -> E (Addr a) -> E ()
-injectTagF con i e = app (sndapp store i) (app (field "tag" 0) e)
+injectTagF con i e = app (opapp i storeR) (app (field "tag" 0) e)
 
 injectValueF :: (Ty a, Ty b) => String -> E b -> E (Addr a) -> E ()
 injectValueF con x e =
-  app (sndapp store x) (app bitcast (app (field ("val" ++ con) 1) e :: E (Addr UInt64)))
+  app (opapp x storeR) (app bitcast (app (field ("val" ++ con) 1) e :: E (Addr UInt64)))
 
 injectTag :: (Ty a, Ty c) => String -> E c -> E (Addr a -> ())
 injectTag con i = func ("injectTag" ++ con) ["e"] (injectTagF con i)
@@ -1027,6 +1027,9 @@ load = unop "load" I.load
 
 store :: Ty a => E ((Addr a, a) -> ()) -- BAL: call B.store_volatile if needed by the type
 store = binop "store" I.store
+
+storeR :: Ty a => E ((a, Addr a) -> ()) -- BAL: call B.store_volatile if needed by the type
+storeR = binop "storeR" (flip I.store)
 
 add :: Ty a => E ((a,a) -> a)
 add = arithop "add" I.add
