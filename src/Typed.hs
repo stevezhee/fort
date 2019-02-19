@@ -5,10 +5,9 @@
 
 module Typed where
 
--- import qualified Build                     as B
--- import qualified LLVM.IRBuilder            as IR
 import Control.Monad.State
 import Data.Bifunctor
+import Data.Hashable
 import Data.List
 import Data.Proxy
 import Data.String
@@ -18,15 +17,14 @@ import LLVM.AST (Operand, Instruction)
 import LLVM.AST.Constant (Constant)
 import Prelude hiding (seq)
 import qualified Data.HashMap.Strict       as HMS
+import qualified Data.Text.Lazy.IO         as T
 import qualified Instr as I
 import qualified LLVM.AST                  as AST
-import qualified LLVM.AST.Global           as AST
 import qualified LLVM.AST.Constant         as AST
+import qualified LLVM.AST.Global           as AST
 import qualified LLVM.AST.IntegerPredicate as AST
 import qualified LLVM.AST.Type             as AST
 import qualified LLVM.Pretty               as AST
-import Data.Hashable
-import qualified Data.Text.Lazy.IO         as T
 
 class Size a where size :: Proxy a -> Integer
 class Ty a where tyFort :: Proxy a -> Type
@@ -538,7 +536,11 @@ codegen file ds = do
 
   putStrLn "--- LLVM -----"
   let m = toLLVMModule file ssass
-  T.putStrLn $ AST.ppllvm m
+  let s = AST.ppllvm m
+  T.putStrLn s
+  let oFile = file ++ ".ll"
+  T.writeFile oFile s
+  putStrLn $ "generated LLVM " ++ oFile ++ "!"
 
   putStrLn "=================================="
 

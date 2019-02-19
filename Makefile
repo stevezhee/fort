@@ -15,7 +15,7 @@ O_FILES=$(addsuffix .o, $(FORT_FILES))
 OUT_FILE=a.out
 
 .PHONY: all
-all: $(LL_FILES)
+all: $(O_FILES)
 
 .PHONY: run
 run: $(OUT_FILE)
