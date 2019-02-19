@@ -24,7 +24,9 @@ import qualified LLVM.AST.Global           as AST
 import qualified LLVM.AST.Constant         as AST
 import qualified LLVM.AST.IntegerPredicate as AST
 import qualified LLVM.AST.Type             as AST
+import qualified LLVM.Pretty               as AST
 import Data.Hashable
+import qualified Data.Text.Lazy.IO         as T
 
 class Size a where size :: Proxy a -> Integer
 class Ty a where tyFort :: Proxy a -> Type
@@ -124,8 +126,26 @@ data Expr
   | CallE (Nm, CallType) [Expr]
   | LetFunE Func Expr
   | LetE Pat Expr Expr
-  | UnreachableE
+  | UnreachableE Type
   deriving Show
+
+tyExpr :: Expr -> Type
+tyExpr x = case x of
+  AtomE a        -> tyAtom a
+  TupleE bs      -> TyTuple $ map tyExpr bs
+  SwitchE _ b _  -> tyExpr b
+  LetE _ _ e     -> tyExpr e
+  LetFunE _ e    -> tyExpr e
+  UnreachableE t -> t
+  CallE (n, _) _ -> case nTy n of
+    TyFun _ t -> t
+    _ -> impossible "tyExpr"
+
+tyAtom :: Atom -> Type
+tyAtom = impossible "tyAtom"
+
+tyAExpr :: AExpr -> Type
+tyAExpr = tyExpr . fromAExpr
 
 data CallType
   = LocalDefn
@@ -183,12 +203,12 @@ freeVars bvs = go
     goCExpr x = nub $ case x of
       CallA a -> goACall a
       SwitchA a b cs -> goAtom a ++ go b ++ concatMap (go . snd) cs
-      UnreachableA -> []
+      UnreachableA _ -> []
     goACall (_,bs) = concatMap goAtom bs
 
 toAExpr :: Expr -> M AExpr
 toAExpr x = case x of
-  UnreachableE -> pure $ CExprA $ UnreachableA
+  UnreachableE t -> pure $ CExprA $ UnreachableA t
   LetE pat a b -> do
     ea <- toAExpr a
     case ea of
@@ -226,7 +246,7 @@ fromCExpr :: CExpr -> Expr
 fromCExpr x = case x of
   CallA a  -> fromACall a
   SwitchA a b cs -> SwitchE a (fromAExpr b) $ map (second fromAExpr) cs
-  UnreachableA -> UnreachableE
+  UnreachableA t -> UnreachableE t
 
 fromACall :: ACall -> Expr
 fromACall (a,bs) = CallE a $ map AtomE bs
@@ -291,7 +311,7 @@ data AExpr
 data CExpr
   = CallA ACall
   | SwitchA Atom AExpr [(Tag, AExpr)]
-  | UnreachableA
+  | UnreachableA Type
   deriving Show
 
 data LocalCall = LocalCall Nm [Atom] deriving Show
@@ -300,7 +320,7 @@ fromSSAFunc (SSAFunc n vs xs t) = fromBFunc $ BFunc n vs xs $ case t of
   SwitchT a b cs -> Switch a (go b) $ map (second go) cs
   CallT a        -> Call $ go a
   ReturnT a      -> Return $ maybe [] (:[]) a
-  UnreachableT   -> Unreachable
+  UnreachableT t -> Unreachable t
   where
     go a = LocalCall a []
 
@@ -315,11 +335,11 @@ data Term
   = Return [Atom]
   | Call LocalCall
   | Switch Atom LocalCall [(Tag, LocalCall)]
-  | Unreachable
+  | Unreachable Type
   deriving Show
 
 toSSAFunc (BFunc n vs ss t) = SSAFunc n vs ss <$> case t of
-  Unreachable -> pure UnreachableT
+  Unreachable t -> pure $ UnreachableT t
   Return bs -> pure $ case bs of
     []  -> ReturnT Nothing
     [v] -> ReturnT $ Just v
@@ -351,15 +371,22 @@ data SSAFunc = SSAFunc
   SSATerm -- switch, call, unreachable, or return
   deriving Show
 
+toLLVMModule :: FilePath -> [[SSAFunc]] -> AST.Module
+toLLVMModule file xs = AST.defaultModule
+  { AST.moduleSourceFileName = fromString file
+  , AST.moduleName = fromString file
+  , AST.moduleDefinitions = map toLLVMFunction xs
+  }
+
 toLLVMFunction :: [SSAFunc] -> AST.Definition
-toLLVMFunction (SSAFunc n vs xs t : ys) =
+toLLVMFunction xs@(SSAFunc n vs _ _ : _) =
   AST.GlobalDefinition AST.functionDefaults
     { AST.name        = AST.mkName $ nName n
     , AST.parameters  = ([ AST.Parameter (toTyLLVM $ vTy v) (AST.mkName $ vName v) [] | v <- vs ], False)
     , AST.returnType  = case nTy n of
         TyFun _ b -> toTyLLVM b
         _         -> impossible "toLLVMFunction"
-    , AST.basicBlocks = map toLLVMBasicBlock ys
+    , AST.basicBlocks = map toLLVMBasicBlock xs
     }
 toLLVMFunction _ = impossible "toLLVMFunction"
 
@@ -384,7 +411,7 @@ data SSATerm
   = SwitchT Atom Nm [(Tag, Nm)]
   | CallT Nm
   | ReturnT (Maybe Atom)
-  | UnreachableT
+  | UnreachableT Type
   deriving Show
 
 toLLVMTerminator x = AST.Do $ case x of
@@ -434,15 +461,6 @@ toLocalCall x = case x of
     toBFunc $ AFunc f fvs x
     pure $ LocalCall f $ map Var fvs
 
-tyExpr :: Expr -> Type
-tyExpr = undefined
-
-tyAtom :: Atom -> Type
-tyAtom = undefined
-
-tyAExpr :: AExpr -> Type
-tyAExpr = tyExpr . fromAExpr
-
 toACall :: AExpr -> M ACall
 toACall x = case x of
   CExprA (CallA a) -> pure a
@@ -456,7 +474,7 @@ toTerminator :: AExpr -> M Term
 toTerminator x = case x of
   TupleA bs -> pure $ Return bs
   CExprA e -> case e of
-    UnreachableA -> pure Unreachable
+    UnreachableA t -> pure $ Unreachable t
     CallA a -> case a of
       ((n,LocalDefn), vs) -> pure $ Call $ LocalCall n vs
       _ -> do
@@ -483,7 +501,7 @@ fromBFunc (BFunc n xs ys z) =
       Call a        -> goLocalCall a
       Switch a b cs -> SwitchE a (goLocalCall b) $ map (second goLocalCall) cs
       Return bs     -> TupleE $ map AtomE bs
-      Unreachable   -> UnreachableE
+      Unreachable t -> UnreachableE t
 
     goACall :: ACall -> Expr
     goACall (a@(n1,ct), bs) = case ct of
@@ -493,7 +511,7 @@ fromBFunc (BFunc n xs ys z) =
     goLocalCall :: LocalCall -> Expr
     goLocalCall (LocalCall a bs) = CallE (a, LocalDefn) $ map AtomE bs
 
-codegen :: String -> [M Expr] -> IO ()
+codegen :: FilePath -> [M Expr] -> IO ()
 codegen file ds = do
   putStrLn "=================================="
   putStrLn file
@@ -517,6 +535,10 @@ codegen file ds = do
   -- putStrLn "--- continuation passing style ---"
   -- let (cfs,st3) = runState (toCPSs [ n | Func n _ _ <- fs ] bfs) st2
   -- print $ ppFuncs ppBFunc cfs
+
+  putStrLn "--- LLVM -----"
+  let m = toLLVMModule file ssass
+  T.putStrLn $ AST.ppllvm m
 
   putStrLn "=================================="
 
@@ -632,7 +654,7 @@ ppExpr x = case x of
     [ "fun" <+> ppFunc a
     , ppExpr b
     ]
-  UnreachableE -> "unreachable"
+  UnreachableE _ -> "unreachable"
 
 ppAlt :: (Tag, Expr) -> Doc ann
 ppAlt ((s,_),e) = pretty s <> ppAltRHS e
@@ -897,8 +919,11 @@ inject con i = func ("inject" ++ con) ["x","y"] $ \e ->
     (injectTagF con i p)
     (injectValueF con b p)
 
-noDefault :: E a -> E b -- BAL: unreachable is a terminator
-noDefault _ = E $ pure UnreachableE
+noDefault :: Ty b => E a -> E b -- BAL: unreachable is a terminator
+noDefault _ = go Proxy
+  where
+    go :: Ty b => Proxy b -> E b
+    go proxy = E $ pure $ UnreachableE $ tyFort proxy
 
 funTys :: (Ty a, Ty b) =>
   Name -> Proxy (a -> b) ->
