@@ -24,12 +24,12 @@ char-bar: Char -> Char = \_ => fst (a,b : Char)
 
 get-char: () -> Char = \() => h-get-char stdin
 
-;; char-io-test: () -> () = \w => /do
-;;   output (get-char w)
+char-io-test: () -> () = \w => /do
+  output (get-char w)
 
-;; hello-world: () -> () = \_ => /do
-;;   output (s)
-;;   output ("hi, again")
+hello-world: () -> () = \_ => /do
+  output (s)
+  output ("hi, again")
 
 fst: (Char, Char) -> Char = \(x,_) => x
 

@@ -75,7 +75,7 @@ instance (Ty a, Ty b, Ty c) => Ty (a,b,c) where
 
 data St = St
   { unique  :: Integer
-  , strings :: HMS.HashMap String (Type, Name)
+  , strings :: HMS.HashMap String Var
   , externs :: HMS.HashMap Name Type
   , funcs   :: HMS.HashMap Name Func
   , lifted  :: HMS.HashMap Name AFunc
@@ -100,7 +100,7 @@ data Type
   | TyFun Type Type
   deriving Show
 
-data Var = V{ vTy :: Type, vName :: String } deriving Show
+data Var = V{ vTy :: Type, vName :: Name } deriving Show
 instance Pretty Var where pretty = pretty . vName
 instance Eq Var where x == y = vName x == vName y
 instance Hashable Var where hashWithSalt i = hashWithSalt i . vName
@@ -150,9 +150,9 @@ tyAExpr = tyExpr . fromAExpr
 
 data CallType
   = LocalDefn
-  | Defn ([Operand] -> Instruction)
+  | Defn        ([Operand] -> Instruction)
   | Instruction ([Operand] -> Instruction)
-  | Extern Nm ([Operand] -> Instruction)
+  | Extern Nm   ([Operand] -> Instruction)
 
 instance Show CallType where
   show x = case x of
@@ -167,7 +167,7 @@ data Atom
   | Char Char
   | Var Var
   | Global Var
-  | String String (Type, Name)
+  | String String Var
   deriving Show
 
 var :: Var -> Expr
@@ -385,11 +385,11 @@ data SSAFunc = SSAFunc
   SSATerm -- switch, call, unreachable, or return
   deriving Show
 
-toLLVMModule :: FilePath -> [(Name, Type)] -> [[SSAFunc]] -> AST.Module
-toLLVMModule file exts xs = AST.defaultModule
+toLLVMModule :: FilePath -> [(String, Var)] -> [(Name, Type)] -> [[SSAFunc]] -> AST.Module
+toLLVMModule file strs exts xs = AST.defaultModule
   { AST.moduleSourceFileName = fromString file
   , AST.moduleName = fromString file
-  , AST.moduleDefinitions = map toLLVMExternDefn exts ++ map toLLVMFunction xs
+  , AST.moduleDefinitions = map toLLVMExternDefn exts ++ map toLLVMStringDefn strs ++ map toLLVMFunction xs
   }
 
 toLLVMFunction :: [SSAFunc] -> AST.Definition
@@ -416,6 +416,16 @@ toLLVMExternDefn (n, ty) = AST.GlobalDefinition $ case ty of
     { AST.linkage           = AST.External
     , AST.name              = AST.mkName n
     , LLVM.AST.Global.type' = toTyLLVM ty
+    }
+
+toLLVMStringDefn :: (String, Var) -> AST.Definition
+toLLVMStringDefn (s,v) = AST.GlobalDefinition $ AST.globalVariableDefaults
+    { AST.linkage           = AST.LinkOnce
+    , AST.name              = AST.mkName $ vName v
+    , LLVM.AST.Global.type' = case vTy v of
+        TyAddress t -> toTyLLVM t
+        _           -> impossible "toLLVMStringDefn"
+    , AST.initializer       = Just $ AST.Array AST.i8 [AST.Int 8 (fromIntegral $ fromEnum c) | c <- s ++ "\0"]
     }
 
 toLLVMBasicBlock :: SSAFunc -> AST.BasicBlock
@@ -456,7 +466,7 @@ toOperand x = case x of
   Char a           -> AST.ConstantOperand $ constInt 8 $ fromIntegral $ fromEnum a
   Var a            -> AST.LocalReference (toTyLLVM $ vTy a) (AST.mkName $ vName a)
   Global a         -> AST.ConstantOperand $ AST.GlobalReference (toTyLLVM $ vTy a) (AST.mkName $ vName a)
-  String _ (t, a)  -> AST.ConstantOperand $ AST.GlobalReference (toTyLLVM t) (AST.mkName a)
+  String _ a       -> AST.ConstantOperand $ AST.GlobalReference (toTyLLVM $ vTy a) (AST.mkName $ vName a)
 
 toSSAFuncPost tbl x@(SSAFunc n vs ys t) = case HMS.lookup (nName n) tbl of
   Nothing -> x
@@ -572,7 +582,7 @@ codegen file ds = do
   -- print $ ppFuncs ppBFunc cfs
 
   putStrLn "--- LLVM -----"
-  let m = toLLVMModule file (HMS.toList $ externs st2) ssass
+  let m = toLLVMModule file (HMS.toList $ strings st2) (HMS.toList $ externs st2) ssass
   let s = AST.ppllvm m
   T.putStrLn s
   let oFile = file ++ ".ll"
@@ -890,16 +900,16 @@ string :: String -> E String_
 string s = app f str
   where
     f :: E (a -> String_)
-    f = uinstr (TyFun t TyString) "string" (\[a] -> I.bitcast a (toTyLLVM TyString))
+    f = uinstr (TyFun (TyAddress t) TyString) "string" (\[a] -> I.bitcast a (toTyLLVM TyString))
     t = TyAddress (TyArray (genericLength s + 1) TyChar)
     str = E $ do
       tbl <- gets strings
       n <- case HMS.lookup s tbl of
         Nothing -> do
-          n <- freshName "s"
-          modify' $ \st -> st{ strings = HMS.insert s (t,n) $ strings st }
-          pure (t,n)
-        Just a -> pure a
+          v <- freshVar t "s"
+          modify' $ \st -> st{ strings = HMS.insert s v $ strings st }
+          pure v
+        Just v -> pure v
       pure $ AtomE $ String s n
 
 atomE :: Atom -> E a
@@ -935,16 +945,13 @@ volatile :: Ty a => Integer -> E (Addr a)
 volatile x = app inttoptr (intE ptrSize x :: E UInt64)
 
 field :: (Ty a, Ty b) => String -> Integer -> E (Addr a -> Addr b)
-field fld i = opapp (intE 32 i) (gepR ("field." ++ fld))
+field fld i = opapp (intE 32 i) (swapargs (gep ("field." ++ fld)))
 
 index :: (Size sz, Ty a) => E ((Addr (Array sz a), UInt32) -> Addr a)
 index = gep "index"
 
 gep :: (Ty a, Ty b) => String -> E ((Addr a, UInt32) -> Addr b)
 gep s = binop s I.gep
-
-gepR :: (Ty a, Ty b) => String -> E ((UInt32, Addr a) -> Addr b)
-gepR s = binop s (flip I.gep)
 
 exprToPat :: Ty a => E a -> Pat
 exprToPat (_ :: E a) = go $ tyFort (Proxy :: Proxy a)
@@ -955,14 +962,14 @@ exprToPat (_ :: E a) = go $ tyFort (Proxy :: Proxy a)
       _            -> [ V x "x" ]
 
 injectTagF :: (Ty a, Ty c) => String -> E c -> E (Addr a) -> E ()
-injectTagF con i e = app (opapp i storeR) (tagField e)
+injectTagF con i e = app (opapp i (swapargs store)) (tagField e)
 
 tagField :: (Ty a, Ty c) => E (Addr a) -> E (Addr c)
 tagField = app (field "tag" 0)
 
 injectValueF :: (Ty a, Ty b) => String -> E b -> E (Addr a) -> E ()
 injectValueF con x e =
-  app (opapp x storeR) (app bitcast (app (field ("val" ++ con) 1) e :: E (Addr UInt64)))
+  app (opapp x (swapargs store)) (app bitcast (app (field ("val" ++ con) 1) e :: E (Addr UInt64)))
 
 injectTag :: (Ty a, Ty c) => String -> E c -> E (Addr a -> ())
 injectTag con i = func ("injectTag" ++ con) ["e"] (injectTagF con i)
@@ -1055,9 +1062,6 @@ load = unop "load" I.load
 store :: Ty a => E ((Addr a, a) -> ()) -- BAL: call B.store_volatile if needed by the type
 store = binop "store" I.store
 
-storeR :: Ty a => E ((a, Addr a) -> ()) -- BAL: call B.store_volatile if needed by the type
-storeR = binop "storeR" (flip I.store)
-
 add :: Ty a => E ((a,a) -> a)
 add = arithop "add" I.add
 
@@ -1138,7 +1142,26 @@ stderr :: E Handle
 stderr = global "g_stderr"
 
 output :: Ty a => E (a -> ())
-output = extern "output"
+output = opapp stdout h_output
+
+swapargs :: E ((a,b) -> c) -> E ((b,a) -> c)
+swapargs (E x) = E $ do
+  a <- x
+  let g f = \[a,b] -> f [b,a]
+  case a of
+    CallE (nm,a) bs -> case a of
+      Defn f        -> pure $ CallE (nm, Defn $ g f) bs
+      Instruction f -> pure $ CallE (nm, Instruction $ g f) bs
+      Extern nm1 f  -> pure $ CallE (nm, Extern nm1 $ g f) bs
+    _ -> impossible "swapargs"
+
+h_output :: Ty a => E ((Handle, a) -> ())
+h_output = swapargs (f Proxy)
+  where
+    f :: Ty a => Proxy a -> E ((a, Handle) -> ())
+    f proxy = case tyFort proxy of
+      TyChar   -> unsafeCast h_put_char
+      TyString -> unsafeCast h_put_string
 
 h_get_char :: E (Handle -> Char_)
 h_get_char = extern "fgetc"
