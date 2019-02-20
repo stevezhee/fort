@@ -30,6 +30,8 @@ data Decl
 
 data ExprDecl = ED{ edLHS :: Pat, edRHS :: Expr } deriving Show
 
+-- BAL: BUG - variables that start with a '_' need to be renamed because ghc can interpret these as a 'hole'
+
 -- In general the compiler is free to reorder and lay out data any way it sees
 -- fit. If you want to ffi to/from C/LLVM/etc. you must marshal the data
 data Type
@@ -515,7 +517,7 @@ ppSequence = go []
       Let (ED v e) ->
         f rs ("T.let_" <+> stringifyPat v <+> parens (ppExpr e) <+> ppLam v (Sequence bs))
       _ -> go (b:rs) bs
-    f rs d = parens ("T.sequence" <+> ppListV (map ppExpr $ reverse rs) <+> parens d)
+    f rs d = parens ("T.sequence" <> ppListV (map ppExpr $ reverse rs) <+> parens d)
 
 unsafeUnConName :: Con -> String
 unsafeUnConName c = "unsafe_" ++ unLoc c
@@ -544,6 +546,7 @@ ppList :: [Doc x] -> Doc x
 ppList = brackets . commaSep
 
 ppListV :: [Doc x] -> Doc x
+ppListV [] = " []"
 ppListV xs = line <> indent 2 (vcat
   [ "[" <+> commaSepV xs
   , "]"

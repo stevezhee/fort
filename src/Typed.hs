@@ -208,18 +208,23 @@ freeVars bvs = go
       UnreachableA _ -> []
     goACall (_,bs) = concatMap goAtom bs
 
+letAToAExpr :: Pat -> AExpr -> Expr -> M AExpr
+letAToAExpr pat x y = do
+  case x of
+    TupleA bs -> subst (mkSubst pat bs) <$> toAExpr y
+    CExprA a -> do
+      pat' <- freshPat pat
+      LetA pat' a <$> subst (mkSubst pat $ map Var pat') <$> toAExpr y
+    LetA pat1 a e -> do
+      pat1' <- freshPat pat1
+      LetA pat1' a <$> letAToAExpr pat (subst (mkSubst pat1 $ map Var pat1') e) y
+
 toAExpr :: Expr -> M AExpr
 toAExpr x = case x of
   UnreachableE t -> pure $ CExprA $ UnreachableA t
   LetE pat a b -> do
     ea <- toAExpr a
-    case ea of
-      TupleA bs     -> subst (mkSubst pat bs) <$> toAExpr b
-      CExprA c      -> LetA pat c <$> toAExpr b
-      LetA pat1 c e -> do
-        pat1' <- freshPat pat1 -- rename to avoid conflicts
-        let tbl = mkSubst pat1 $ map Var pat1'
-        LetA pat1' c <$> toAExpr (LetE pat (fromAExpr $ subst tbl e) b)
+    letAToAExpr pat ea b
   CallE n es -> withAtoms es $ \vs -> pure (CExprA (CallA (n, vs)))
   TupleE es -> withAtoms es $ \vs -> pure (TupleA vs)
   AtomE a -> pure $ TupleA [a]
@@ -235,9 +240,11 @@ toAExpr x = case x of
 mkLambdaLift :: Func -> M (AFunc, (Name, (Nm, [Atom])))
 mkLambdaLift x = do
     f@(AFunc n pat e) <- toAFunc x
+    pat' <- freshPat pat
+    let tbl = mkSubst pat (map Var pat')
     n' <- freshNm (nTy n) (nName n)
     let fvs = freeVars pat e
-    pure (AFunc n' (pat ++ fvs) e, (nName n, (n', map Var fvs)))
+    pure (AFunc n' (pat' ++ fvs) $ subst tbl e, (nName n, (n', map Var fvs)))
 
 lambdaLift :: HMS.HashMap Name (Nm, [Atom]) -> AExpr -> AExpr
 lambdaLift tbl = go
@@ -275,6 +282,11 @@ fromACall (a,bs) = CallE a $ map AtomE bs
 mapAFunc :: (AExpr -> AExpr) -> AFunc -> AFunc
 mapAFunc f (AFunc n vs e) = AFunc n vs $ f e
 
+mkSubst :: [Var] -> [Atom] -> HMS.HashMap Var Atom
+mkSubst xs ys
+  | length xs /= length ys = impossible $ "mkSubst:" ++ show (xs,ys)
+  | otherwise = HMS.fromList $ zip xs ys
+
 subst :: HMS.HashMap Var Atom -> AExpr -> AExpr
 subst tbl = go
   where
@@ -296,11 +308,6 @@ subst tbl = go
 
 impossible :: String -> a
 impossible s = error $ "the impossible happened:" ++ s
-
-mkSubst :: [Var] -> [Atom] -> HMS.HashMap Var Atom
-mkSubst xs ys
-  | length xs /= length ys = impossible $ "mkSubst:" ++ show (xs,ys)
-  | otherwise = HMS.fromList $ zip xs ys
 
 data AFunc = AFunc Nm Pat AExpr deriving Show -- BAL: Pat should be reduced to [Var]
 
@@ -456,7 +463,7 @@ toSSAFuncPost tbl x@(SSAFunc n vs ys t) = case HMS.lookup (nName n) tbl of
     where
       zs :: [Instr]
       zs = [ ([v], ((Nm (tyAtom $ fst $ head cs) "phi", Instruction (f $ map snd cs)), map fst cs))
-           | (v, cs :: [(Atom, Name)]) <- zip vs $ transposePhis bs, length cs > 1, not (all (isV v) cs) ]
+           | (v, cs :: [(Atom, Name)]) <- zip vs $ transposePhis bs, not (all (isV v) cs) ]
       isV a (b, _) = case b of
         Var v -> vName v == vName a
         _ -> False
