@@ -125,7 +125,7 @@ data Expr
   | TupleE [Expr]
   | SwitchE Expr Expr [(Tag, Expr)]
   | CallE (Nm, CallType) [Expr]
-  | LetFunE Func Expr
+  | LetRecE [Func] Expr
   | LetE Pat Expr Expr
   | UnreachableE Type
   deriving Show
@@ -136,7 +136,7 @@ tyExpr x = case x of
   TupleE bs      -> TyTuple $ map tyExpr bs
   SwitchE _ b _  -> tyExpr b
   LetE _ _ e     -> tyExpr e
-  LetFunE _ e    -> tyExpr e
+  LetRecE _ e    -> tyExpr e
   UnreachableE t -> t
   CallE (n, _) _ -> case nTy n of
     TyFun _ t -> t
@@ -223,17 +223,36 @@ toAExpr x = case x of
   CallE n es -> withAtoms es $ \vs -> pure (CExprA (CallA (n, vs)))
   TupleE es -> withAtoms es $ \vs -> pure (TupleA vs)
   AtomE a -> pure $ TupleA [a]
-  LetFunE a b -> do -- lambda lift local function -- BAL: can this be simpler? (i.e. don't lift free vars?)
-    f@(AFunc n pat e) <- toAFunc a
-    n' <- freshNm (nTy n) (nName n)
-    let fvs = freeVars pat e
-    let g = lambdaLift n n' $ map Var fvs
-    modify' $ \st -> st { lifted = HMS.map (mapAFunc g) $
-                                   HMS.insert (nName n') (AFunc n' (pat ++ fvs) e) $ lifted st
-                        }
-    g <$> toAExpr b
+  LetRecE bs c -> do -- lambda lift local function -- BAL: can this be simpler? (i.e. don't lift free vars?)
+    (fs, ds) <- unzip <$> mapM mkLambdaLift bs
+    let g = lambdaLift $ HMS.fromList ds
+    let tbl = HMS.fromList [ (nName n, a) | a@(AFunc n _ _) <- map (mapAFunc g) fs ]
+    modify' $ \st -> st { lifted = HMS.union tbl $ lifted st }
+    g <$> toAExpr c
   SwitchE e b cs -> withAtom e $ \a ->
     CExprA <$> (SwitchA a <$> toAExpr b <*> Prelude.sequence [ (s,) <$> toAExpr c | (s,c) <- cs ])
+
+mkLambdaLift :: Func -> M (AFunc, (Name, (Nm, [Atom])))
+mkLambdaLift x = do
+    f@(AFunc n pat e) <- toAFunc x
+    n' <- freshNm (nTy n) (nName n)
+    let fvs = freeVars pat e
+    pure (AFunc n' (pat ++ fvs) e, (nName n, (n', map Var fvs)))
+
+lambdaLift :: HMS.HashMap Name (Nm, [Atom]) -> AExpr -> AExpr
+lambdaLift tbl = go
+  where
+    go x = case x of
+      CExprA a     -> CExprA $ goCExpr a
+      LetA pat a b -> LetA pat (goCExpr a) (go b)
+      TupleA{}     -> x
+    goACall x@((a,ct), bs) = case HMS.lookup (nName a) tbl of
+      Nothing -> x
+      Just (n',cs) -> ((n',ct), bs ++ cs)
+    goCExpr x = case x of
+      CallA a        -> CallA $ goACall a
+      SwitchA a b cs ->
+        SwitchA a (go b) $ map (second go) cs
 
 fromAExpr :: AExpr -> Expr
 fromAExpr x = case x of
@@ -255,21 +274,6 @@ fromACall (a,bs) = CallE a $ map AtomE bs
 
 mapAFunc :: (AExpr -> AExpr) -> AFunc -> AFunc
 mapAFunc f (AFunc n vs e) = AFunc n vs $ f e
-
-lambdaLift :: Nm -> Nm -> [Atom] -> AExpr -> AExpr
-lambdaLift n n' fvs = go
-  where
-    go x = case x of
-      CExprA a -> CExprA $ goCExpr a
-      LetA pat a b -> LetA pat (goCExpr a) (go b)
-      _ -> x
-    goACall x@((a,ct), bs)
-        | a == n    = ((n',ct), bs ++ fvs)
-        | otherwise = x
-    goCExpr x = case x of
-      CallA a -> CallA $ goACall a
-      SwitchA a b cs ->
-        SwitchA a (go b) $ map (second go) cs
 
 subst :: HMS.HashMap Var Atom -> AExpr -> AExpr
 subst tbl = go
@@ -679,10 +683,9 @@ ppExpr x = case x of
     -- [ if null a then ppExpr b else "let" <+> ppPat a <+> "=" <+> ppExpr b
     , ppExpr c
     ]
-  LetFunE a b -> vcat
-    [ "fun" <+> ppFunc a
-    , ppExpr b
-    ]
+  LetRecE bs c -> vcat $
+    [ "fun" <+> ppFunc b | b <- bs ] ++
+    [ ppExpr c ]
   UnreachableE _ -> "unreachable"
 
 ppAlt :: (Tag, Expr) -> Doc ann
@@ -716,10 +719,7 @@ callE :: Nm -> CallType -> E a
 callE n x = E $ pure $ CallE (n,x) []
 
 where_ :: Ty a => E a -> [M Func] -> E a
-where_ e ms = E $ letFunEs <$> Prelude.sequence ms <*> unE e
-
-letFunEs :: [Func] -> Expr -> Expr
-letFunEs xs y = foldl' (flip LetFunE) y xs
+where_ e ms = E $ LetRecE <$> Prelude.sequence ms <*> unE e
 
 case_ :: Ty a => E a -> (E a -> E b) -> [(String, E a -> E b)] -> E b
 case_ (E x :: E a) f ys = E $ do
