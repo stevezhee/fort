@@ -299,6 +299,7 @@ subst tbl = go
     goCExpr x = case x of
       CallA a        -> CallA $ goACall a
       SwitchA a b cs -> SwitchA (goAtom a) (go b) $ map (second go) cs
+      UnreachableA{} -> x
     goAtom x = case x of
       Var a -> case HMS.lookup a tbl of
         Just b  -> b
