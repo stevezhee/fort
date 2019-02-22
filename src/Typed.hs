@@ -817,7 +817,9 @@ let_ upat (E x) (f :: E a -> E b) = E $ LetE pat <$> x <*> unE (f (patToExpr pat
     pat = fromUPat (tyFort (Proxy :: Proxy a)) upat
 
 fromUPat :: Type -> UPat -> Pat
-fromUPat ty upat = safeZipWith "fromUPat" V (toArgTys ty) upat
+fromUPat ty upat = case (toArgTys ty, upat) of
+  ([], [v]) -> [V tyUnit v]
+  (tys, _)  -> safeZipWith "fromUPat" V (toArgTys ty) upat
 
 letFunc :: (Ty a, Ty b) => Name -> UPat -> (E a -> E b) -> M Func
 letFunc n upat (f :: E a -> E b) = Func nm pat <$> (unE $ f $ patToExpr pat)

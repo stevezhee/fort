@@ -3,16 +3,18 @@
 
 TEST_DIR=test
 HS_FILES=$(shell find src -name \*.hs) $(shell find app -name \*.hs)
+
 FORT_FILES=$(wildcard $(TEST_DIR)/*.fort)
-FORT_FILES=test/powi.fort
-# FORT_FILES=test/todd.fort
-# FORT_FILES=test/enum.fort
+# FORT_FILES=test/address.fort
 # FORT_FILES=test/array.fort
-# FORT_FILES=test/fannkuch-redux.fort
-# FORT_FILES=test/struct.fort
 # FORT_FILES=test/char.fort
-# FORT_FILES=test/nestedif.fort
-# FORT_FILES=test/address.fort test/powi.fort
+# FORT_FILES=test/powi.fort
+# FORT_FILES=test/struct.fort
+# FORT_FILES=test/todd.fort
+FORT_FILES=test/enum.fort
+FORT_FILES=test/fannkuch-redux.fort
+FORT_FILES=test/nestedif.fort
+
 GEN_HS_FILES=$(addsuffix .hs, $(FORT_FILES))
 LL_FILES=$(addsuffix .ll, $(FORT_FILES))
 O_FILES=$(addsuffix .o, $(FORT_FILES))
