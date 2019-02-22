@@ -393,11 +393,11 @@ cexprToCPSTerm x = case x of
       SwitchT a <$> toLocalCall [] b <*> sequence [ (tg,) <$> toLocalCall [] e | (tg, e) <- cs ]
     UnreachableA t -> pure $ UnreachableT t
 
-toCPSFuncPost :: HMS.HashMap Name (Name, Integer) -> HMS.HashMap Name [(Name, Integer)] -> CPSFunc -> CPSFunc
-toCPSFuncPost tbl reachableTbl (CPSFunc nm vs ys t) = CPSFunc nm vs' ys t'
+toCPSFuncPost :: Name -> HMS.HashMap Name (Name, Integer) -> HMS.HashMap Name [(Name, Integer)] -> CPSFunc -> CPSFunc
+toCPSFuncPost n0 tbl reachableTbl (CPSFunc nm vs ys t) = CPSFunc nm vs' ys t'
   where
     vs'
-      | nName nm `elem` (HMS.keys tbl ++ map fst (HMS.elems tbl)) = vs -- BAL: inefficient
+      | nName nm `elem` (n0 : HMS.keys tbl ++ map fst (HMS.elems tbl)) = vs -- BAL: inefficient
       | otherwise = rvar : vs
     t' = case t of
       CallT a        -> CallT (f a)
@@ -657,7 +657,10 @@ toAFuncs x  = do
 toCPSFuncs :: [AFunc] -> M [CPSFunc]
 toCPSFuncs xs = do
   mapM_ emitCPSFunc xs
-  bs  <- gets sfuncs
+  bs <- reverse <$> gets sfuncs
+  let n0 = case bs of
+        [] -> impossible "toCPSFuncs"
+        CPSFunc a _ _ _ : _ -> nName a
   let (gr0, fromV, _) = G.graphFromEdges $ map mkEdges bs
   let gr = G.transposeG gr0
   let fromVert a = let (_,b,_) = fromV a in b
@@ -672,7 +675,7 @@ toCPSFuncs xs = do
   --   (map show reachableTbl)
 
   modify' $ \st -> st{ sfuncs = mempty, conts = mempty }
-  pure $ map (toCPSFuncPost tbl (HMS.fromList reachableTbl)) $ reverse bs
+  pure $ map (toCPSFuncPost n0 tbl (HMS.fromList reachableTbl)) bs
 
 mkEdges (CPSFunc nm _ _ t) = ((), nName nm, case t of
   SwitchT _ b cs -> map f (b : map snd cs)
