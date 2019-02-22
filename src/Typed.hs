@@ -5,14 +5,15 @@
 
 module Typed where
 
-import Control.Monad.State
+import Control.Monad.State.Strict
 import Data.Bifunctor
 import Data.Hashable
 import Data.List
 import Data.Proxy
+import Data.Maybe
 import Data.String
 import Data.Text.Prettyprint.Doc
-import Fort (neededBitsList, ppTuple, ppListV)
+import Fort (neededBits, neededBitsList, ppTuple, ppListV)
 import LLVM.AST (Operand, Instruction)
 import LLVM.AST.Constant (Constant)
 import Prelude hiding (seq)
@@ -28,6 +29,7 @@ import qualified LLVM.AST.IntegerPredicate as AST
 import qualified LLVM.AST.Type             as AST
 import qualified LLVM.Pretty               as AST
 import Debug.Trace
+import Data.Graph                          as G
 
 class Size a where size :: Proxy a -> Integer
 class Ty a where tyFort :: Proxy a -> Type
@@ -79,10 +81,14 @@ data St = St
   , externs :: HMS.HashMap Name Type
   , funcs   :: HMS.HashMap Name Func
   , lifted  :: HMS.HashMap Name AFunc
-  , bfuncs  :: [BFunc]
-  , instrs  :: [([Var], ACall)]
-  , phis    :: HMS.HashMap Name [(Name, [Atom])]
-  }
+  , sfuncs  :: [CPSFunc]
+  , instrs  :: [Instr]
+  , conts   :: HMS.HashMap Name (Name, Integer)
+  , currFuncName :: Name
+  } deriving Show
+
+initSt :: St
+initSt = St 0 mempty mempty mempty mempty mempty mempty mempty ""
 
 type M a = State St a -- BAL: break up into multiple monads
 
@@ -150,16 +156,12 @@ tyAExpr = tyExpr . fromAExpr
 
 data CallType
   = LocalDefn
-  | Defn        ([Operand] -> Instruction)
-  | Instruction ([Operand] -> Instruction)
-  | Extern Nm   ([Operand] -> Instruction)
+  | Defn ([Operand] -> Instruction)
 
 instance Show CallType where
   show x = case x of
     Defn{}        -> "defn"
     LocalDefn     -> "local"
-    Instruction{} -> "instr"
-    Extern{}      -> "extern"
 
 data Atom
   = Int Integer Integer
@@ -168,6 +170,7 @@ data Atom
   | Var Var
   | Global Var
   | String String Var
+  | Label (Name, Integer)
   deriving Show
 
 var :: Var -> Expr
@@ -203,29 +206,30 @@ freeVars bvs = go
         | otherwise    -> [v]
       _ -> []
     goCExpr x = nub $ case x of
-      CallA a -> goACall a
+      CallLocalA (LocalCall _ bs) -> concatMap goAtom bs
+      CallDefnA (DefnCall _ bs _) -> concatMap goAtom bs
       SwitchA a b cs -> goAtom a ++ go b ++ concatMap (go . snd) cs
       UnreachableA _ -> []
-    goACall (_,bs) = concatMap goAtom bs
 
-letAToAExpr :: Pat -> AExpr -> Expr -> M AExpr
-letAToAExpr pat x y = do
-  case x of
-    TupleA bs -> subst (mkSubst pat bs) <$> toAExpr y
-    CExprA a -> do
-      pat' <- freshPat pat
-      LetA pat' a <$> subst (mkSubst pat $ map Var pat') <$> toAExpr y
-    LetA pat1 a e -> do
-      pat1' <- freshPat pat1
-      LetA pat1' a <$> letAToAExpr pat (subst (mkSubst pat1 $ map Var pat1') e) y
+letEToAExpr :: Pat -> AExpr -> Expr -> M AExpr
+letEToAExpr pat x y = case x of
+  TupleA bs -> subst (mkSubst pat bs) <$> toAExpr y
+  CExprA a -> do
+    pat' <- freshPat pat
+    LetA pat' a <$> subst (mkSubst pat $ map Var pat') <$> toAExpr y
+  LetA pat1 a e -> do
+    pat1' <- freshPat pat1
+    LetA pat1' a <$> letEToAExpr pat (subst (mkSubst pat1 $ map Var pat1') e) y
 
 toAExpr :: Expr -> M AExpr
 toAExpr x = case x of
   UnreachableE t -> pure $ CExprA $ UnreachableA t
   LetE pat a b -> do
     ea <- toAExpr a
-    letAToAExpr pat ea b
-  CallE n es -> withAtoms es $ \vs -> pure (CExprA (CallA (n, vs)))
+    letEToAExpr pat ea b
+  CallE (n,ct) es -> withAtoms es $ \vs -> case ct of
+    LocalDefn -> pure (CExprA (CallLocalA (LocalCall n vs)))
+    Defn f    -> pure (CExprA (CallDefnA (DefnCall n vs f)))
   TupleE es -> withAtoms es $ \vs -> pure (TupleA vs)
   AtomE a -> pure $ TupleA [a]
   LetRecE bs c -> do -- lambda lift local function -- BAL: can this be simpler? (i.e. don't lift free vars?)
@@ -235,9 +239,10 @@ toAExpr x = case x of
     modify' $ \st -> st { lifted = HMS.union tbl $ lifted st }
     g <$> toAExpr c
   SwitchE e b cs -> withAtom e $ \a ->
-    CExprA <$> (SwitchA a <$> toAExpr b <*> Prelude.sequence [ (s,) <$> toAExpr c | (s,c) <- cs ])
+    CExprA <$> (SwitchA a <$> toAExpr b <*> sequence [ (s,) <$> toAExpr c | (s,c) <- cs ])
 
 mkLambdaLift :: Func -> M (AFunc, (Name, (Nm, [Atom])))
+-- mkLambdaLift :: Func -> M (AFunc, (Name, Nm))
 mkLambdaLift x = do
     f@(AFunc n pat e) <- toAFunc x
     pat' <- freshPat pat
@@ -245,19 +250,22 @@ mkLambdaLift x = do
     n' <- freshNm (nTy n) (nName n)
     let fvs = freeVars pat e
     pure (AFunc n' (pat' ++ fvs) $ subst tbl e, (nName n, (n', map Var fvs)))
+    -- BAL: probably don't need to lift the free vars
+    -- pure (AFunc n' pat' $ subst tbl e, (nName n, n'))
 
 lambdaLift :: HMS.HashMap Name (Nm, [Atom]) -> AExpr -> AExpr
+-- lambdaLift :: HMS.HashMap Name Nm -> AExpr -> AExpr
 lambdaLift tbl = go
   where
     go x = case x of
       CExprA a     -> CExprA $ goCExpr a
       LetA pat a b -> LetA pat (goCExpr a) (go b)
       TupleA{}     -> x
-    goACall x@((a,ct), bs) = case HMS.lookup (nName a) tbl of
-      Nothing -> x
-      Just (n',cs) -> ((n',ct), bs ++ cs)
     goCExpr x = case x of
-      CallA a        -> CallA $ goACall a
+      CallDefnA{}  -> x
+      CallLocalA (LocalCall a bs) -> case HMS.lookup (nName a) tbl of
+        Nothing -> x
+        Just (n', fvs) -> CallLocalA $ LocalCall n' (bs ++ fvs)
       SwitchA a b cs ->
         SwitchA a (go b) $ map (second go) cs
 
@@ -272,12 +280,10 @@ fromAFunc (AFunc n pat e) = Func n pat $ fromAExpr e
 
 fromCExpr :: CExpr -> Expr
 fromCExpr x = case x of
-  CallA a  -> fromACall a
+  CallDefnA (DefnCall nm bs f) -> CallE (nm, Defn f) $ map AtomE bs
+  CallLocalA (LocalCall nm bs) -> CallE (nm, LocalDefn) $ map AtomE bs
   SwitchA a b cs -> SwitchE (AtomE a) (fromAExpr b) $ map (second fromAExpr) cs
   UnreachableA t -> UnreachableE t
-
-fromACall :: ACall -> Expr
-fromACall (a,bs) = CallE a $ map AtomE bs
 
 mapAFunc :: (AExpr -> AExpr) -> AFunc -> AFunc
 mapAFunc f (AFunc n vs e) = AFunc n vs $ f e
@@ -295,9 +301,11 @@ subst tbl = go
       CExprA a     -> CExprA $ goCExpr a
       LetA pat a b -> LetA pat (goCExpr a) (subst (remove pat) b)
     goAFunc (AFunc n pat e) = AFunc n pat (subst (remove pat) e)
-    goACall (n, bs) = (n, map goAtom bs)
+    goDefnCall (DefnCall n bs f) = DefnCall n (map goAtom bs) f
+    goLocalCall (LocalCall n bs) = LocalCall n (map goAtom bs)
     goCExpr x = case x of
-      CallA a        -> CallA $ goACall a
+      CallDefnA a    -> CallDefnA $ goDefnCall a
+      CallLocalA a   -> CallLocalA $ goLocalCall a
       SwitchA a b cs -> SwitchA (goAtom a) (go b) $ map (second go) cs
       UnreachableA{} -> x
     goAtom x = case x of
@@ -312,249 +320,239 @@ impossible s = error $ "the impossible happened:" ++ s
 
 data AFunc = AFunc Nm Pat AExpr deriving Show -- BAL: Pat should be reduced to [Var]
 
-type ACall = ((Nm, CallType), [Atom])
+data DefnCall = DefnCall Nm [Atom] ([Operand] -> Instruction)
 
-type Instr = ([Var], ACall)
+instance Show DefnCall where show (DefnCall a bs _) = unwords ["DefnCall", show a, show bs]
+
+data LocalCall = LocalCall Nm [Atom] deriving Show
+
+emitCPSFunc :: AFunc -> M ()
+emitCPSFunc (AFunc nm pat e) = do
+  n0 <- gets currFuncName
+  instrs0 <- gets instrs
+  modify' $ \st -> st{ currFuncName = nName nm, instrs = [] }
+  a  <- toCPSTerm e
+  bs <- reverse <$> gets instrs
+  modify' $ \st -> st
+    { currFuncName = n0, instrs = instrs0
+    , sfuncs = CPSFunc nm pat bs a : sfuncs st
+    }
+
+toLocalCall :: Pat -> AExpr -> M LocalCall
+toLocalCall pat x = case x of
+  CExprA (CallLocalA a) -> pure a -- BAL: pat unused here(?) add phi node?
+  _ -> do
+    let fvs = freeVars pat x -- BAL: probably don't need to pass freevars
+    let pat' = pat ++ fvs
+    nm <- freshNm (TyFun (TyTuple $ map vTy pat') $ tyAExpr x) "f"
+    emitCPSFunc (AFunc nm pat' x)
+    return $ LocalCall nm (map Var fvs)
+
+toCPSTerm :: AExpr -> M CPSTerm
+toCPSTerm x = case x of
+  LetA pat a b -> case a of
+    CallDefnA d@DefnCall{} -> do
+      emitInstr (pat, d)
+      toCPSTerm b
+    UnreachableA t -> pure $ UnreachableT t
+    _ -> do
+      n <- gets currFuncName
+      -- the function created by b has a %ret argument, the cexprs of b call %ret (or switch in the case of tuple)
+      -- the cexprs of a call b
+      LocalCall nm _ <- toLocalCall pat b
+      modify' $ \st -> st{ conts = HMS.insert n (nName nm, toInteger $ HMS.size (conts st)) $ conts st }
+      cexprToCPSTerm a
+  CExprA a  -> cexprToCPSTerm a
+  TupleA bs -> pure $ ReturnT bs
+
+cexprToCPSTerm :: CExpr -> M CPSTerm
+cexprToCPSTerm x = case x of
+    CallDefnA d@(DefnCall nm _ _) -> do -- bind the output of instructions/calls
+      pat <- mapM (flip freshVar "v") $ case nTy nm of
+        TyFun _ b -> case b of
+          TyTuple ts -> ts
+          t -> [t]
+        _ -> impossible $ "cexprToCPSTerm:" ++ show x
+      emitInstr (pat, d)
+      pure $ ReturnT $ map Var pat
+    CallLocalA a -> pure $ CallT a
+    SwitchA a b cs ->
+      SwitchT a <$> toLocalCall [] b <*> sequence [ (tg,) <$> toLocalCall [] e | (tg, e) <- cs ]
+    UnreachableA t -> pure $ UnreachableT t
+
+toCPSFuncPost :: HMS.HashMap Name (Name, Integer) -> HMS.HashMap Name [(Name, Integer)] -> CPSFunc -> CPSFunc
+toCPSFuncPost tbl reachableTbl (CPSFunc nm vs ys t) = CPSFunc nm vs' ys t'
+  where
+    vs'
+      | nName nm `elem` (HMS.keys tbl ++ map fst (HMS.elems tbl)) = vs -- BAL: inefficient
+      | otherwise = rvar : vs
+    t' = case t of
+      CallT a        -> CallT (f a)
+      SwitchT a b cs -> SwitchT a (f b) $ map (second f) cs
+      ReturnT bs     ->
+        let mkCall (n,_) = LocalCall (Nm undefined n) bs in
+        case fromJust $ HMS.lookup (nName nm) reachableTbl of
+          []     -> t
+          [c]    -> CallT (mkCall c)
+          c : ds -> SwitchT (Var rvar) (mkCall c) [ (lblTag d, mkCall d) | d <- ds ]
+      UnreachableT{} -> t
+      where
+        f = case HMS.lookup (nName nm) tbl of
+          Nothing  -> \(LocalCall a bs) -> LocalCall a (Var rvar : bs)
+          Just lbl -> \(LocalCall a bs) -> LocalCall a (Label lbl : bs)
+              -- BAL: update the type of 'a'?  It now takes an extra int
+    rvar = V (TyUnsigned 32) "%ret"
+    lblTag (n, i) = (n, constInt (neededBits $ toInteger $ HMS.size tbl) i)
+
+type Instr = ([Var], DefnCall)
 
 data AExpr
-  = TupleA [Atom]
+  = LetA Pat CExpr AExpr
   | CExprA CExpr
-  | LetA Pat CExpr AExpr
+  | TupleA [Atom]
   deriving Show
 
 data CExpr
-  = CallA ACall
+  = CallLocalA LocalCall
+  | CallDefnA DefnCall
   | SwitchA Atom AExpr [(Tag, AExpr)]
   | UnreachableA Type
   deriving Show
 
-data LocalCall = LocalCall Nm [Atom] deriving Show
-
-fromSSAFunc (SSAFunc n vs xs t) = fromBFunc $ BFunc n vs xs $ case t of
-  SwitchT a b cs -> Switch a (go b) $ map (second go) cs
-  CallT a        -> Call $ go a
-  ReturnT a      -> Return $ maybe [] (:[]) a
-  UnreachableT t -> Unreachable t
-  where
-    go a = LocalCall a []
-
-data BFunc = BFunc
+data CPSFunc = CPSFunc
   Nm
   [Var]   -- parameters
   [Instr] -- instructions/calls
-  Term    -- switch, call, or return
+  CPSTerm -- switch, call, unreachable, or return
   deriving Show
 
-data Term
-  = Return [Atom]
-  | Call LocalCall
-  | Switch Atom LocalCall [(Tag, LocalCall)]
-  | Unreachable Type
+data CPSTerm
+  = SwitchT Atom LocalCall [(Tag, LocalCall)]
+  | CallT LocalCall
+  | ReturnT [Atom]
+  | UnreachableT Type
   deriving Show
-
-toSSAFunc (BFunc n vs ss t) = SSAFunc n vs ss <$> case t of
-  Unreachable t -> pure $ UnreachableT t
-  Return bs -> pure $ case bs of
-    []  -> ReturnT Nothing
-    [v] -> ReturnT $ Just v
-    _   -> impossible $ "toSSAFunc:" ++ show bs
-  Call a -> do
-    (na,_) <- go [a]
-    pure $ CallT $ na
-  Switch a b cs -> do
-    (nb,ncs) <- go (b : map snd cs)
-    pure $ SwitchT a nb $ zip (map fst cs) ncs
-  where
-    go :: [LocalCall] -> M (Nm, [Nm])
-    go bs = do
-      let ds = [ (lbl, (n, cs)) | LocalCall lbl cs <- bs ]
-      let
-        ins ::
-          HMS.HashMap Name [(Name, [Atom])] ->
-          (Nm, (Nm, [Atom])) ->
-          HMS.HashMap Name [(Name, [Atom])]
-        ins tbl (lbl, (n,e)) = HMS.insertWith (++) (nName lbl) [(nName n,e)] tbl
-      let e:es = map fst ds
-      modify' $ \st -> st{ phis = flip (foldl' ins) ds $ phis st }
-      pure (e, es)
 
 data SSAFunc = SSAFunc
   Nm
-  [Var]   -- parameters
   [Instr] -- instructions/calls
   SSATerm -- switch, call, unreachable, or return
   deriving Show
 
-toLLVMModule :: FilePath -> [(String, Var)] -> [(Name, Type)] -> [[SSAFunc]] -> AST.Module
-toLLVMModule file strs exts xs = AST.defaultModule
-  { AST.moduleSourceFileName = fromString file
-  , AST.moduleName = fromString file
-  , AST.moduleDefinitions = map toLLVMExternDefn exts ++ map toLLVMStringDefn strs ++ map toLLVMFunction xs
-  }
-
-toLLVMFunction :: [SSAFunc] -> AST.Definition
-toLLVMFunction xs@(SSAFunc n vs _ _ : _) =
-  AST.GlobalDefinition AST.functionDefaults
-    { AST.name        = AST.mkName $ nName n
-    , AST.parameters  = ([ AST.Parameter (toTyLLVM $ vTy v) (AST.mkName $ vName v) [] | v <- vs ], False)
-    , AST.returnType  = case nTy n of
-        TyFun _ b -> toTyLLVM b
-        t         -> impossible $ "toLLVMFunction:" ++ show (t, [ a | SSAFunc a _ _ _ <- xs ])
-    , AST.basicBlocks = map toLLVMBasicBlock xs
-    }
-toLLVMFunction xs = impossible $ "toLLVMFunction:" ++ show xs
-
-toLLVMExternDefn :: (Name, Type) -> AST.Definition
-toLLVMExternDefn (n, ty) = AST.GlobalDefinition $ case ty of
-  TyFun a b -> AST.functionDefaults
-    { AST.linkage    = AST.External
-    , AST.name       = AST.mkName n
-    , AST.parameters = ([ AST.Parameter (toTyLLVM t) (AST.mkName "") [] | t <- toArgTys a ], False)
-    , AST.returnType = toTyLLVM b
-    }
-  _ -> AST.globalVariableDefaults
-    { AST.linkage           = AST.External
-    , AST.name              = AST.mkName n
-    , LLVM.AST.Global.type' = toTyLLVM ty
-    }
-
-toLLVMStringDefn :: (String, Var) -> AST.Definition
-toLLVMStringDefn (s,v) = AST.GlobalDefinition $ AST.globalVariableDefaults
-    { AST.linkage           = AST.LinkOnce
-    , AST.name              = AST.mkName $ vName v
-    , LLVM.AST.Global.type' = case vTy v of
-        TyAddress t -> toTyLLVM t
-        _           -> impossible "toLLVMStringDefn"
-    , AST.initializer       = Just $ AST.Array AST.i8 [AST.Int 8 (fromIntegral $ fromEnum c) | c <- s ++ "\0"]
-    }
-
-toLLVMBasicBlock :: SSAFunc -> AST.BasicBlock
-toLLVMBasicBlock (SSAFunc n _vs xs t) =
-  AST.BasicBlock (AST.mkName $ nName n) (map toLLVMInstruction xs) (toLLVMTerminator t)
-
-toLLVMInstruction :: Instr -> AST.Named AST.Instruction
-toLLVMInstruction (vs, ((n,ct), xs)) = f (g $ map toOperand xs)
-  where
-    f = case vs of
-      []      -> AST.Do
-      [V _ v] -> (AST.:=) (AST.mkName v)
-      _       -> impossible "toLLVMInstruction"
-    g = case ct of
-      LocalDefn     -> impossible ("toLLVMInstruction:" ++ show n)
-      Defn h        -> h
-      Instruction h -> h
-      Extern _ h    -> h
-
 data SSATerm
-  = SwitchT Atom Nm [(Tag, Nm)]
-  | CallT Nm
-  | ReturnT (Maybe Atom)
-  | UnreachableT Type
+  = SwitchS Atom Nm [(Tag, Nm)]
+  | CallS Nm
+  | ReturnS [Atom]
+  | UnreachableS Type
   deriving Show
 
-toLLVMTerminator x = AST.Do $ case x of
-  SwitchT a b cs ->
-    I.switch (toOperand a) (AST.mkName $ nName b) [ (c, AST.mkName $ nName n) | ((_,c), n) <- cs ]
-  CallT a        -> I.br (AST.mkName $ nName a)
-  ReturnT a      -> maybe I.retVoid (I.ret . toOperand) a
-  UnreachableT{} -> I.unreachable
+fromCPSFunc :: CPSFunc -> Func
+fromCPSFunc (CPSFunc nm vs ys z) = Func nm vs $ foldr (\f b -> f b) (goTerm z) $ map go ys
+  where
+    go :: Instr -> Expr -> Expr
+    go (pat, DefnCall n bs f) = LetE pat (CallE (n, Defn f) $ map AtomE bs)
+
+    goLocalCall (LocalCall a bs) = CallE (a, LocalDefn) $ map AtomE bs
+
+    goTerm :: CPSTerm -> Expr
+    goTerm x = case x of
+      SwitchT a b cs -> SwitchE (AtomE a) (goLocalCall b) $ map (second goLocalCall) cs
+      CallT a        -> goLocalCall a
+      ReturnT bs     -> TupleE $ map AtomE bs
+      UnreachableT t -> UnreachableE t
+
+
+
+-- toLLVMModule :: FilePath -> [(String, Var)] -> [(Name, Type)] -> [[SSAFunc]] -> AST.Module
+-- toLLVMModule file strs exts xs = AST.defaultModule
+--   { AST.moduleSourceFileName = fromString file
+--   , AST.moduleName = fromString file
+--   , AST.moduleDefinitions = map toLLVMExternDefn exts ++ map toLLVMStringDefn strs ++ map toLLVMFunction xs
+--   }
+
+-- toLLVMFunction :: [SSAFunc] -> AST.Definition
+-- toLLVMFunction xs@(SSAFunc n vs _ _ : _) =
+--   AST.GlobalDefinition AST.functionDefaults
+--     { AST.name        = AST.mkName $ nName n
+--     , AST.parameters  = ([ AST.Parameter (toTyLLVM $ vTy v) (AST.mkName $ vName v) [] | v <- vs ], False)
+--     , AST.returnType  = case nTy n of
+--         TyFun _ b -> toTyLLVM b
+--         t         -> impossible $ "toLLVMFunction:" ++ show (t, [ a | SSAFunc a _ _ _ <- xs ])
+--     , AST.basicBlocks = map toLLVMBasicBlock xs
+--     }
+-- toLLVMFunction xs = impossible "toLLVMFunction"
+
+-- toLLVMExternDefn :: (Name, Type) -> AST.Definition
+-- toLLVMExternDefn (n, ty) = AST.GlobalDefinition $ case ty of
+--   TyFun a b -> AST.functionDefaults
+--     { AST.linkage    = AST.External
+--     , AST.name       = AST.mkName n
+--     , AST.parameters = ([ AST.Parameter (toTyLLVM t) (AST.mkName "") [] | t <- toArgTys a ], False)
+--     , AST.returnType = toTyLLVM b
+--     }
+--   _ -> AST.globalVariableDefaults
+--     { AST.linkage           = AST.External
+--     , AST.name              = AST.mkName n
+--     , LLVM.AST.Global.type' = toTyLLVM ty
+--     }
+
+-- toLLVMStringDefn :: (String, Var) -> AST.Definition
+-- toLLVMStringDefn (s,v) = AST.GlobalDefinition $ AST.globalVariableDefaults
+--     { AST.linkage           = AST.LinkOnce
+--     , AST.name              = AST.mkName $ vName v
+--     , LLVM.AST.Global.type' = case vTy v of
+--         TyAddress t -> toTyLLVM t
+--         _           -> impossible "toLLVMStringDefn"
+--     , AST.initializer       = Just $ AST.Array AST.i8 [AST.Int 8 (fromIntegral $ fromEnum c) | c <- s ++ "\0"]
+--     }
+
+-- toLLVMBasicBlock :: SSAFunc -> AST.BasicBlock
+-- toLLVMBasicBlock (SSAFunc n _vs xs t) =
+--   AST.BasicBlock (AST.mkName $ nName n) (map toLLVMInstruction xs) (toLLVMTerminator t)
+
+-- toLLVMInstruction :: Instr -> AST.Named AST.Instruction
+-- toLLVMInstruction (pat, DefnCall _ xs f) = case pat of
+--   []      -> AST.Do $ f $ map toOperand xs
+--   [V _ v] -> AST.mkName v AST.:= f (map toOperand xs)
+--   _       -> impossible "toLLVMInstruction"
+
+-- toLLVMTerminator x = AST.Do $ case x of
+--   SwitchT a b cs ->
+--     I.switch (toOperand a) (AST.mkName $ nName b) [ (c, AST.mkName $ nName n) | ((_,c), n) <- cs ]
+--   BrT a          -> I.br (AST.mkName $ nName a)
+--   ReturnT bs     -> case bs of
+--     []  -> I.retVoid
+--     [v] -> I.ret $ toOperand v
+--     _   -> impossible $ "toLLVMTerminator:" ++ show x
+--   UnreachableT{} -> I.unreachable
 
 toOperand :: Atom -> Operand
 toOperand x = case x of
-  Enum (_, (t, i)) -> AST.ConstantOperand $ constInt (sizeFort t) i
-  Int sz i         -> AST.ConstantOperand $ constInt sz i
-  Char a           -> AST.ConstantOperand $ constInt 8 $ fromIntegral $ fromEnum a
   Var a            -> AST.LocalReference (toTyLLVM $ vTy a) (AST.mkName $ vName a)
+  Int sz i         -> AST.ConstantOperand $ constInt sz i
   Global a         -> AST.ConstantOperand $ AST.GlobalReference (toTyLLVM $ vTy a) (AST.mkName $ vName a)
-  String _ a       -> AST.ConstantOperand $ AST.GlobalReference (toTyLLVM $ vTy a) (AST.mkName $ vName a)
+  Enum (_, (t, i)) -> toOperand $ Int (sizeFort t) i
+  Char a           -> toOperand $ Int 8 $ fromIntegral $ fromEnum a
+  String _ a       -> toOperand $ Global a
 
-toSSAFuncPost tbl x@(SSAFunc n vs ys t) = case HMS.lookup (nName n) tbl of
-  Nothing -> x
-  Just bs -> SSAFunc n [] (zs ++ ys) t
-    where
-      zs :: [Instr]
-      zs = [ ([v], ((Nm (tyAtom $ fst $ head cs) "phi", Instruction (f $ map snd cs)), map fst cs))
-           | (v, cs :: [(Atom, Name)]) <- zip vs $ transposePhis bs, not (all (isV v) cs) ]
-      isV a (b, _) = case b of
-        Var v -> vName v == vName a
-        _ -> False
-      f bs = \cs -> I.phi (zip cs $ map AST.mkName bs)
+-- toSSAFuncPost = case HMS.lookup (nName n) tbl of
+--   Nothing -> x
+--   Just bs -> CPSFunc n [] (zs ++ ys) t
+--     where
+--       zs :: [Instr]
+--       zs = [ ([v], DefnCall (Nm (tyAtom $ fst $ head cs) "phi") (map fst cs) $ f (map snd cs))
+--            | (v, cs :: [(Atom, Name)]) <- zip vs $ transposePhis bs, not (all (isV v) cs) ]
+--       isV a (b, _) = case b of
+--         Var v -> vName v == vName a
+--         _ -> False
+
+      -- f ns = \os -> I.phi $ zip os $ map AST.mkName ns
 
 transposePhis :: [(Name, [Atom])] -> [[(Atom, Name)]]
 transposePhis xs = transpose [ [ (c, b) | c <- cs ] | (b, cs) <- xs ]
 
-emitInstruction :: [Var] -> ACall -> M ()
-emitInstruction vs x =
-  modify' $ \st -> st{ instrs = (vs, x) : instrs st }
-
-toBFunc :: AFunc -> M ()
-toBFunc (AFunc x ys z)= do
-  instrs0 <- gets instrs
-  modify' $ \st -> st{ instrs = [] }
-  t <- toTerminator z
-  bs <- reverse <$> gets instrs
-  modify' $ \st -> st{ instrs = instrs0, bfuncs = BFunc x ys bs t : bfuncs st }
-
-toLocalCall :: AExpr -> M LocalCall
-toLocalCall x = case x of
-  CExprA (CallA ((f,LocalDefn),bs)) -> pure $ LocalCall f bs
-  _ -> do
-    f <- freshNm (tyAExpr x) "g"
-    let fvs = freeVars [] x
-    toBFunc $ AFunc f fvs x
-    pure $ LocalCall f $ map Var fvs
-
-toACall :: AExpr -> M ACall
-toACall x = case x of
-  CExprA (CallA a) -> pure a
-  _ -> do
-    f <- freshNm (tyAExpr x) "f"
-    let fvs = freeVars [] x
-    toBFunc $ AFunc f fvs x
-    pure $ ((f, LocalDefn), map Var fvs)
-
-toTerminator :: AExpr -> M Term
-toTerminator x = case x of
-  TupleA bs -> pure $ Return bs
-  CExprA e -> case e of
-    UnreachableA t -> pure $ Unreachable t
-    CallA a -> case a of
-      ((n,LocalDefn), vs) -> pure $ Call $ LocalCall n vs
-      _ -> case tyAExpr x of
-        TyTuple [] -> toTerminator $ LetA [] e $ TupleA []
-        t -> do
-          v <- freshVar t "r"
-          toTerminator $ LetA [v] e $ TupleA [Var v]
-    SwitchA a b cs -> do
-      b' <- toLocalCall b
-      cs' <- mapM (toLocalCall . snd) cs
-      pure $ Switch a b' $ zip (map fst cs) cs'
-  LetA vs e b -> do
-    a <- toACall $ CExprA e
-    emitInstruction vs a
-    toTerminator b
-
-fromBFunc :: BFunc -> Func
-fromBFunc (BFunc n xs ys z) =
-  Func n xs $ foldr (\f b -> f b) (goTerm z) $ map go ys
-  where
-    go :: ([Var], ACall) -> (Expr -> Expr)
-    go (a,b) = LetE a $ goACall b
-
-    goTerm :: Term -> Expr
-    goTerm x = case x of
-      Call a        -> goLocalCall a
-      Switch a b cs -> SwitchE (AtomE a) (goLocalCall b) $ map (second goLocalCall) cs
-      Return bs     -> TupleE $ map AtomE bs
-      Unreachable t -> UnreachableE t
-
-    goACall :: ACall -> Expr
-    goACall (a@(n1,ct), bs) = case ct of
-      LocalDefn -> goLocalCall (LocalCall n1 bs)
-      _ -> CallE a $ map AtomE bs
-
-    goLocalCall :: LocalCall -> Expr
-    goLocalCall (LocalCall a bs) = CallE (a, LocalDefn) $ map AtomE bs
+emitInstr :: Instr -> M ()
+emitInstr i = modify' $ \st -> st{ instrs = i : instrs st }
 
 codegen :: FilePath -> [M Expr] -> IO ()
 codegen file ds = do
@@ -562,32 +560,32 @@ codegen file ds = do
   putStrLn file
 
   putStrLn "--- input ------------------------"
-  let (fs, st) = runState (toFuncs ds) $ St 0 mempty mempty mempty mempty mempty mempty mempty
+  let (fs, st) = runState (toFuncs ds) initSt
   print $ ppFuncs ppFunc fs
 
   putStrLn "--- a-normalization --------------"
   let (afss, st1) = runState (mapM toAFuncs fs) st
   print $ ppFuncs (vcat . ((:) "---") . map ppAFunc) afss
 
-  putStrLn "--- block functions --------------"
-  let (bfss, st2) = runState (mapM toBFuncs afss) st1
-  print $ ppFuncs (vcat . ((:) "---") . map ppBFunc) bfss
+  -- putStrLn "--- block functions --------------"
+  -- let (bfss, st2) = runState (mapM toBFuncs afss) st1
+  -- print $ ppFuncs (vcat . ((:) "---") . map ppBFunc) bfss
 
-  putStrLn "--- single static assignment -----"
-  let (ssass, st2) = runState (mapM toSSAFuncs bfss) st1
-  print $ ppFuncs (vcat . ((:) "---") . map ppSSAFunc) ssass
+  putStrLn "--- continuation passing style ---"
+  let (ssass, st2) = runState (mapM toCPSFuncs afss) st1
+  print $ ppFuncs (vcat . ((:) "---") . map ppCPSFunc) ssass
 
   -- putStrLn "--- continuation passing style ---"
   -- let (cfs,st3) = runState (toCPSs [ n | Func n _ _ <- fs ] bfs) st2
   -- print $ ppFuncs ppBFunc cfs
 
-  putStrLn "--- LLVM -----"
-  let m = toLLVMModule file (HMS.toList $ strings st2) (HMS.toList $ externs st2) ssass
-  let s = AST.ppllvm m
-  T.putStrLn s
-  let oFile = file ++ ".ll"
-  T.writeFile oFile s
-  putStrLn $ "generated LLVM " ++ oFile ++ "!"
+  -- putStrLn "--- LLVM -----"
+  -- let m = toLLVMModule file (HMS.toList $ strings st1) (HMS.toList $ externs st1) ssass
+  -- let s = AST.ppllvm m
+  -- T.putStrLn s
+  -- let oFile = file ++ ".ll"
+  -- T.writeFile oFile s
+  -- putStrLn $ "generated LLVM " ++ oFile ++ "!"
 
   putStrLn "=================================="
 
@@ -604,67 +602,33 @@ toAFuncs x  = do
   modify' $ \st -> st{ lifted = mempty }
   pure (af : HMS.elems bs)
 
-toBFuncs afs@(AFunc n _ _ : _) = do
-  mapM_ toBFunc afs
-  bfs <- gets bfuncs
-  modify' $ \st -> st{ bfuncs = mempty }
-  let (a,b) = partition (\(BFunc n1 _ _ _) -> n == n1) bfs
-  return (a ++ b)
-toBFuncs _ = impossible "toBFuncs"
+toCPSFuncs :: [AFunc] -> M [CPSFunc]
+toCPSFuncs xs = do
+  mapM_ emitCPSFunc xs
+  bs  <- gets sfuncs
+  let (gr0, fromV, _) = G.graphFromEdges $ map mkEdges bs
+  let gr = G.transposeG gr0
+  let fromVert a = let (_,b,_) = fromV a in b
+  tbl <- gets conts
+  let lookupVert a = HMS.lookup (fromVert a) tbl
+  let reachableTbl =
+        [ (fromVert v, catMaybes $ map lookupVert $ G.reachable gr v)
+        | v <- G.vertices gr ]
 
-toSSAFuncs :: [BFunc] -> M [SSAFunc]
-toSSAFuncs xs = do
-  bs  <- mapM toSSAFunc xs
-  tbl <- gets phis
-  pure $ map (toSSAFuncPost tbl) bs
+  -- error $ unlines $ ["",""] ++
+  --   map show (HMS.toList tbl) ++ ["",""] ++
+  --   (map show reachableTbl)
 
--- toCPSs :: [Name] -> [BFunc] -> M [BFunc]
--- toCPSs ns bfs = do
---   -- (bfs,_) <- unzip <$> mapM f ns
---   cfs0 <- concat <$> mapM toCPS bfs
---   tbl <- gets conts
---   modify' $ \st -> st{ conts = impossible "conts" }
---   pure $ map (toCPSPost tbl) (cfs0)
---   -- where
---   --   f n = do
---   --     v <- freshName "v"
---   --     freshContinuation (n ++ ".ret") [v] [] (Return [Var v]) "obf.start"
+  modify' $ \st -> st{ sfuncs = mempty, conts = mempty }
+  pure $ map (toCPSFuncPost tbl (HMS.fromList reachableTbl)) bs
 
--- toCPS :: BFunc -> M [BFunc] -- BAL: do this in bfunc?
--- toCPS (BFunc n params xs t) = case break isDefinition xs of
---   (_, [])  -> do
---     let t' = case t of
---           Return{}      -> t
---           Call a        -> Call $ cont a
---           Switch a b cs -> Switch a (cont b) (map (second cont) cs)
---     pure [BFunc n ("%ret":params) xs t']
---   (pre, (vs,((toLbl,_),args)):post) -> do
---     (bf,i) <- freshContinuation n vs post t toLbl
---     bfs <- toCPS bf
---     pure $ BFunc n ("%ret":params) pre (Call (LocalCall toLbl (i:args))) : bfs
---   where
---     cont (LocalCall a bs) = LocalCall a (Var "%ret":bs)
-
--- freshContinuation :: Name -> [Var] -> [Instr] -> Term -> Name -> M (BFunc, Atom)
--- freshContinuation n vs post t toLbl = do
---   i <- nextUnique
---   let n' = "%" ++ n ++ "." ++ show i
---   modify' $ \st -> st{ conts = HMS.insertWith (++) toLbl [(i, n')] $ conts st }
---   return (BFunc n' vs post t, Int 32 i) -- BAL: could base the size on the total number of continuations
-
--- toCPSPost :: HMS.HashMap Name [(Integer, Name)] -> BFunc -> BFunc
--- toCPSPost tbl (BFunc n params xs t) = BFunc n params xs t'
---   where
---     t' = case t of
---       Return bs -> case HMS.lookup n tbl of
---         Nothing -> impossible $ "toCPSPost:" ++ n
---         Just ((_,lbl):cs) -> Switch (Var "%ret") (f lbl) [ (show i, f c) | (i,c) <- cs ]
---         where
---           f = flip LocalCall bs
---       _ -> t
-
--- isDefinition (_,((_,Definition),_)) = True
--- isDefinition _ = False
+mkEdges (CPSFunc nm _ _ t) = ((), nName nm, case t of
+  SwitchT _ b cs -> map f (b : map snd cs)
+  CallT a        -> [f a]
+  ReturnT{}      -> []
+  UnreachableT{} -> [])
+  where
+    f (LocalCall n _) = nName n
 
 ppFuncs :: (a -> Doc ann) -> [a] -> Doc ann
 ppFuncs f xs = indent 2 (vcat $ map f xs)
@@ -679,8 +643,8 @@ ppFunc (Func n p e) =
   pretty (nName n) <+> ppPat p <+> "=" <> line <> indent 2 (ppExpr e)
 
 ppAFunc = ppFunc . fromAFunc
-ppBFunc = ppFunc . fromBFunc
-ppSSAFunc = ppFunc . fromSSAFunc
+-- ppBFunc = ppFunc . fromBFunc
+ppCPSFunc = ppFunc . fromCPSFunc
 
 ppPat x = case x of
   [a] -> pretty a
@@ -717,10 +681,11 @@ ppAtom x = case x of
   Char c     -> pretty (show c)
   Var v      -> pretty v
   Global v   -> pretty v
-  String s _ -> pretty s
+  String s _ -> pretty (show s)
+  Label s    -> "%" <> pretty s
 
 freshPat :: Pat -> M Pat
-freshPat xs = Prelude.sequence [ freshVar t s | V t s <- xs ]
+freshPat xs = sequence [ freshVar t s | V t s <- xs ]
 
 freshNm :: Type -> Name -> M Nm
 freshNm t n = Nm t <$> freshName n
@@ -737,10 +702,17 @@ callE :: Nm -> CallType -> E a
 callE n x = E $ pure $ CallE (n,x) []
 
 where_ :: Ty a => E a -> [M Func] -> E a
-where_ e ms = E $ LetRecE <$> Prelude.sequence ms <*> unE e
+where_ e ms = E $ LetRecE <$> sequence ms <*> unE e
 
 case_ :: Ty a => E a -> (E a -> E b) -> [(String, E a -> E b)] -> E b
 case_ (E x :: E a) f ys = E $ do
+  ucase (tyFort (Proxy :: Proxy a)) x (g f) (map (second g) ys)
+  where
+    g :: (E a -> E b) -> (M Expr -> M Expr)
+    g h = \a -> unE (h $ E a)
+
+ucase :: Type -> M Expr -> (M Expr -> M Expr) -> [(String, M Expr -> M Expr)] -> M Expr
+ucase ty x f ys = do
   e <- x
   let
     h :: Atom -> M Expr
@@ -751,23 +723,22 @@ case_ (E x :: E a) f ys = E $ do
           tg = case ty of
               TyAddress (TyVariant tags) -> -- BAL: this mess can be cleaned up
                 let tagTy = TyUnsigned $ neededBitsList tags in
-                CallE (Nm (TyFun (TyAddress tagTy) tagTy) "loadtag", Instruction (\[p] -> I.load p))
+                CallE (Nm (TyFun (TyAddress tagTy) tagTy) "loadtag", Defn (\[p] -> I.load p))
                   [CallE (Nm (TyFun (TyTuple [ty, TyUnsigned 32]) (TyAddress tagTy)) "tagof"
-                         , Instruction (\[p,q] -> I.gep p q)) [AtomE a, AtomE $ Int 32 0]
+                         , Defn (\[p,q] -> I.gep p q)) [AtomE a, AtomE $ Int 32 0]
                   ]
               _ -> ea
 
-        let mkAlt g = unE $ g $ E $ pure ea
+        let mkAlt g = g $ pure ea
         b  <- mkAlt f
         bs <- mapM mkAlt $ map snd ys
         pure $ SwitchE tg b $ zip (map (readTag ty . fst) ys) bs
+
   case e of
     AtomE a -> h a
     _ -> do
       v <- freshVar ty "c"
       LetE [v] e <$> h (Var v)
-  where
-    ty = tyFort (Proxy :: Proxy a)
 
 readTag :: Type -> String -> Tag
 readTag x s = (s, go x)
@@ -834,7 +805,7 @@ extern n = f Proxy
     f proxy = E $ do
       let (nm, g) = funTys n proxy
       modify' $ \st -> st{ externs = HMS.insert n (nTy nm) $ externs st }
-      unE $ callE nm (Extern nm g)
+      unE $ callE nm (Defn g)
 
 opapp :: E a -> E ((a, b) -> c) -> E (b -> c)
 opapp x f = app (unsafeCast f) x
@@ -875,7 +846,7 @@ argTuple3 x = (argTupleN 0 x, argTupleN 1 x, argTupleN 2 x)
 tupleE :: [M Expr] -> E a
 tupleE xs = E $ case xs of
   [x] -> x
-  _   -> TupleE <$> Prelude.sequence xs
+  _   -> TupleE <$> sequence xs
 
 varE :: Var -> E a
 varE = atomE . Var
@@ -917,8 +888,11 @@ atomE = E . pure . AtomE
 
 -- non-primitives
 
-if_ :: E Bool_ -> E a -> E a -> E a
-if_ x t f = case_ x (\_ -> t) [("False", \_ -> f)]
+if_ :: Ty a => E Bool_ -> E a -> E a -> E a
+if_ (E x) (E t) (E f) = E $ uif (tyFort (Proxy :: Proxy Bool_)) x t f
+
+uif :: Type -> M Expr -> M Expr -> M Expr -> M Expr
+uif ty x t f = ucase ty x (\_ -> t) [("False", \_ -> f)]
 
 const :: E a -> E b -> E a
 const x _ = x
@@ -926,8 +900,8 @@ const x _ = x
 argUnit :: E () -> ()
 argUnit = \_ -> ()
 
-sequence :: [E ()] -> E a -> E a
-sequence xs y = foldr seq y xs
+seqs :: [E ()] -> E a -> E a
+seqs xs y = foldr seq y xs
 
 seq :: E () -> E a -> E a
 seq (E x) (E y) = E $ LetE [] <$> x <*> y
@@ -964,12 +938,15 @@ exprToPat (_ :: E a) = go $ tyFort (Proxy :: Proxy a)
 injectTagF :: (Ty a, Ty c) => String -> E c -> E (Addr a) -> E ()
 injectTagF con i e = app (opapp i (swapargs store)) (tagField e)
 
-tagField :: (Ty a, Ty c) => E (Addr a) -> E (Addr c)
+tagField :: (Ty a, Ty b) => E (Addr a) -> E (Addr b)
 tagField = app (field "tag" 0)
+
+valueField :: (Ty a) => String -> E (Addr a) -> E (Addr UInt64)
+valueField con = app (field ("value:" ++ con) 1)
 
 injectValueF :: (Ty a, Ty b) => String -> E b -> E (Addr a) -> E ()
 injectValueF con x e =
-  app (opapp x (swapargs store)) (app bitcast (app (field ("val" ++ con) 1) e :: E (Addr UInt64)))
+  app (opapp x (swapargs store)) (app bitcast (valueField con e))
 
 injectTag :: (Ty a, Ty c) => String -> E c -> E (Addr a -> ())
 injectTag con i = func ("injectTag" ++ con) ["e"] (injectTagF con i)
@@ -1028,7 +1005,7 @@ signedCmpop s p q = f Proxy
       t -> error $ "unable to compare values of type:" ++ show t
 
 uinstr :: Type -> Name -> ([Operand] -> Instruction) -> E a
-uinstr t s f = callE (Nm t s) (Instruction f)
+uinstr t s f = callE (Nm t s) (Defn f)
 
 instr :: Ty a => Name -> ([Operand] -> Instruction) -> E a
 instr s f = go Proxy
@@ -1142,7 +1119,7 @@ stderr :: E Handle
 stderr = global "g_stderr"
 
 output :: Ty a => E (a -> ())
-output = opapp stdout h_output
+output = opapp stdout (swapargs h_output)
 
 swapargs :: E ((a,b) -> c) -> E ((b,a) -> c)
 swapargs (E x) = E $ do
@@ -1151,17 +1128,109 @@ swapargs (E x) = E $ do
   case a of
     CallE (nm,a) bs -> case a of
       Defn f        -> pure $ CallE (nm, Defn $ g f) bs
-      Instruction f -> pure $ CallE (nm, Instruction $ g f) bs
-      Extern nm1 f  -> pure $ CallE (nm, Extern nm1 $ g f) bs
     _ -> impossible "swapargs"
 
-h_output :: Ty a => E ((Handle, a) -> ())
-h_output = swapargs (f Proxy)
+-- This runs forward.  Generally, running backwards is faster.
+-- uReduceArray :: Integer -> M Expr -> (M Expr -> M Expr) -> M Expr
+-- uReduceArray sz x f = do
+--   a <- x
+--   let v :: Var = undefined
+--   let nm :: Nm = undefined
+--   let i = undefined
+--   let p :: M Expr = undefined -- i >= sz
+--   let e1 = undefined -- f (v[i]) ; CallE (nm, LocalDefn) [i + 1]
+--   e <- uif (TyTuple []) p (pure $ TupleE []) e1
+--   pure $ LetE [v] a $ LetRecE [ Func nm [i] e ] $ CallE (nm, LocalDefn) [AtomE $ Int 32 0]
+
+h_output :: Ty a => E ((a, Handle) -> ())
+h_output = f Proxy
   where
     f :: Ty a => Proxy a -> E ((a, Handle) -> ())
-    f proxy = case tyFort proxy of
-      TyChar   -> unsafeCast h_put_char
-      TyString -> unsafeCast h_put_string
+    f proxy = uh_output (tyFort proxy)
+
+uh_output :: Ty a => Type -> E ((a, Handle) -> ())
+uh_output t0 = case t0 of
+  TyChar        -> unsafeCast h_put_char
+  TyString      -> unsafeCast h_put_string
+  TySigned 64   -> unsafeCast h_put_sint64
+  TyUnsigned 64 -> unsafeCast h_put_uint64
+  TySigned sz   -> undefined
+  TyUnsigned sz -> undefined
+  TyEnum bs     -> ok $ \(a,h) ->
+    let c:cs = [ (b, \_ -> app (opapp (string b) h_output) h) | b <- bs ]
+    in case_ a (snd c) cs
+
+  TyFun{}       -> undefined
+  TyAddress t   -> case t of
+    TyArray sz t1 -> ok $ \(a,h) -> unit
+    TyTuple ts    -> ok $ \(a,h) -> unit
+    TyRecord bs   -> ok $ \(a,h) -> unit
+    TyVariant bs  -> ok $ \(a,h) -> unit
+    _ -> undefined -- load and loop
+  TyTuple []      -> ok $ \(a,h) -> unit
+  _ -> impossible $ "h_output:" ++ show t0
+  where
+    ok f = func ("output_" ++ show (hash $ show t0)) ["a","h"] $ \v -> f (argTuple2 v)
+  -- swapargs (f Proxy)
+  -- where
+  --   f :: Ty a => Proxy a -> E ((a, Handle) -> ())
+  --   f proxy = undefined -- E $ foo (tyFort proxy)
+
+-- foo :: Expr -> Type -> M Expr -> M Expr
+-- foo h = go
+--   where
+--     goPrim :: Expr -> E ((a, Handle) -> ()) -> M Expr
+--     goPrim e (E x) = do
+--       a <- x
+--       case a of
+--         CallE f [] -> pure $ CallE f [e, h]
+--         _ -> impossible "foo:goPrim"
+
+--     go t0 m = do
+--       e <- m
+--       let x = pure e -- BAL: actually need to use a let expression, correct? OR! turn these into functions and the right thing will happen
+--       case t0 of
+--         TyChar        -> goPrim e h_put_char
+--         TyString      -> goPrim e h_put_string
+--         TySigned 64   -> goPrim e h_put_sint64
+--         TyUnsigned 64 -> goPrim e h_put_uint64
+--         TyEnum ss     -> ucase t0 x (snd c) cs
+--           where
+--             c : cs = [ (s, \_ -> putS s) | s <- ss ]
+--         TyAddress t0  -> case t0 of
+--           TyArray sz t -> delim "[" "]" $ uReduceArray sz x (\a -> putS ", " >> go t a)
+--           TyTuple ts   -> delim "(" ")" $ sep ", " [ go t (ugep t0 i t x) | (i,t) <- zip [0..] ts ]
+--           TyRecord bs  -> delim "{" "}" $ sep ", "
+--             [ putS s >> putS " = " >> go t (ugep t0 i t x) | (i,(s,t)) <- zip [0..] bs ]
+--           TyVariant bs -> ucase t0 x (snd c) cs
+--             where
+--               c : cs = [ (s, \a -> putS s >> putS " " >> (go t $ uvalueField t0 t a))
+--                        | (i, (s, t)) <- zip [0..] bs ]
+--           t -> go t (uload t0 x)
+--         _ -> err
+--       where
+--         err = impossible $ "foo:" ++ show t0
+--         putS s = go TyString (unE $ string s)
+--         delim l r f = putS l >> f >> putS r
+--         sep a fs = sequence_ [ putS a >> f | f <- fs ]
+
+-- uload :: Type -> M Expr -> M Expr
+-- uload t0@(TyAddress t1) x = do
+--   e <- x
+--   pure $ CallE (Nm (TyFun t0 t1) "load", Instruction (\[a] -> I.load a)) [e]
+
+-- ugep :: Type -> Integer -> Type -> M Expr -> M Expr
+-- ugep t0 i t1 x = do
+--   e <- x
+--   pure $ CallE (Nm (TyFun (TyTuple [t0, TyUnsigned 32]) (TyAddress t1)) "gep", Instruction (\[a,b] -> I.gep a b)) [e, AtomE $ Int 32 i]
+
+-- uvalueField :: Type -> Type -> M Expr -> M Expr
+-- uvalueField t0 t1 x = ubitcast (TyAddress (TyUnsigned 64)) (TyAddress t1) $ ugep t0 1 (TyUnsigned 64) x
+
+-- ubitcast :: Type -> Type -> M Expr -> M Expr
+-- ubitcast t0 t1 x = do
+--   e <- x
+--   pure $ CallE (Nm (TyFun t0 t1) "bitcast", Instruction (\[a] -> I.bitcast a $ toTyLLVM t1)) [e]
 
 h_get_char :: E (Handle -> Char_)
 h_get_char = extern "fgetc"
@@ -1231,4 +1300,99 @@ ptrSize = 64 -- BAL: architecture dependent
 
 tyEnumToTyUnsigned :: [a] -> Type
 tyEnumToTyUnsigned bs = TyUnsigned (neededBitsList bs)
+
+-- toCPSs :: [Name] -> [BFunc] -> M [BFunc]
+-- toCPSs ns bfs = do
+--   -- (bfs,_) <- unzip <$> mapM f ns
+--   cfs0 <- concat <$> mapM toCPS bfs
+--   tbl <- gets conts
+--   modify' $ \st -> st{ conts = impossible "conts" }
+--   pure $ map (toCPSPost tbl) (cfs0)
+--   -- where
+--   --   f n = do
+--   --     v <- freshName "v"
+--   --     freshContinuation (n ++ ".ret") [v] [] (Return [Var v]) "obf.start"
+
+-- toCPS :: BFunc -> M [BFunc] -- BAL: do this in bfunc?
+-- toCPS (BFunc n params xs t) = case break isDefinition xs of
+--   (_, [])  -> do
+--     let t' = case t of
+--           Return{}      -> t
+--           Call a        -> Call $ cont a
+--           Switch a b cs -> Switch a (cont b) (map (second cont) cs)
+--     pure [BFunc n ("%ret":params) xs t']
+--   (pre, (vs,((toLbl,_),args)):post) -> do
+--     (bf,i) <- freshContinuation n vs post t toLbl
+--     bfs <- toCPS bf
+--     pure $ BFunc n ("%ret":params) pre (Call (LocalCall toLbl (i:args))) : bfs
+--   where
+--     cont (LocalCall a bs) = LocalCall a (Var "%ret":bs)
+
+-- freshContinuation :: Name -> [Var] -> [Instr] -> Term -> Name -> M (BFunc, Atom)
+-- freshContinuation n vs post t toLbl = do
+--   i <- nextUnique
+--   let n' = "%" ++ n ++ "." ++ show i
+--   modify' $ \st -> st{ conts = HMS.insertWith (++) toLbl [(i, n')] $ conts st }
+--   return (BFunc n' vs post t, Int 32 i) -- BAL: could base the size on the total number of continuations
+
+-- toCPSPost :: HMS.HashMap Name [(Integer, Name)] -> BFunc -> BFunc
+-- toCPSPost tbl (BFunc n params xs t) = BFunc n params xs t'
+--   where
+--     t' = case t of
+--       Return bs -> case HMS.lookup n tbl of
+--         Nothing -> impossible $ "toCPSPost:" ++ n
+--         Just ((_,lbl):cs) -> Switch (Var "%ret") (f lbl) [ (show i, f c) | (i,c) <- cs ]
+--         where
+--           f = flip LocalCall bs
+--       _ -> t
+
+-- isDefinition (_,((_,Definition),_)) = True
+-- isDefinition _ = False
+
+-- data BFunc = BFunc
+--   Nm
+--   [Var]   -- parameters
+--   [Instr] -- instructions/calls
+--   Term
+--   deriving Show
+
+-- data Term
+--   = Tuple [Atom]
+--   | Call LocalCall
+--   | Switch Atom LocalCall [(Tag, LocalCall)]
+--   | Unreachable Type
+--   deriving Show
+
+-- toSSAFunc (BFunc n vs ss t) = SSAFunc n vs ss <$> case t of
+--   Unreachable t -> pure $ UnreachableT t
+--   Return bs -> pure $ case bs of
+--     []  -> ReturnT Nothing
+--     [v] -> ReturnT $ Just v
+--     _   -> impossible $ "toSSAFunc:" ++ show bs
+--   Call a -> do
+--     (na,_) <- go [a]
+--     pure $ CallT $ na
+--   Switch a b cs -> do
+--     (nb,ncs) <- go (b : map snd cs)
+--     pure $ SwitchT a nb $ zip (map fst cs) ncs
+--   where
+--     go :: [LocalCall] -> M (Nm, [Nm])
+--     go bs = do
+--       let ds = [ (lbl, (n, cs)) | LocalCall lbl cs <- bs ]
+--       let
+--         ins ::
+--           HMS.HashMap Name [(Name, [Atom])] ->
+--           (Nm, (Nm, [Atom])) ->
+--           HMS.HashMap Name [(Name, [Atom])]
+--         ins tbl (lbl, (n,e)) = HMS.insertWith (++) (nName lbl) [(nName n,e)] tbl
+--       let e:es = map fst ds
+--       modify' $ \st -> st{ phis = flip (foldl' ins) ds $ phis st }
+--       pure (e, es)
+-- toBFuncs afs@(AFunc n _ _ : _) = do
+--   mapM_ toBFunc afs
+--   bfs <- gets bfuncs
+--   modify' $ \st -> st{ bfuncs = mempty }
+--   let (a,b) = partition (\(BFunc n1 _ _ _) -> n == n1) bfs
+--   return (a ++ b)
+-- toBFuncs _ = impossible "toBFuncs"
 

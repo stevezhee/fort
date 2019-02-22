@@ -430,7 +430,9 @@ ppExprDeclLabelBody (ED (VarP v t) e) = case e of
   Lam a b -> Just ("T.letFunc" <+> stringifyName v <+> stringifyPat a <+> ascribeLetFunc t (ppLam a b))
   _ -> Nothing
 
-ascribeLetFunc (Just (TyFun a b)) d = parens (parens d <+> ":: T.E" <+> ppType a <+> "-> T.E" <+> ppType b)
+ascribeLetFunc x d = case x of
+  Just (TyFun a b) -> parens (parens d <+> ":: T.E" <+> ppType a <+> "-> T.E" <+> ppType b)
+  Nothing          -> parens d
 
 ppLam x y = parens ("\\" <> ppVar v <+> "->" <> line <>
                     indent 2 (
@@ -517,7 +519,7 @@ ppSequence = go []
       Let (ED v e) ->
         f rs ("T.let_" <+> stringifyPat v <+> parens (ppExpr e) <+> ppLam v (Sequence bs))
       _ -> go (b:rs) bs
-    f rs d = parens ("T.sequence" <> ppListV (map ppExpr $ reverse rs) <+> parens d)
+    f rs d = parens ("T.seqs" <> ppListV (map ppExpr $ reverse rs) <+> parens d)
 
 unsafeUnConName :: Con -> String
 unsafeUnConName c = "unsafe_" ++ unLoc c

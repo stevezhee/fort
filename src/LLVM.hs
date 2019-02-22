@@ -294,6 +294,11 @@ char = I . B.mkChar
 string :: String -> I String_
 string = I . B.mkString
 
+zextTo64 :: Integer -> M Operand -> M Operand
+zextTo64 sz x
+  | sz == 64 = x
+  | otherwise = x >>= \a -> IR.zext a AST.i64
+
 sextTo64 :: Integer -> M Operand -> M Operand
 sextTo64 sz x
   | sz == 64 = x
@@ -311,7 +316,7 @@ hPutTy h t0 x0 = go t0 x0 >> putS "\n"
       TyString      -> unI $ h_put_string (I x, h)
       -- BAL: stack overflow?? TyString      -> void $ delim "\"" "\"" $ unI $ h_put_string (I x, h)
       TySigned sz   -> unI $ h_put_sint64 (I $ sextTo64 sz x, h)
-      TyUnsigned sz -> unI $ h_put_uint64 (I $ sextTo64 sz x, h)
+      TyUnsigned sz -> unI $ h_put_uint64 (I $ zextTo64 sz x, h)
 
       TyEnum bs    -> B.reduceEnum x (\_ -> B.unit)
         [ (constTag bs s, (fromString s, putS s)) | s <- bs ]

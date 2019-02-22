@@ -7,24 +7,39 @@ Bool = /bool
 equals: (a, a) -> Bool
 output: a -> ()
 
-nested-if-foo: (Bool, Char) -> Char = \(p, c) => /if
-  c == #"a" = #"b"
-  c == #"b" = #"c"
-  p = c
-  _ = #"z"
+;; nested-if-foo: (Bool, Char) -> Char = \(p, c) => /if
+;;   c == #"a" = #"b"
+;;   c == #"b" = #"c"
+;;   p = c
+;;   _ = #"z"
 
-nested-if-bar: (Bool, Char) -> Char = \(p, c) => /if
-  c == #"a" = #"b"
-  _ = /if
-    c == #"b" = #"c"
-    _ = /if
-      p = c
-      _ = #"z"
+;; nested-if-bar: (Bool, Char) -> Char = \(p, c) => /if
+;;   c == #"a" = #"b"
+;;   _ = /if
+;;     c == #"b" = #"c"
+;;     _ = /if
+;;       p = c
+;;       _ = #"z"
 
-;; nested-if-seq: Char -> () = \c => /do
-;;     /if
-;;       c == #"c" = output "one"
-;;       _         = output "two"
-;;     /if
-;;       c == #"a" = output "three"
-;;       _ = output "four"
+nested-if-seq: Char -> () = \c => /do
+    /if
+      c == #"c" = output "one"
+      _         = /if
+        c == #"a" = output "two"
+        _         = output "three"
+    /if
+      c == #"a" = output "four"
+      _         = /if
+        c == #"c" = output "five"
+        _         = output "six"
+    /let a = where-seq c
+    /let b = where-seq a
+    /let c = where-seq b
+    output "done"
+    /where
+      where-seq: Char -> Char = \c => /if
+        c == #"z" = where_seq c
+        _         = /do
+          output "one"
+          c
+
