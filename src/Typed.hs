@@ -356,10 +356,10 @@ toLocalCall pat x = case x of
   CExprA (CallLocalA a) -> pure a -- BAL: pat unused here(?) add phi node?
   _ -> do
     let fvs = freeVars pat x -- BAL: probably don't need to pass freevars
-    let pat' = pat ++ fvs
+    let pat' = fvs ++ pat
     nm <- freshNm (TyFun (TyTuple $ map vTy pat') $ tyAExpr x) "f"
     emitCPSFunc (AFunc nm pat' x)
-    return $ LocalCall nm (map Var fvs)
+    return $ LocalCall nm (map Var pat')
 
 toCPSTerm :: AExpr -> M CPSTerm
 toCPSTerm x = case x of
@@ -655,9 +655,12 @@ toAFuncs x  = do
   pure (af : HMS.elems bs)
 
 toCPSFuncs :: [AFunc] -> M [CPSFunc]
-toCPSFuncs xs = do
+toCPSFuncs xs@(AFunc nm _ _ : _) = do
   mapM_ emitCPSFunc xs
-  bs <- reverse <$> gets sfuncs
+  bs0 <- gets sfuncs
+  let (l,r) = partition (\(CPSFunc n _ _ _) -> nName n == nName nm) bs0
+  let bs = l ++ r
+
   let n0 = case bs of
         [] -> impossible "toCPSFuncs"
         CPSFunc a _ _ _ : _ -> nName a
@@ -669,10 +672,6 @@ toCPSFuncs xs = do
   let reachableTbl =
         [ (fromVert v, catMaybes $ map lookupVert $ G.reachable gr v)
         | v <- G.vertices gr ]
-
-  -- error $ unlines $ ["",""] ++
-  --   map show (HMS.toList tbl) ++ ["",""] ++
-  --   (map show reachableTbl)
 
   modify' $ \st -> st{ sfuncs = mempty, conts = mempty }
   pure $ map (toCPSFuncPost n0 tbl (HMS.fromList reachableTbl)) bs
