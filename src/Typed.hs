@@ -106,7 +106,7 @@ data Type
   | TyEnum [String]
   | TyFun Type Type
   | TyCont Name
-  deriving Show
+  deriving (Show, Eq)
 
 tyUnit :: Type
 tyUnit = TyTuple []
@@ -649,7 +649,7 @@ toLLVMFunction (SSAFunc nm vs xs) =
     , AST.basicBlocks = map toLLVMBasicBlock xs
     }
 
-mkParams xs = (map mkParam xs, False)
+mkParams xs = (map mkParam $ filter ((/=) tyUnit . snd) xs, False)
 mkParam (n, t) = AST.Parameter (toTyLLVM t) (AST.mkName n) []
 
 toLLVMExternDefn :: (Name, Type) -> AST.Definition

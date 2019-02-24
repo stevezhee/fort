@@ -157,7 +157,7 @@ call fun args = Call {
   , AST.callingConvention = CC.C
   , AST.returnAttributes = []
   , AST.function = Right fun
-  , AST.arguments = args
+  , AST.arguments = filter ((/=) VoidType . typeOf . fst) args
   , AST.functionAttributes = []
   , AST.metadata = []
   }
