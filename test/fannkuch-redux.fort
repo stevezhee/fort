@@ -37,7 +37,7 @@ fannkuch: Perm -> Int = \p => go 0
         reverse-n (i, p)
         go (num-flips + 1)
 
-;; BAL: try multiply version
+;; BAL: try multiply version when benchmarking
 checksum: (Int, Int) -> Int = \(csum, n-flips) => /if
   is-odd n-flips = csum - n-flips
   _ = csum + n-flips
