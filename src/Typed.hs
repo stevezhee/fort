@@ -2,36 +2,34 @@
 {-# LANGUAGE FlexibleInstances   #-}
 {-# LANGUAGE TupleSections       #-}
 {-# LANGUAGE OverloadedStrings   #-}
--- {-# OPTIONS_GHC -XPackageImports #-}
 
 module Typed where
 
 import Control.Monad.State.Strict
 import Data.Bifunctor
+import Data.Graph                          as G
 import Data.Hashable
 import Data.List
-import Data.Proxy
 import Data.Maybe
+import Data.Proxy
 import Data.String
 import Data.Text.Prettyprint.Doc
+import Debug.Trace
 import Fort (neededBits, neededBitsList, ppTuple, ppListV)
 import LLVM.AST (Operand, Instruction)
 import LLVM.AST.Constant (Constant)
 import Prelude hiding (seq)
 import qualified Data.HashMap.Strict       as HMS
--- import qualified "unordered-containers" Data.HashSet as HS
 import qualified Data.Text.Lazy.IO         as T
 import qualified Instr as I
 import qualified LLVM.AST                  as AST
 import qualified LLVM.AST.Constant         as AST
-import qualified LLVM.AST.Global           as AST
-import qualified LLVM.AST.Linkage          as AST
 import qualified LLVM.AST.Global
+import qualified LLVM.AST.Global           as AST
 import qualified LLVM.AST.IntegerPredicate as AST
+import qualified LLVM.AST.Linkage          as AST
 import qualified LLVM.AST.Type             as AST
 import qualified LLVM.Pretty               as AST
-import Debug.Trace
-import Data.Graph                          as G
 
 class Size a where size :: Proxy a -> Integer
 class Ty a where tyFort :: Proxy a -> Type
@@ -854,14 +852,10 @@ where_ :: Ty a => E a -> [M Func] -> E a
 where_ e ms = E $ LetRecE <$> sequence ms <*> unE e
 
 case_ :: Ty a => E a -> (E a -> E b) -> [(String, E a -> E b)] -> E b
-case_ (E x :: E a) f ys = E $ do
-  ucase (tyFort (Proxy :: Proxy a)) x (g f) (map (second g) ys)
-  where
-    g :: (E a -> E b) -> (M Expr -> M Expr)
-    g h = \a -> unE (h $ E a)
+case_ (x :: E a) f ys = ucase (tyFort (Proxy :: Proxy a)) x f ys
 
-ucase :: Type -> M Expr -> (M Expr -> M Expr) -> [(String, M Expr -> M Expr)] -> M Expr
-ucase ty x f ys = do
+ucase :: Type -> E a -> (E a -> E b) -> [(String, E a -> E b)] -> E b
+ucase ty (E x) f ys = E $ do
   e <- x
   let
     h :: Atom -> M Expr
@@ -878,7 +872,9 @@ ucase ty x f ys = do
                   ]
               _ -> ea
 
-        let mkAlt g = g $ pure ea
+        let
+          mkAlt :: (E a -> E b) -> M Expr
+          mkAlt g = unE $ g $ E $ pure ea
         b  <- mkAlt f
         bs <- mapM mkAlt $ map snd ys
         pure $ SwitchE tg b $ safeZip "ucase" (map (readTag ty . fst) ys) bs
@@ -916,10 +912,14 @@ fromUPat ty upat = case (unTupleTy ty, upat) of
   (tys, _)  -> safeZipWith "fromUPat" V (unTupleTy ty) upat
 
 letFunc :: (Ty a, Ty b) => Name -> UPat -> (E a -> E b) -> M Func
-letFunc n upat (f :: E a -> E b) = Func nm pat <$> (unE $ f $ patToExpr pat)
+letFunc n upat (f :: E a -> E b) = uletFunc (tyFort (Proxy :: Proxy (a -> b))) n upat f
+
+uletFunc :: Type -> Name -> UPat -> (E a -> E b) -> M Func
+uletFunc ty@(TyFun tyA _) n upat f =
+  Func nm pat <$> (unE $ f $ patToExpr pat)
   where
-    nm = Nm (tyFort (Proxy :: Proxy (a -> b))) n
-    pat = fromUPat (tyFort (Proxy :: Proxy a)) upat
+    nm = Nm ty n
+    pat = fromUPat tyA upat
 
 callLocal :: (Ty a, Ty b) => Name -> E (a -> b)
 callLocal n = go Proxy
@@ -930,15 +930,19 @@ callLocal n = go Proxy
 type UPat = [Name] -- BAL: handle nested patterns
 
 func :: (Ty a, Ty b) => Name -> UPat -> (E a -> E b) -> E (a -> b)
-func n pat (f :: (E a -> E b)) = E $ do
+func n pat (f :: (E a -> E b)) = ufunc (tyFort (Proxy :: Proxy (a -> b))) n pat f
+
+ufunc :: Type -> Name -> UPat -> (E a -> E b) -> E (a -> b)
+ufunc ty n pat f = E $ do
   tbl <- gets funcs
-  let (nm,g) = funTys n (Proxy :: Proxy (a -> b))
+  let (nm,g) = funTys n ty
   case HMS.lookup n tbl of
     Just _  -> pure ()
     Nothing -> do
-      lbl <- letFunc n pat f
+      lbl <- uletFunc ty n pat f
       modify' $ \st -> st{ funcs = HMS.insert n lbl $ funcs st }
   unE (callE nm (Defn g) :: E (a -> b))
+
 
 global :: Ty a => String -> E a -- BAL: combine with extern and make accessable to the user
 global s = app load (f Proxy)
@@ -954,7 +958,7 @@ extern n = f Proxy
   where
     f :: (Ty a, Ty b) => Proxy (a -> b) -> E (a -> b)
     f proxy = E $ do
-      let (nm, g) = funTys n proxy
+      let (nm, g) = funTys n $ tyFort proxy
       modify' $ \st -> st{ externs = HMS.insert n (nTy nm) $ externs st }
       unE $ callE nm (Defn g)
 
@@ -1040,10 +1044,7 @@ atomE = E . pure . AtomE
 -- non-primitives
 
 if_ :: Ty a => E Bool_ -> E a -> E a -> E a
-if_ (E x) (E t) (E f) = E $ uif (tyFort (Proxy :: Proxy Bool_)) x t f
-
-uif :: Type -> M Expr -> M Expr -> M Expr -> M Expr
-uif ty x t f = ucase ty x (\_ -> t) [("False", \_ -> f)]
+if_ x t f = case_ x (\_ -> t) [("False", \_ -> f)]
 
 const :: E a -> E b -> E a
 const x _ = x
@@ -1117,13 +1118,12 @@ noDefault _ = go Proxy
     go :: Ty b => Proxy b -> E b
     go proxy = E $ pure $ UnreachableE $ tyFort proxy
 
-funTys :: (Ty a, Ty b) =>
-  Name -> Proxy (a -> b) ->
+funTys ::
+  Name -> Type ->
   (Nm, [Operand] -> Instruction)
-funTys n proxy = (Nm t n, f)
+funTys n ty = (Nm ty n, f)
   where
-    t = tyFort proxy
-    v = AST.ConstantOperand (AST.GlobalReference (toTyLLVM t) $ AST.mkName n)
+    v = AST.ConstantOperand (AST.GlobalReference (toTyLLVM ty) $ AST.mkName n)
     f = I.call v . map (,[])
 
 arithop :: Ty a => Name -> (Operand -> Operand -> Instruction) -> E ((a,a) -> a)
@@ -1281,6 +1281,72 @@ swapargs (E x) = E $ do
       Defn f        -> pure $ CallE (nm, Defn $ g f) bs
     _ -> impossible "swapargs"
 
+h_output :: Ty a => E ((a, Handle) -> ())
+h_output = f Proxy
+  where
+    f :: Ty a => Proxy a -> E ((a, Handle) -> ())
+    f proxy = uh_output (tyFort proxy)
+
+seqs_ :: [E ()] -> E ()
+seqs_ xs = seqs (init xs) (last xs)
+
+uh_output :: Type -> E ((a, Handle) -> ())
+uh_output t0 = case t0 of
+  TyChar        -> unsafeCast h_put_char
+  TyString      -> unsafeCast h_put_string
+  TySigned 64   -> unsafeCast h_put_sint64
+  TyUnsigned 64 -> unsafeCast h_put_uint64
+  TySigned sz   -> ok $ \(a,h) -> uoutput (TySigned 64) h (app (usext (TySigned 64)) a)
+  TyUnsigned sz -> ok $ \(a,h) -> uoutput (TySigned 64) h (app (uzext (TyUnsigned 64)) a)
+  TyFun{}       -> ok $ \(_,h) -> putS h "<function>"
+  TyCont{}      -> ok $ \(_,h) -> putS h "<continuation>"
+  TyTuple []    -> ok $ \(_,h) -> putS h "()"
+  TyEnum ss     -> ok $ \(a,h) ->
+    let c:cs = [ (s, \_ -> putS h s) | s <- ss ]
+    in ucase t0 a (snd c) cs
+  TyAddress t   -> case t of
+    TyArray sz t1 -> ok $ \(a,h) -> uloop sz t1 a
+    TyTuple ts    -> ok $ \(a,h) ->
+      delim h "(" ")" $
+        seqs_ [ sep h ", " $ uoutput (TyAddress t) h (app (ugep t i) a) | (i, t) <- zip [0..] ts]
+    TyRecord bs   -> ok $ \(a,h) ->
+      delim h "{" "}" $
+        seqs_ [ sep h ", " $ uoutput (TyAddress t) h (app (ugep t i) a) | (i, (fld,t)) <- zip [0..] bs ]
+    TyVariant bs  -> ok $ \(a,h) ->
+      let c:cs = [ (s, \_ -> seqs_ [putS h s, putS h " ", uoutput (TyAddress t) h $ app (ugep t 1) a])
+                 | (s, t) <- bs ]
+      in ucase t0 a (snd c) cs
+    t -> ok $ \(a,h) -> uoutput t h (app (uload t) a)
+  _ -> impossible $ "h_output:" ++ show t0
+  where
+    ok :: ((E a, E Handle) -> E ()) -> E ((a, Handle) -> ())
+    ok f = ufunc (TyFun (tyTuple [t0, tyFort (Proxy :: Proxy Handle)]) tyUnit)
+      ("output_" ++ show (hash $ show t0)) ["a","h"] $ \v -> f (argTuple2 v)
+    uoutput :: Type -> E Handle -> E a -> E ()
+    uoutput t h a = app (opapp a (uh_output t)) h
+    sep :: E Handle -> String -> E () -> E ()
+    sep h s = seq (putS h s)
+    delim :: E Handle -> String -> String -> E () -> E ()
+    delim h l r a = seqs_ [putS h l, putS h r, a]
+    putS :: E Handle -> String -> E ()
+    putS h s = uoutput TyString h (string s)
+
+uloop :: Integer -> Type -> E a -> E ()
+uloop sz t _ = unit
+
+ugep :: Type -> Integer -> E (a -> b)
+ugep t i = uinstr (TyAddress t) "ugep" $ \[addr] ->
+  I.gep addr (AST.ConstantOperand $ constInt 32 i)
+
+uload :: Type -> E (a -> b)
+uload t = uinstr t "uload" $ \[a] -> I.load a
+
+usext :: Type -> E (a -> b)
+usext t = uinstr t "sext" $ \[a] -> I.sext a (toTyLLVM t)
+
+uzext :: Type -> E (a -> b)
+uzext t = uinstr t "zext" $ \[a] -> I.zext a (toTyLLVM t)
+
 -- This runs forward.  Generally, running backwards is faster.
 -- uReduceArray :: Integer -> M Expr -> (M Expr -> M Expr) -> M Expr
 -- uReduceArray sz x f = do
@@ -1292,40 +1358,6 @@ swapargs (E x) = E $ do
 --   let e1 = undefined -- f (v[i]) ; CallE (nm, LocalDefn) [i + 1]
 --   e <- uif tyUnit p (pure $ TupleE []) e1
 --   pure $ LetE [v] a $ LetRecE [ Func nm [i] e ] $ CallE (nm, LocalDefn) [AtomE $ Int 32 0]
-
-h_output :: Ty a => E ((a, Handle) -> ())
-h_output = f Proxy
-  where
-    f :: Ty a => Proxy a -> E ((a, Handle) -> ())
-    f proxy = uh_output (tyFort proxy)
-
-uh_output :: Ty a => Type -> E ((a, Handle) -> ())
-uh_output t0 = case t0 of
-  TyChar        -> unsafeCast h_put_char
-  TyString      -> unsafeCast h_put_string
-  TySigned 64   -> unsafeCast h_put_sint64
-  TyUnsigned 64 -> unsafeCast h_put_uint64
-  TySigned sz   -> undefined
-  TyUnsigned sz -> undefined
-  TyEnum bs     -> ok $ \(a,h) ->
-    let c:cs = [ (b, \_ -> app (opapp (string b) h_output) h) | b <- bs ]
-    in case_ a (snd c) cs
-
-  TyFun{}       -> undefined
-  TyAddress t   -> case t of
-    TyArray sz t1 -> ok $ \(a,h) -> unit
-    TyTuple ts    -> ok $ \(a,h) -> unit
-    TyRecord bs   -> ok $ \(a,h) -> unit
-    TyVariant bs  -> ok $ \(a,h) -> unit
-    _ -> undefined -- load and loop
-  TyTuple []      -> ok $ \(a,h) -> unit
-  _ -> impossible $ "h_output:" ++ show t0
-  where
-    ok f = func ("output_" ++ show (hash $ show t0)) ["a","h"] $ \v -> f (argTuple2 v)
-  -- swapargs (f Proxy)
-  -- where
-  --   f :: Ty a => Proxy a -> E ((a, Handle) -> ())
-  --   f proxy = undefined -- E $ foo (tyFort proxy)
 
 -- foo :: Expr -> Type -> M Expr -> M Expr
 -- foo h = go
