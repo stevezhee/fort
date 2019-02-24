@@ -126,7 +126,7 @@ typeSizes x = case x of
   TyLam _ b -> typeSizes b
   TyFun a b -> typeSizes a ++ typeSizes b
   TyRecord bs -> concatMap (typeSizes . snd) bs
-  TyVariant bs -> neededBits (genericLength bs) : concatMap typeSizes (catMaybes $ map snd bs)
+  TyVariant bs -> neededBitsList bs : concatMap typeSizes (catMaybes $ map snd bs)
   TyTuple bs -> concatMap typeSizes bs
   TyVar{} -> []
   TyCon{} -> []
@@ -321,7 +321,7 @@ ppUnsafeCon a (c, Just t) = vcat
   , pretty (unsafeUnConName c) <+> "= T.unsafeCon"
   ]
 
-ascribeTag n i = parens $ ppAscription (parens ("T.int" <+> pretty i)) (Just (TyApp TyUnsigned $ TySize (L NoLoc $ neededBits $ toInteger n)))
+ascribeTag n i = parens $ ppAscription (parens ("T.int" <+> pretty i)) (Just (TyApp TyUnsigned $ TySize (L NoLoc $ neededBits n)))
 
 ppInject :: Pretty a => Int -> Con -> ((Con, Maybe Type), a) -> Doc x
 ppInject n a ((c, Nothing), i) = vcat
@@ -333,11 +333,11 @@ ppInject n a ((c, Just t), i) = vcat
   , pretty (conToVarName c) <+> "= T.inject" <+> stringifyName c <+> ascribeTag n i
   ]
 
-neededBits :: Integral n => Integer -> n
-neededBits n = ceiling (logBase 2 (fromInteger n :: Double))
+neededBits :: (Integral n, Integral m) => n -> m
+neededBits n = ceiling (logBase 2 (fromInteger (toInteger n) :: Double))
 
 neededBitsList :: Integral n => [a] -> n
-neededBitsList xs = neededBits (genericLength xs)
+neededBitsList = neededBits . length
 
 typeToOperatorType :: Type -> Type
 typeToOperatorType x = case x of
