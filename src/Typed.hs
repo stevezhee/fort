@@ -154,7 +154,7 @@ tyExpr x = case x of
   UnreachableE t -> t
   CallE (n, _) _ -> case nTy n of
     TyFun _ t -> t
-    _ -> impossible "tyExpr"
+    _ -> impossible $ "tyExpr:" ++ show x
 
 tyAtom :: Atom -> Type
 tyAtom x = case x of
@@ -1296,8 +1296,8 @@ uh_output t0 = case t0 of
   TyString      -> unsafeCast h_put_string
   TySigned 64   -> unsafeCast h_put_sint64
   TyUnsigned 64 -> unsafeCast h_put_uint64
-  TySigned sz   -> ok $ \(a,h) -> uoutput (TySigned 64) h (app (usext (TySigned 64)) a)
-  TyUnsigned sz -> ok $ \(a,h) -> uoutput (TySigned 64) h (app (uzext (TyUnsigned 64)) a)
+  TySigned sz   -> ok $ \(a,h) -> uoutput (TySigned 64) h (app (usext t0 (TySigned 64)) a)
+  TyUnsigned sz -> ok $ \(a,h) -> uoutput (TySigned 64) h (app (uzext t0 (TyUnsigned 64)) a)
   TyFun{}       -> ok $ \(_,h) -> putS h "<function>"
   TyCont{}      -> ok $ \(_,h) -> putS h "<continuation>"
   TyTuple []    -> ok $ \(_,h) -> putS h "()"
@@ -1308,14 +1308,17 @@ uh_output t0 = case t0 of
     TyArray sz t1 -> ok $ \(a,h) -> uloop sz t1 a
     TyTuple ts    -> ok $ \(a,h) ->
       delim h "(" ")" $
-        seqs_ [ sep h ", " $ uoutput (TyAddress t) h (app (ugep t i) a) | (i, t) <- zip [0..] ts]
+        seqs_ [ sep h ", " $ uoutput (TyAddress t) h (app (ugep t0 t i) a)
+              | (i, t) <- zip [0..] ts]
     TyRecord bs   -> ok $ \(a,h) ->
       delim h "{" "}" $
-        seqs_ [ sep h ", " $ uoutput (TyAddress t) h (app (ugep t i) a) | (i, (fld,t)) <- zip [0..] bs ]
+        seqs_ [ sep h ", " $ uoutput (TyAddress t) h (app (ugep t0 t i) a)
+              | (i, (fld,t)) <- zip [0..] bs ]
     TyVariant bs  -> ok $ \(a,h) ->
-      let c:cs = [ (s, \_ -> seqs_ [putS h s, putS h " ", uoutput (TyAddress t) h $ app (ugep t 1) a])
-                 | (s, t) <- bs ]
-      in ucase t0 a (snd c) cs
+      let f (s, t) = \_ ->
+            seqs_ [ putS h s, putS h " ", uoutput (TyAddress t) h $ app (ugep t0 t 1) a ] in
+      let c : cs = zip (map fst bs) (map f bs) in
+      ucase t0 a (snd c) cs
     t -> ok $ \(a,h) -> uoutput t h (app (uload t) a)
   _ -> impossible $ "h_output:" ++ show t0
   where
@@ -1327,25 +1330,25 @@ uh_output t0 = case t0 of
     sep :: E Handle -> String -> E () -> E ()
     sep h s = seq (putS h s)
     delim :: E Handle -> String -> String -> E () -> E ()
-    delim h l r a = seqs_ [putS h l, putS h r, a]
+    delim h l r a = seqs_ [putS h l, a, putS h r]
     putS :: E Handle -> String -> E ()
     putS h s = uoutput TyString h (string s)
 
 uloop :: Integer -> Type -> E a -> E ()
 uloop sz t _ = unit
 
-ugep :: Type -> Integer -> E (a -> b)
-ugep t i = uinstr (TyAddress t) "ugep" $ \[addr] ->
+ugep :: Type -> Type -> Integer -> E (a -> b)
+ugep t0 t i = uinstr (TyFun t0 (TyAddress t)) ("ugep" ++ show i) $ \[addr] ->
   I.gep addr (AST.ConstantOperand $ constInt 32 i)
 
 uload :: Type -> E (a -> b)
-uload t = uinstr t "uload" $ \[a] -> I.load a
+uload t = uinstr (TyFun (TyAddress t) t) "uload" $ \[a] -> I.load a
 
-usext :: Type -> E (a -> b)
-usext t = uinstr t "sext" $ \[a] -> I.sext a (toTyLLVM t)
+usext :: Type -> Type -> E (a -> b)
+usext ta tb = uinstr (TyFun ta tb) "sext" $ \[a] -> I.sext a (toTyLLVM tb)
 
-uzext :: Type -> E (a -> b)
-uzext t = uinstr t "zext" $ \[a] -> I.zext a (toTyLLVM t)
+uzext :: Type -> Type -> E (a -> b)
+uzext ta tb = uinstr (TyFun ta tb) "zext" $ \[a] -> I.zext a (toTyLLVM tb)
 
 -- This runs forward.  Generally, running backwards is faster.
 -- uReduceArray :: Integer -> M Expr -> (M Expr -> M Expr) -> M Expr
