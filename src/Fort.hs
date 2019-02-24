@@ -334,7 +334,7 @@ ppInject n a ((c, Just t), i) = vcat
   ]
 
 neededBits :: (Integral n, Integral m) => n -> m
-neededBits n = ceiling (logBase 2 (fromInteger (toInteger n) :: Double))
+neededBits n = if n <= 0 then 0 else ceiling (logBase 2 (fromInteger (toInteger n) :: Double))
 
 neededBitsList :: Integral n => [a] -> n
 neededBitsList = neededBits . length

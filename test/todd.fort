@@ -102,11 +102,6 @@ set_register: (UInt32, UInt32) -> () = \(a,b) => /do
 _reg_bit: (UInt32, UInt32) -> UInt32 = \(base, bit) => /do
   (base << 5) + bit
 
-enable_gpio_clock: Bit -> () = \_ => /do
-  /let reg = cmu_base + (cmu_gpio >> 5)
-  /let val = 1 << (cmu_gpio & 31)
-  set_register (reg, val)
-
 gpio_mask: UInt32 -> UInt32 = \x => /do
   15 << ((x & 7) * 4)
 
@@ -133,6 +128,11 @@ gpio_setup: (UInt32, UInt32) -> () = \(gpio_port, gpios) => /do
       end: (UInt32, UInt32) -> () = \(high, low) => /do
         set_register ((gpio_port + 4), low)
         set_register ((gpio_port + 8), high)
+
+enable_gpio_clock: Bit -> () = \_ => /do
+  /let reg = cmu_base + (cmu_gpio >> 5)
+  /let val = 1 << (cmu_gpio & 31)
+  set_register (reg, val)
 
 gpio_set: (UInt32, UInt32) -> () = \(gpio_port, gpios) => /do
   set_register (gpio_port + 16, gpios)
