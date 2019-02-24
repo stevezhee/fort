@@ -357,7 +357,7 @@ lcName = nName . lcNm
 
 data Cont
   = NmC Nm
-  | VarC Var
+  | VarC Name Name
   deriving Show
 
 freshBind :: Type -> M Pat
@@ -380,15 +380,14 @@ emitCPSRetFunc rTy = do
 emitCPSFunc :: AFunc -> M ()
 emitCPSFunc x = do
   nm <- emitCPSRetFunc $ returnTy $ nTy $ afNm x
-  -- let ret = V (TyCont $ afName x) "ret"
   emitCPSContFunc (NmC nm) x
 
-addContParam v (AFunc nm pat e) = AFunc (addTyCont nm) (v:pat) e
-
 emitCPSLocalFunc :: AFunc -> M ()
-emitCPSLocalFunc x = do
-  ret <- freshVar (TyCont $ afName x) "ret"
-  emitCPSContFunc (VarC ret) $ addContParam ret x
+emitCPSLocalFunc (AFunc nm pat e) = do
+  ret <- freshName "ret"
+  let n = nName nm
+  emitCPSContFunc (VarC n ret)
+    $ AFunc (addTyCont nm) (V (TyCont n) ret : pat) e
 
 emitCPSContFunc :: Cont -> AFunc -> M ()
 emitCPSContFunc cont (AFunc nm pat e) = do
@@ -417,7 +416,7 @@ mkLocalCont ty cont pat x = do
 
 callWithCont :: Cont -> LocalCall -> M LocalCall
 callWithCont cont (LocalCall nm bs) = case cont of
-    VarC a -> pure $ lc (Var a)
+    VarC n a -> pure $ lc (Var $ V (TyCont n) a)
     NmC a  -> do
       contTbl <- gets conts
       i <- case HMS.lookup n contTbl of
@@ -441,8 +440,8 @@ addTyCont nm = case nTy nm of
 toCPSTerm :: Cont -> AExpr -> M CPSTerm
 toCPSTerm cont x = case x of
   TupleA bs -> case cont of
-    NmC nm -> pure $ CallT $ LocalCall nm bs
-    VarC v -> pure $ ContT (let TyCont n = vTy v in n) v bs
+    NmC nm   -> pure $ CallT $ LocalCall nm bs
+    VarC n a -> pure $ ContT n a bs
   CExprA e -> case e of
     UnreachableA t -> pure $ UnreachableT t
     CallDefnA a   -> do
@@ -468,41 +467,38 @@ toCPSTerm cont x = case x of
 toCPSFuncPost :: HMS.HashMap Name (HMS.HashMap Nm Integer) -> CPSFunc -> CPSFunc
 toCPSFuncPost contTbl (CPSFunc nm vs ys t) = CPSFunc nm' vs' ys t'
   where
-    tyContVar = TyUnsigned contVarSz
-    contVarSz = neededBitsList contValues
-    contValues = HMS.toList $ fromMaybe mempty $ HMS.lookup (nName nm) contTbl
     nm' = case nTy nm of
       TyFun a b -> case unTupleTy a of
-        TyCont _ : rest -> nm{ nTy = TyFun (tyTuple (tyContVar : rest)) b }
+        TyCont n : rest -> nm{ nTy = TyFun (tyTuple (tyCont n : rest)) b }
         _               -> nm
       _         -> nm
     vs' = case vs of
-      V (TyCont _) a : rest -> V tyContVar a : rest
+      V (TyCont n) a : rest -> V (tyCont n) a : rest
       _                     -> vs
     t' = case t of
       RetT{}         -> t
       UnreachableT{} -> t
       CallT a        -> CallT $ fixContArg a
       SwitchT a b cs -> SwitchT a (fixContArg b) $ map (second fixContArg) cs
-      ContT a v bs ->
-        let contToLocalCall = flip LocalCall bs in
-          case HMS.toList $ fromMaybe mempty $ HMS.lookup a contTbl of
-            [(n0, _)] -> CallT $ contToLocalCall n0
-            cs0@((n0, _) : cs) ->
-                let cSz = neededBitsList cs0 in
-                SwitchT (Var $ v{ vTy = TyUnsigned cSz })
-                  (contToLocalCall n0)
-                  [ ((nName n, constInt cSz i), contToLocalCall n)
-                  | (n, i) <- cs
-                  ]
-            [] -> impossible "toCPSFuncPost"
+      ContT n a bs ->
+        case HMS.toList $ fromMaybe mempty $ HMS.lookup n contTbl of
+          [(c0, _)] -> CallT $ contToLocalCall c0
+          cs0@((n0, _) : cs) ->
+              SwitchT (Var $ V (tyCont n) a)
+                (contToLocalCall n0)
+                [ ((nName c, constInt (contSz n) i), contToLocalCall c)
+                | (c, i) <- cs
+                ]
+          [] -> impossible "toCPSFuncPost"
+        where contToLocalCall = flip LocalCall bs
     fixContArg (LocalCall n bs) = LocalCall n bs'
       where
         bs' = case bs of
           Cont n1 (n2, _, i) : rest   -> Cont n1 (n2, contSz n2, i) : rest
-          Var (V (TyCont n) v) : rest -> Var (V (TyUnsigned $ contSz n) v) : rest
+          Var (V (TyCont n) v) : rest -> Var (V (tyCont n) v) : rest
           _ -> bs
     contSz n = neededBits $ HMS.size $ fromMaybe mempty $ HMS.lookup n contTbl
+    tyCont = TyUnsigned . contSz
 
 type Instr = ([Var], DefnCall)
 
@@ -530,7 +526,7 @@ data CPSFunc = CPSFunc
 data CPSTerm
   = SwitchT Atom LocalCall [(Tag, LocalCall)]
   | CallT LocalCall
-  | ContT Name Var [Atom]
+  | ContT Name Name [Atom]
   | RetT [Atom]
   | UnreachableT Type
   deriving Show
@@ -627,7 +623,7 @@ fromCPSFunc (CPSFunc nm vs ys z) =
       RetT bs        -> TupleE $ map AtomE bs
       UnreachableT t -> UnreachableE t
       CallT a        -> goLocalCall a
-      ContT n a bs   -> goLocalCall (LocalCall (Nm (TyCont n) $ vName a) bs)
+      ContT n a bs   -> goLocalCall (LocalCall (Nm (TyCont n) a) bs)
       SwitchT a b cs ->
         SwitchE (AtomE a) (goLocalCall b) $ map (second goLocalCall) cs
 
