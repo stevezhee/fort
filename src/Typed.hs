@@ -583,7 +583,7 @@ toSSABlock tbl (CPSFunc nm vs ys t) =
     phiInstr :: [Name] -> ([AST.Operand] -> AST.Instruction)
     phiInstr ns = \bs -> I.phi $ safeZip "phiInstr" bs (map AST.mkName ns)
     isNonTrivial :: (Var, [(Atom, Name)]) -> Bool
-    isNonTrivial (v, bs) = or $ map (p . fst) bs
+    isNonTrivial (v, bs) = sizeFort (vTy v) /= 0 && or (map (p . fst) bs)
       where
         p :: Atom -> Bool
         p (Var a) = vName a /= vName v
