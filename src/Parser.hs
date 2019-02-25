@@ -9,18 +9,18 @@ where
 
 import Control.Applicative
 import Control.Monad.State
+import Data.List
 import Data.Loc
 import Data.String
 import Fort
 import Language.Lexer.Applicative
 import Prelude hiding (lex)
+import System.Exit
 import System.IO
 import Text.Earley hiding (satisfy)
 import Text.Regex.Applicative
 import qualified Language.Lexer.Applicative as L
 import qualified Text.Earley as E
-import System.Exit
-import Data.List
 
 pCon :: P r Con
 pCon = satisfy (startsWith upper)
@@ -234,52 +234,63 @@ inclusive a b c = c >= a && c <= b
 
 parseAndCodeGen :: FilePath -> IO ()
 parseAndCodeGen fn = do
-  putStrLn ("compiling " ++ fn)
+  putStrFlush fn
+  putStrFlush "->Lex->"
   s <- readFile fn
   let eab = streamToEitherList $ runLexer (mconcat
         [ L.token (longest tok)
         , whitespace (longest tokWS)
         ]) fn s
   case eab of
-    Left e -> hPutStrLn stderr (show e) -- >> return Nothing
+    Left e -> putStrLn "" >> hPutStrLn stderr (show e) -- >> return Nothing
     Right a -> do
+      putStrFlush "Indent->"
       let toks = indentation a
-      let (asts, rpt) = fullParses (parser grammar) toks
-      case (asts, unconsumed rpt) of
-        ([ast], []) -> do
-          -- putStrLn $ unwords $ map unLoc toks
-          putStrLn "it parsed!"
-          let oFile = fn ++ ".hs"
-          writeFile oFile $ show (ppDecls fn ast) ++ "\n"
-          putStrLn "it generated Haskell code!"
-          putStrLn $ "output written to " ++ oFile
-          -- return (Just ast)
-          -- print $ pp $ mkModule fn ast
-        (_, []) -> do
-          print "ambiguous :O"
-          -- print toks
-          mapM_ (\z -> putStrLn "" >> mapM_ print z) asts
-          -- return Nothing
-          exitFailure
-        _ -> do
-          let errtok@(L errloc _) = toks !! (position rpt)
-          -- putStrLn $ unwords $ map unLoc toks
-          putStrLn $ displayLoc errloc ++ ":error:unexpected token:"
-          case errloc of
-            NoLoc -> return ()
-            Loc start _ -> do
-              putStrLn (lines s !! (posLine start - 1))
-              putStrLn (replicate (posCol start - 1) ' ' ++ replicate (length $ unLoc errtok) '^')
-          putStrLn $ "got: " ++ show (unLoc errtok)
-          putStrLn $ "expected: " ++ show (expected rpt)
-            -- print toks
-          -- print asts
-          -- print rpt
-          -- print errtok
-          -- print errloc
-          -- print ()
-          exitFailure
-          -- return Nothing
+      case toks of
+        [] -> done fn []
+        _  -> parse fn s toks
+
+parse fn s toks = do
+  putStrFlush "Parse->"
+  let (asts, rpt) = fullParses (parser grammar) toks
+  case (asts, unconsumed rpt) of
+    ([ast], []) -> done fn ast
+    (_, []) -> do
+      putStrLn ""
+      hPutStrLn stderr "ambiguous :O"
+      -- print toks
+      mapM_ (\z -> hPutStrLn stderr "" >> mapM_ (hPutStrLn stderr . show) z) asts
+      -- return Nothing
+      exitFailure
+    _ -> do
+      putStrLn ""
+      let errtok@(L errloc _) = toks !! (position rpt)
+      -- putStrLn $ unwords $ map unLoc toks
+      hPutStrLn stderr $ displayLoc errloc ++ ":error:unexpected token:"
+      case errloc of
+        NoLoc -> return ()
+        Loc start _ -> do
+          hPutStrLn stderr (lines s !! (posLine start - 1))
+          hPutStrLn stderr (replicate (posCol start - 1) ' ' ++ replicate (length $ unLoc errtok) '^')
+      hPutStrLn stderr $ "got: " ++ show (unLoc errtok)
+      hPutStrLn stderr $ "expected: " ++ show (expected rpt)
+        -- print toks
+      -- print asts
+      -- print rpt
+      -- print errtok
+      -- print errloc
+      -- print ()
+      exitFailure
+      -- return Nothing
+
+done fn ast = do
+  -- putStrLn $ unwords $ map unLoc toks
+  putStrFlush "Haskell->"
+  let oFile = fn ++ ".hs"
+  writeFile oFile $ show (ppDecls fn ast) ++ "\n"
+  putStrLn oFile
+  -- return (Just ast)
+  -- print $ pp $ mkModule fn ast
 
 column :: Located a => a -> Int
 column x = case locOf x of

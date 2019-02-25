@@ -9,12 +9,13 @@ where
 -- a corresponding .hs (Haskell) file. Executing the .hs file will generate a
 -- .ll (llvm) file
 
-import Data.Loc
-import Data.Text.Prettyprint.Doc
-import Data.List
 import Data.Char
+import Data.List
+import Data.Loc
 import Data.Maybe
+import Data.Text.Prettyprint.Doc
 import Text.Read hiding (parens)
+import qualified System.IO                 as IO
 
 type Con = Token
 type Op = Token
@@ -573,4 +574,6 @@ readError :: Read a => String -> String -> a
 readError desc s = case readMaybe s of
   Nothing -> error $ "unable to read:" ++ desc ++ ":" ++ show s
   Just a -> a
+
+putStrFlush s = putStr s >> IO.hFlush IO.stdout
 

@@ -15,12 +15,11 @@ import Data.Proxy
 import Data.String
 import Data.Text.Prettyprint.Doc
 import Debug.Trace
-import Fort (canonicalizeName, neededBits, neededBitsList, ppTuple, ppListV)
+import Fort (putStrFlush, canonicalizeName, neededBits, neededBitsList, ppTuple, ppListV)
 import LLVM.AST (Operand, Instruction)
 import LLVM.AST.Constant (Constant)
 import Prelude hiding (seq)
 import System.FilePath
-import qualified System.IO                 as IO
 import qualified Data.HashMap.Strict       as HMS
 import qualified Data.Text.Lazy.IO         as T
 import qualified Instr as I
@@ -737,7 +736,7 @@ codegen file ds = do
       putStrLn "=================================="
       putStrLn file
       putStrLn "--- typed input ------------------------"
-    else putStrFlush "Typed->"
+    else putStrFlush $ file ++ "->Typed->"
 
   let (fs, st) = runState (toFuncs ds) $ initSt file
   if verbose
@@ -765,18 +764,16 @@ codegen file ds = do
     then do
       print $ ppFuncs ppSSAFunc ssas
       putStrLn "--- LLVM -----"
-    else putStrLn "LLVM."
+    else putStrFlush "LLVM->"
 
   let m = toLLVMModule file (HMS.toList $ strings st) (HMS.toList $ externs st) ssas
   let s = AST.ppllvm m
   when verbose $ T.putStrLn s
   let oFile = file ++ ".ll"
   T.writeFile oFile s
-  putStrLn $ "LLVM written to" ++ oFile ++ "."
+  putStrLn oFile
 
   when verbose $ putStrLn "=================================="
-
-putStrFlush s = putStr s >> IO.hFlush IO.stdout
 
 toFuncs :: [M Expr] -> M [Func]
 toFuncs ds = do
