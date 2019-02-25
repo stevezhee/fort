@@ -8,18 +8,26 @@
 
 module SSA where
 
-import IRTypes
-import ANF
-import CPS
+import           ANF
+
+import           CPS
+
 import           Control.Monad.State.Strict
-import qualified Data.HashMap.Strict        as HMS
-import Data.List
-import Data.Maybe
-import qualified LLVM.AST                   as AST
-import qualified Instr                      as I
-import Utils
-import           Data.Text.Prettyprint.Doc
+
 import           Data.Bifunctor
+import qualified Data.HashMap.Strict        as HMS
+import           Data.List
+import           Data.Maybe
+
+import           Data.Text.Prettyprint.Doc
+
+import           IRTypes
+
+import qualified Instr                      as I
+
+import qualified LLVM.AST                   as AST
+
+import           Utils
 
 ppSSAFunc = vcat . map ppCPSFunc . fromSSAFunc
 

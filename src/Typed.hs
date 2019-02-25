@@ -6,20 +6,16 @@
 
 {-# LANGUAGE TupleSections #-}
 
-module Typed
-  ( module Typed
-  , module IRTypes)
-where
+module Typed ( module Typed, module IRTypes ) where
+
+import           ANF
+
+import           CPS
 
 import           Control.Monad.State.Strict
-import Utils
-import           Data.Bifunctor
-import ANF
-import CPS
-import SSA
-import LLVM
 
-import IRTypes
+import           Data.Bifunctor
+
 import qualified Data.HashMap.Strict        as HMS
 import           Data.Hashable
 import           Data.List
@@ -32,7 +28,11 @@ import           Data.Text.Prettyprint.Doc
 
 import           Debug.Trace
 
+import           IRTypes
+
 import qualified Instr                      as I
+
+import           LLVM
 
 import           LLVM.AST                   ( Instruction, Operand )
 
@@ -49,7 +49,11 @@ import qualified LLVM.Pretty                as AST
 
 import           Prelude                    hiding ( seq )
 
+import           SSA
+
 import           System.FilePath
+
+import           Utils
 
 verbose = False
 

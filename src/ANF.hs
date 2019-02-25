@@ -8,13 +8,16 @@
 
 module ANF where
 
-import IRTypes
 import           Control.Monad.State.Strict
-import qualified Data.HashMap.Strict        as HMS
-import Data.List
-import Data.Maybe
-import Utils
+
 import           Data.Bifunctor
+import qualified Data.HashMap.Strict        as HMS
+import           Data.List
+import           Data.Maybe
+
+import           IRTypes
+
+import           Utils
 
 ppAFunc = ppFunc . fromAFunc
 

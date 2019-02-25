@@ -8,16 +8,20 @@
 
 module CPS where
 
-import IRTypes
-import ANF
+import           ANF
+
 import           Control.Monad.State.Strict
-import qualified Data.HashMap.Strict        as HMS
-import Data.List
-import Data.Maybe
 
 import           Data.Bifunctor
-import Instr (constInt)
-import Utils
+import qualified Data.HashMap.Strict        as HMS
+import           Data.List
+import           Data.Maybe
+
+import           IRTypes
+
+import           Instr                      ( constInt )
+
+import           Utils
 
 ppCPSFunc = ppFunc . fromCPSFunc
 
@@ -48,7 +52,6 @@ fromCPSFunc (CPSFunc nm vs ys z) = Func nm vs $ foldr (\f b -> f b) (goTerm z) $
         ContT n a bs -> goLocalCall (LocalCall (Nm (TyCont n) a) bs)
         SwitchT a b cs -> SwitchE (AtomE a) (goLocalCall b) $
             map (second goLocalCall) cs
-
 
 emitCPSRetFunc rTy = do
     pat <- freshBind rTy

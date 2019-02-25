@@ -12,7 +12,6 @@ import           Data.Loc
 import           Data.String
 
 import           Fort
-import Utils
 
 import           Language.Lexer.Applicative
 
@@ -27,6 +26,8 @@ import           Text.Earley                hiding ( satisfy )
 
 import qualified Text.Earley                as E
 import           Text.Regex.Applicative
+
+import           Utils
 
 pCon :: P r Con
 pCon = satisfy (startsWith upper)

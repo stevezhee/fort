@@ -8,15 +8,20 @@
 
 module IRTypes where
 
+import           Control.Monad.State.Strict
+
 import qualified Data.HashMap.Strict        as HMS
 import           Data.Hashable
-import           Data.Text.Prettyprint.Doc
+
 import           Data.Proxy
+import           Data.Text.Prettyprint.Doc
+
 import           LLVM.AST                   ( Instruction, Operand )
-import           LLVM.AST.Constant          ( Constant )
-import           Control.Monad.State.Strict
-import Utils
+
 import qualified LLVM.AST                   as AST
+import           LLVM.AST.Constant          ( Constant )
+
+import           Utils
 
 class Size a where
     size :: Proxy a -> Integer
@@ -370,16 +375,16 @@ tyVariantToTyTuple bs =
 -- BAL: write sizeOf :: AST.Type -> Integer in Build.hs and use that
 sizeFort :: Type -> Integer
 sizeFort x = case x of
-    TyChar        -> 8
-    TySigned sz   -> sz
+    TyChar -> 8
+    TySigned sz -> sz
     TyUnsigned sz -> sz
-    TyString      -> ptrSize
-    TyAddress _   -> ptrSize
-    TyArray sz a  -> sz * sizeFort a
-    TyTuple bs    -> sum $ map sizeFort bs
-    TyRecord bs   -> sizeFort $ tyRecordToTyTuple bs
-    TyVariant bs  -> sizeFort $ tyVariantToTyTuple bs
-    TyEnum bs     -> sizeFort $ tyEnumToTyUnsigned bs
+    TyString -> ptrSize
+    TyAddress _ -> ptrSize
+    TyArray sz a -> sz * sizeFort a
+    TyTuple bs -> sum $ map sizeFort bs
+    TyRecord bs -> sizeFort $ tyRecordToTyTuple bs
+    TyVariant bs -> sizeFort $ tyVariantToTyTuple bs
+    TyEnum bs -> sizeFort $ tyEnumToTyUnsigned bs
 
 tyEnumToTyUnsigned :: [a] -> Type
 tyEnumToTyUnsigned bs = TyUnsigned (neededBitsList bs)

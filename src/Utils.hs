@@ -3,10 +3,11 @@
 
 module Utils where
 
+import           Data.List
 import           Data.Text.Prettyprint.Doc
-import Data.List
-import           System.IO
+
 import           System.FilePath
+import           System.IO
 
 canonicalizeName :: String -> String
 canonicalizeName = map f
@@ -42,6 +43,7 @@ impossible s = error $ "the impossible happened:" ++ s
 
 ppTuple :: [Doc x]
         -> Doc x -- BAL: don't print the parens with a single element (bug)
+
 ppTuple = parens . commaSep
 
 ppList :: [Doc x] -> Doc x

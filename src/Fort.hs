@@ -11,11 +11,12 @@ import           Data.List
 import           Data.Loc
 import           Data.Maybe
 import           Data.Text.Prettyprint.Doc
-import Utils
 
 import qualified System.IO                 as IO
 
 import           Text.Read                 hiding ( parens )
+
+import           Utils
 
 type Con = Token
 
