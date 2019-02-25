@@ -1306,23 +1306,24 @@ uoutput t h a = app (opapp a (uh_output t)) h
 putS :: E Handle -> String -> E ()
 putS h s = app (opapp (string s) h_put_string) h
 
-foreach :: (Size sz, Ty a) => E (Addr a -> ()) -> E (Addr (Array sz a) -> ())
-foreach f =
-  func "foreach" ["arr"] (\v ->
+foreach :: Integer -> Type -> E (Addr a -> ()) -> E (Addr (Array sz a) -> ())
+foreach sz t f =
+  ufunc (TyFun (TyAddress (TyArray sz t)) tyUnit) "foreach" ["arr"] (\v ->
   let
     arr = v in
       (let
-        loop :: E (UInt32 -> ()) = callLocal "loop"
+        go :: E (UInt32 -> ()) = callLocal "go"
       in
-      (where_ (((app loop) (int 0)))
-        [ letFunc "loop" ["i"] (((\v ->
+      (where_ (((app go) (int 0)))
+        [ uletFunc undefined "go" ["i"] (((\v ->
           let
             i = v in
-              (if_ (app (opapp i greater_than_or_equals) (int 42))
+              (if_ (app (opapp i greater_than_or_equals) (int sz))
                 (unit)
                 ((seqs
-                  [ ((app f) ((app index) (tuple2 (arr, i))))
-                  ] (((app loop) ((app ((opapp i add))) (int 1))))))))))
+                  -- [ -- ((app f) ((app index) (tuple2 (arr, i))))
+                  [ app f (app (ugep undefined undefined) (tuple2 (arr,i)))
+                  ] (((app go) ((app ((opapp i add))) (int 1))))))))))
         ])))
 
 {-
@@ -1355,14 +1356,14 @@ uh_output t0 = case t0 of
     TyArray sz t1 -> ok $ \(a,h) -> uloop sz t1 a
     TyTuple ts    -> ok $ \(a,h) ->
       delim h "(" ")" $
-        seqs_ [ sepS h ", " $ uoutput (TyAddress t) h (app (ugep t0 t i) a)
+        seqs_ [ sepS h ", " $ uoutput (TyAddress t) h (app (ugepi t0 t i) a)
               | (i, t) <- zip [0..] ts]
     TyRecord bs   -> ok $ \(a,h) ->
       delim h "{" "}" $
         seqs_ [ sepS h ", " $
                   seqs_ [ putS h fld
                         , putS h " = "
-                        , uoutput (TyAddress t) h (app (ugep t0 t i) a)
+                        , uoutput (TyAddress t) h (app (ugepi t0 t i) a)
                         ]
               | (i, (fld,t)) <- zip [0..] bs ]
     TyVariant bs  -> ok $ \(a,h) ->
@@ -1373,7 +1374,7 @@ uh_output t0 = case t0 of
                         , putS h " "
                         , uoutput (TyAddress t) h $
                             app (ubitcast (TyAddress (TyUnsigned 64)) (TyAddress t))
-                              (app (ugep t0 (TyUnsigned 64) 1) a)
+                              (app (ugepi t0 (TyUnsigned 64) 1) a)
                         ] in
       let c : cs = zip (map fst bs) (map f bs) in
       ucase t0 a (snd c) cs
@@ -1393,9 +1394,13 @@ delim h l r a = seqs_ [putS h l, a, putS h r]
 uloop :: Integer -> Type -> E a -> E ()
 uloop sz t _ = unit
 
-ugep :: Type -> Type -> Integer -> E (a -> b)
-ugep t0 t i = uinstr (TyFun t0 (TyAddress t)) ("ugep" ++ show i) $ \[addr] ->
-  I.gep addr (AST.ConstantOperand $ constInt 32 i)
+ugep :: Type -> Type -> E ((a, UInt32) -> b)
+ugep t0 t =
+  uinstr (TyFun t0 (TyAddress t)) "ugep" $ \[addr, a] ->
+    I.gep addr a
+
+ugepi :: Type -> Type -> Integer -> E (a -> b)
+ugepi t0 t i = opapp (int i) (swapargs (ugep t0 t))
 
 uload :: Type -> E (a -> b)
 uload t = uinstr (TyFun (TyAddress t) t) "uload" $ \[a] -> I.load a
