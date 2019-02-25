@@ -1,3 +1,6 @@
+;; efm32hg blink example by @toddtreece
+;; ported from C: https://github.com/toddtreece/tomu-llvm
+
 ;; ┌┬┐┬ ┬┌─┐┌─┐┌─┐
 ;;  │ └┬┘├─┘├┤ └─┐
 ;;  ┴  ┴ ┴  └─┘└─┘
@@ -14,7 +17,7 @@ Bool = /bool
 load: /address a -> a
 store: (/address a, a) -> ()
 inttoptr: UInt32 -> Pointer
-tomu_delay: UInt32 -> ()
+efm32hg_delay: UInt32 -> ()
 
 ;; ┌─┐┌─┐┌─┐┬─┐┌─┐┌┬┐┌─┐┬─┐┌─┐
 ;; │ │├─┘├┤ ├┬┘├─┤ │ │ │├┬┘└─┐
@@ -182,7 +185,7 @@ run: Bit -> () = \_ => begin 0
       loop 1
 
     loop: Bit -> () = \_ => /do
-      tomu_delay 1000
+      efm32hg_delay 1000
 
       gpio_toggle (led_red_port, led_red_pin)
       gpio_toggle (led_green_port, led_green_pin)
