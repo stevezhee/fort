@@ -12,6 +12,7 @@ import           Data.Loc
 import           Data.String
 
 import           Fort
+import Utils
 
 import           Language.Lexer.Applicative
 

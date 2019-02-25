@@ -11,6 +11,7 @@ import           Data.List
 import           Data.Loc
 import           Data.Maybe
 import           Data.Text.Prettyprint.Doc
+import Utils
 
 import qualified System.IO                 as IO
 
@@ -190,11 +191,6 @@ canonicalizeOp = concatMap f
         '|' -> "||"
         _ -> [ c ]
 
-canonicalizeName :: String -> String
-canonicalizeName = map f
-  where
-    f c = if c == '-' then '_' else c -- '-' is semantically identical to '_'
-
 ppDecls :: FilePath -> [Decl] -> Doc x
 ppDecls fn xs = vcat $
     [ "{-# LANGUAGE OverloadedStrings #-}"
@@ -352,14 +348,6 @@ ppInject n a ((c, Just t), i) =
          , pretty (conToVarName c) <+> "= T.inject" <+> stringifyName c
                <+> ascribeTag n i
          ]
-
-neededBits :: (Integral n, Integral m) => n -> m
-neededBits n = if n <= 0
-               then 0
-               else ceiling (logBase 2 (fromInteger (toInteger n) :: Double))
-
-neededBitsList :: Integral n => [a] -> n
-neededBitsList = neededBits . length
 
 typeToOperatorType :: Type -> Type
 typeToOperatorType x = case x of
@@ -565,25 +553,6 @@ stringifyPat = pretty . show . go
         TupleP bs _ -> concatMap go bs
         VarP v _ -> [ stringifyName v ]
 
-ppTuple :: [Doc x]
-        -> Doc x -- BAL: don't print the parens with a single element (bug)
-
-ppTuple = parens . commaSep
-
-ppList :: [Doc x] -> Doc x
-ppList = brackets . commaSep
-
-ppListV :: [Doc x] -> Doc x
-ppListV [] = " []"
-ppListV xs = line <> indent 2 (vcat [ "[" <+> commaSepV xs, "]" ])
-
-commaSep :: [Doc x] -> Doc x
-commaSep = hcat . intersperse ", "
-
-commaSepV :: [Doc x] -> Doc x
-commaSepV [] = mempty
-commaSepV (x : ys) = vcat (x : [ ", " <> y | y <- ys ])
-
 ppPrim :: Prim -> Doc x
 ppPrim x = case x of
     Var a -> ppVar a
@@ -596,6 +565,4 @@ readError :: Read a => String -> String -> a
 readError desc s = case readMaybe s of
     Nothing -> error $ "unable to read:" ++ desc ++ ":" ++ show s
     Just a -> a
-
-putStrFlush s = putStr s >> IO.hFlush IO.stdout
 

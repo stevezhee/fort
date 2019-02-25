@@ -29,6 +29,7 @@ library:
     - Instr
     - Parser
     - Typed
+    - IRTypes
   dependencies:
     - mtl
     - lexer-applicative

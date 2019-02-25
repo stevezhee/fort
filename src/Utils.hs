@@ -1,0 +1,55 @@
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+
+module Utils where
+
+import           Data.Text.Prettyprint.Doc
+import Data.List
+import           System.IO
+
+canonicalizeName :: String -> String
+canonicalizeName = map f
+  where
+    f c = if c == '-' then '_' else c -- '-' is semantically identical to '_'
+
+neededBits :: (Integral n, Integral m) => n -> m
+neededBits n = if n <= 0
+               then 0
+               else ceiling (logBase 2 (fromInteger (toInteger n) :: Double))
+
+neededBitsList :: Integral n => [a] -> n
+neededBitsList = neededBits . length
+
+putStrFlush :: String -> IO ()
+putStrFlush s = putStr s >> hFlush stdout
+
+safeZip :: (Show a, Show b) => String -> [a] -> [b] -> [(a, b)]
+safeZip msg = safeZipWith msg (,)
+
+safeZipWith :: (Show a, Show b) => String -> (a -> b -> c) -> [a] -> [b] -> [c]
+safeZipWith msg f xs ys
+    | length xs /= length ys =
+        impossible $ unlines $ [ "safeZipWith:" ++ msg ++ ":", "" ]
+        ++ map show xs ++ [ "" ] ++ map show ys
+    | otherwise = zipWith f xs ys
+
+impossible :: String -> a
+impossible s = error $ "the impossible happened:" ++ s
+
+ppTuple :: [Doc x]
+        -> Doc x -- BAL: don't print the parens with a single element (bug)
+ppTuple = parens . commaSep
+
+ppList :: [Doc x] -> Doc x
+ppList = brackets . commaSep
+
+ppListV :: [Doc x] -> Doc x
+ppListV [] = " []"
+ppListV xs = line <> indent 2 (vcat [ "[" <+> commaSepV xs, "]" ])
+
+commaSep :: [Doc x] -> Doc x
+commaSep = hcat . intersperse ", "
+
+commaSepV :: [Doc x] -> Doc x
+commaSepV [] = mempty
+commaSepV (x : ys) = vcat (x : [ ", " <> y | y <- ys ])

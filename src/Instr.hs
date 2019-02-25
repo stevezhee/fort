@@ -16,6 +16,9 @@ import           LLVM.AST.Typed
 
 import           Prelude                         hiding ( and, or, pred )
 
+constInt :: Integer -> Integer -> C.Constant
+constInt bits = C.Int (fromInteger bits)
+
 fadd :: Operand -> Operand -> Instruction
 fadd a b = FAdd noFastMathFlags a b []
 
