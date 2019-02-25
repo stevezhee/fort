@@ -2,6 +2,7 @@
 {-# LANGUAGE FlexibleInstances   #-}
 {-# LANGUAGE TupleSections       #-}
 {-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE RankNTypes #-}
 
 module Typed where
 
@@ -1304,6 +1305,35 @@ uoutput t h a = app (opapp a (uh_output t)) h
 
 putS :: E Handle -> String -> E ()
 putS h s = app (opapp (string s) h_put_string) h
+
+foreach :: (Size sz, Ty a) => E (Addr a -> ()) -> E (Addr (Array sz a) -> ())
+foreach f =
+  func "foreach" ["arr"] (\v ->
+  let
+    arr = v in
+      (let
+        loop :: E (UInt32 -> ()) = callLocal "loop"
+      in
+      (where_ (((app loop) (int 0)))
+        [ letFunc "loop" ["i"] (((\v ->
+          let
+            i = v in
+              (if_ (app (opapp i greater_than_or_equals) (int 42))
+                (unit)
+                ((seqs
+                  [ ((app f) ((app index) (tuple2 (arr, i))))
+                  ] (((app loop) ((app ((opapp i add))) (int 1))))))))))
+        ])))
+
+{-
+let loop i =
+  if i >= sz
+    then ()
+    else do
+      uoutput ? h (app (ugep ? ? i) a)
+      loop (i + 1)
+in loop 0
+-}
 
 uh_output :: Type -> E ((a, Handle) -> ())
 uh_output t0 = case t0 of

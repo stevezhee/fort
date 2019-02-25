@@ -5,6 +5,10 @@ Idx = /unsigned 32
 ;; primitives
 * = multiply
 multiply: (Int, Int) -> Int
++ = add
+add: (a, a) -> a
+>= = greater-than-or-equals
+greater-than-or-equals: (a, a) -> /bool
 
 load: /address a -> a
 store: (/address a, a) -> ()
@@ -13,6 +17,14 @@ index: (/address (/array sz a), Idx) -> /address a ;; where a is a primitive typ
 output: a -> ()
 
 ;; code
+
+foreach: /address (/array 42 Int) -> () = \arr => loop 0
+  /where
+    loop: Idx -> () = \i => /if
+      i >= 42 = ()
+      _ = /do
+        output (index (arr, i))
+        loop (i + 1)
 
 foo-array: /address (/array 2 Int) -> () = \arr => /do
   store (index (arr, 0), 21)
