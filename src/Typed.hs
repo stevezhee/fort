@@ -1223,6 +1223,9 @@ load = unop "load" I.load
 store :: Ty a => E ((Addr a, a) -> ()) -- BAL: call B.store_volatile if needed by the type
 store = binop "store" I.store
 
+tomu_delay :: Ty a => E (a -> ())
+tomu_delay = extern "tomu_delay"
+
 add :: Ty a => E ((a,a) -> a)
 add = arithop "add" I.add
 

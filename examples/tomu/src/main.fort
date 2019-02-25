@@ -1,0 +1,190 @@
+;; ┌┬┐┬ ┬┌─┐┌─┐┌─┐
+;;  │ └┬┘├─┘├┤ └─┐
+;;  ┴  ┴ ┴  └─┘└─┘
+
+UInt32 = /unsigned 32
+Pointer = /address (/unsigned 32)
+Bit = /unsigned 1
+Bool = /bool
+
+;; ┌─┐┬─┐┬┌┬┐┬┌┬┐┬┬  ┬┌─┐┌─┐
+;; ├─┘├┬┘│││││ │ │└┐┌┘├┤ └─┐
+;; ┴  ┴└─┴┴ ┴┴ ┴ ┴ └┘ └─┘└─┘
+
+load: /address a -> a
+store: (/address a, a) -> ()
+inttoptr: UInt32 -> Pointer
+tomu_delay: UInt32 -> ()
+
+;; ┌─┐┌─┐┌─┐┬─┐┌─┐┌┬┐┌─┐┬─┐┌─┐
+;; │ │├─┘├┤ ├┬┘├─┤ │ │ │├┬┘└─┐
+;; └─┘┴  └─┘┴└─┴ ┴ ┴ └─┘┴└─└─┘
+
+== = equals
+equals: (UInt32, UInt32) -> Bool
+
+!= = not_equals
+not_equals: (UInt32, UInt32) -> Bool
+
++ = add
+add: (UInt32, UInt32) -> UInt32
+
+- = subtract
+subtract: (UInt32, UInt32) -> UInt32
+
+* = multiply
+multiply: (UInt32, UInt32) -> UInt32
+
+<< = shift_left
+shift_left: (UInt32, UInt32) -> UInt32
+
+>> = logical_shift_right
+logical_shift_right: (UInt32, UInt32) -> UInt32
+
+& = bitwise_and
+bitwise_and: (UInt32, UInt32) -> UInt32
+
+| = bitwise_or
+bitwise_or: (UInt32, UInt32) -> UInt32
+
+^ = bitwise_xor
+bitwise_xor: (UInt32, UInt32) -> UInt32
+
+;; ┌─┐┌─┐┌┐┌┌─┐┌┬┐┌─┐┌┐┌┬┐┌─┐
+;; │  │ ││││└─┐ │ ├─┤││││ └─┐
+;; └─┘└─┘┘└┘└─┘ ┴ ┴ ┴┘└┘┴ └─┘
+
+periph_base: UInt32 = 1073741824 ;; 0x40000000
+
+cmu_base: UInt32 = periph_base + 819200 ;; 0xc8000
+cmu_gpio: UInt32 = _reg_bit(68, 8) ;; 0x44
+
+wdog_base: UInt32 = periph_base + 557056 ;; 0x88000
+wdog_ctrl: UInt32 = wdog_base
+
+ppbi_base: UInt32 = 3758096384 ;; 0xE0000000U
+scs_base: UInt32 = ppbi_base + 57344 ;; 0xE000
+sys_tick_base: UInt32 = scs_base + 16 ;; 0x0010
+
+stk_csr_clksource_lsb: UInt32 = 2
+stk_csr_clksource: UInt32 = 1 << stk_csr_clksource_lsb
+stk_csr_clksource_ahb: UInt32 = 1 << stk_csr_clksource_lsb
+
+stk_csr: UInt32 = sys_tick_base
+stk_csr_tickint: UInt32 = 1 << 1
+stk_csr_enable: UInt32 = 1 << 0
+
+stk_rvr: UInt32 = sys_tick_base + 4 ;; 0x04
+stk_rvr_reload: UInt32 = 16777215 ;; 0x00FFFFFF
+
+gpio_base: UInt32 = periph_base + 24576 ;; 0x06000
+gpio_pa: UInt32 = gpio_base
+gpio_pb: UInt32 = gpio_base + 36
+gpio0: UInt32 = 1 << 0
+gpio7: UInt32 = 1 << 7
+
+led_green_port: UInt32 = gpio_pa
+led_green_pin: UInt32 = gpio0
+led_red_port: UInt32 = gpio_pb
+led_red_pin: UInt32 = gpio7
+
+;; ┌─┐┬ ┬┌┐┌┌─┐┌┬┐┬┌─┐┌┐┌┌─┐
+;; ├┤ │ │││││   │ ││ ││││└─┐
+;; └  └─┘┘└┘└─┘ ┴ ┴└─┘┘└┘└─┘
+
+get_register: UInt32 -> UInt32 = \a => /do
+  /let pointer = inttoptr a
+  load pointer
+
+set_register: (UInt32, UInt32) -> () = \(a,b) => /do
+  /let pointer = inttoptr a
+  store (pointer, b)
+
+_reg_bit: (UInt32, UInt32) -> UInt32 = \(base, bit) => /do
+  (base << 5) + bit
+
+enable_gpio_clock: Bit -> () = \_ => /do
+  /let reg = cmu_base + (cmu_gpio >> 5)
+  /let val = 1 << (cmu_gpio & 31)
+  set_register (reg, val)
+
+gpio_mask: UInt32 -> UInt32 = \x => /do
+  15 << ((x & 7) * 4)
+
+gpio_mode: (UInt32, UInt32) -> UInt32 = \(x, mode) => /do
+  (mode << ((x & 7) * 4)) & (gpio_mask x)
+
+gpio_low: (UInt32, UInt32, UInt32) -> UInt32 = \(gpios, i, low) => /if
+  (gpios & (1 << i)) != 0 = /do
+    (low & ((gpio_mask i) ^ (0 - 1))) | (gpio_mode (i, 8))
+  _ = low
+
+gpio_high: (UInt32, UInt32, UInt32) -> UInt32 = \(gpios, i, high) => /if
+  (gpios & (1 << (i + 8))) != 0 = /do
+    (high & ((gpio_mask i) ^ (0 - 1))) | (gpio_mode (i, 8))
+  _ = high
+
+gpio_setup: (UInt32, UInt32) -> () = \(gpio_port, gpios) => begin 0
+  /where
+    begin: UInt32 -> () = \i => /do
+      /let low = get_register (gpio_port + 4)
+      /let high = get_register (gpio_port + 8)
+      loop (i, high, low)
+    loop: (UInt32, UInt32, UInt32) -> () = \(i, high, low) => /if
+      i == 8  = end (high, low)
+      _ = /do
+        /let l = gpio_low (gpios, i, low)
+        /let h = gpio_high (gpios, i, high)
+        loop (i + 1, h, l)
+    end: (UInt32, UInt32) -> () = \(high, low) => /do
+      set_register ((gpio_port + 4), low)
+      set_register ((gpio_port + 8), high)
+
+gpio_set: (UInt32, UInt32) -> () = \(gpio_port, gpios) => /do
+  set_register (gpio_port + 16, gpios)
+
+gpio_clear: (UInt32, UInt32) -> () = \(gpio_port, gpios) => /do
+  set_register (gpio_port + 20, gpios)
+
+gpio_toggle: (UInt32, UInt32) -> () = \(gpio_port, gpios) => /do
+  set_register (gpio_port + 24, gpios)
+
+;; ┌─┐┌┐┌┌┬┐┬─┐┬ ┬
+;; ├┤ │││ │ ├┬┘└┬┘
+;; └─┘┘└┘ ┴ ┴└─ ┴
+
+run: Bit -> () = \_ => begin 0
+  /where
+    begin: Bit -> () = \_ => /do
+      ;; disable watchdog
+      set_register (wdog_base, 0)
+
+      enable_gpio_clock 1
+
+      gpio_setup (led_red_port, led_red_pin)
+      gpio_setup (led_green_port, led_green_pin)
+
+      gpio_set (led_red_port, led_red_pin)
+      gpio_set (led_green_port, led_green_pin)
+
+      ;; set systick clock source to stk_csr_clksource_ahb
+      set_register (stk_csr, ((get_register stk_csr) & (stk_csr_clksource ^ (0 - 1))) | (stk_csr_clksource_ahb & stk_csr_clksource))
+
+      ;; set systick automatic reload value
+      set_register (stk_rvr, 23999 & stk_rvr_reload)
+
+      ;; enable systick counter
+      set_register (stk_csr, (get_register stk_csr) |  stk_csr_enable)
+
+      ;; enable systick interrupt
+      set_register (stk_csr, (get_register stk_csr) | stk_csr_tickint)
+
+      loop 1
+
+    loop: Bit -> () = \_ => /do
+      tomu_delay 1000
+
+      gpio_toggle (led_red_port, led_red_pin)
+      gpio_toggle (led_green_port, led_green_pin)
+
+      loop 1
