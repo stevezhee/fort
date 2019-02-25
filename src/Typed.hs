@@ -136,7 +136,7 @@ ucase ty (E x) f ys = E $ do
                         in
                             CallE ( Nm (TyFun (TyAddress tagTy) tagTy)
                                        "loadtag"
-                                  , Defn (\[ p ] -> I.load p)
+                                  , Defn (\[ p ] -> I.load False p)
                                   )
                                   [ CallE ( Nm (TyFun (tyTuple [ ty
                                                                , TyUnsigned 32
@@ -490,7 +490,7 @@ bitop s f = g Proxy
 load :: Ty a
      => E (Addr a -> a) -- BAL: call B.load_volatile if needed by the type
 
-load = unop "load" I.load
+load = instr "load" (\[x] -> I.load False x)
 
 store
     :: Ty a
@@ -717,7 +717,7 @@ ugepi :: Type -> Type -> Integer -> E (a -> b)
 ugepi t0 t i = opapp (int i) (swapargs (ugep t0 t))
 
 uload :: Type -> E (a -> b)
-uload t = uinstr (TyFun (TyAddress t) t) "uload" $ \[ a ] -> I.load a
+uload t = uinstr (TyFun (TyAddress t) t) "uload" $ \[ a ] -> I.load False a
 
 usext :: Type -> Type -> E (a -> b)
 usext ta tb = uinstr (TyFun ta tb) "sext" $ \[ a ] -> I.sext a (toTyLLVM tb)

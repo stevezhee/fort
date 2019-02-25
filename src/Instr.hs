@@ -76,8 +76,8 @@ xor a b = Xor a b []
 alloca :: Type -> Maybe Operand -> Word32 -> Instruction
 alloca ty count align = Alloca ty count align []
 
-load :: Operand -> Instruction
-load a = Load False a Nothing 0 []
+load :: Bool -> Operand -> Instruction
+load vol addr = Load vol addr Nothing 0 []
 
 store :: Operand -> Operand -> Instruction
 store addr val = Store False addr val Nothing 0 []
