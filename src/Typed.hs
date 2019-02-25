@@ -722,36 +722,38 @@ toOperand x = case x of
 emitInstr :: Instr -> M ()
 emitInstr i = modify' $ \st -> st{ instrs = i : instrs st }
 
+verbose = False
+
 codegen :: FilePath -> [M Expr] -> IO ()
 codegen file ds = do
-  putStrLn "=================================="
-  putStrLn file
+  when verbose $ putStrLn "=================================="
+  when verbose $ putStrLn file
 
-  putStrLn "--- typed input ------------------------"
+  when verbose $ putStrLn "--- typed input ------------------------"
   let (fs, st) = runState (toFuncs ds) initSt
-  print $ ppFuncs ppFunc fs
+  when verbose $ print $ ppFuncs ppFunc fs
 
-  putStrLn "--- a-normalization (ANF) --------------"
+  when verbose $ putStrLn "--- a-normalization (ANF) --------------"
   let (anfs, st1) = runState (mapM toAFuncs fs) st
-  print $ ppFuncs (vcat . ((:) "---") . map ppAFunc) anfs
+  when verbose $ print $ ppFuncs (vcat . ((:) "---") . map ppAFunc) anfs
 
-  putStrLn "--- continuation passing style (CPS) ---"
+  when verbose $ putStrLn "--- continuation passing style (CPS) ---"
   let (cpss :: [[CPSFunc]], st2) = runState (mapM toCPSFuncs anfs) st1
-  print $ ppFuncs (vcat . ((:) "---") . map ppCPSFunc) cpss
+  when verbose $ print $ ppFuncs (vcat . ((:) "---") . map ppCPSFunc) cpss
 
-  putStrLn "--- single static assignment (SSA) -----"
+  when verbose $ putStrLn "--- single static assignment (SSA) -----"
   let ssas :: [SSAFunc] = map toSSAFunc cpss
-  print $ ppFuncs ppSSAFunc ssas
+  when verbose $ print $ ppFuncs ppSSAFunc ssas
 
-  putStrLn "--- LLVM -----"
+  when verbose $ putStrLn "--- LLVM -----"
   let m = toLLVMModule file (HMS.toList $ strings st) (HMS.toList $ externs st) ssas
   let s = AST.ppllvm m
-  T.putStrLn s
+  when verbose $ T.putStrLn s
   let oFile = file ++ ".ll"
   T.writeFile oFile s
   putStrLn $ "generated LLVM " ++ oFile ++ "!"
 
-  putStrLn "=================================="
+  when verbose $ putStrLn "=================================="
 
 toFuncs :: [M Expr] -> M [Func]
 toFuncs ds = do
@@ -910,6 +912,15 @@ fromUPat :: Type -> UPat -> Pat
 fromUPat ty upat = case (unTupleTy ty, upat) of
   ([], [v]) -> [V tyUnit v]
   (tys, _)  -> safeZipWith "fromUPat" V (unTupleTy ty) upat
+
+swapargs :: E ((a,b) -> c) -> E ((b,a) -> c)
+swapargs (E x) = E $ do
+  a <- x
+  let g f = \[a,b] -> f [b,a]
+  case a of
+    CallE (nm,a) bs -> case a of
+      Defn f        -> pure $ CallE (nm, Defn $ g f) bs
+    _ -> impossible "swapargs"
 
 letFunc :: (Ty a, Ty b) => Name -> UPat -> (E a -> E b) -> M Func
 letFunc n upat (f :: E a -> E b) = uletFunc (tyFort (Proxy :: Proxy (a -> b))) n upat f
@@ -1270,31 +1281,33 @@ stderr :: E Handle
 stderr = global "g_stderr"
 
 output :: Ty a => E (a -> ())
-output = opapp stdout (swapargs h_output)
-
-swapargs :: E ((a,b) -> c) -> E ((b,a) -> c)
-swapargs (E x) = E $ do
-  a <- x
-  let g f = \[a,b] -> f [b,a]
-  case a of
-    CallE (nm,a) bs -> case a of
-      Defn f        -> pure $ CallE (nm, Defn $ g f) bs
-    _ -> impossible "swapargs"
-
-h_output :: Ty a => E ((a, Handle) -> ())
-h_output = f Proxy
+output = f Proxy
   where
-    f :: Ty a => Proxy a -> E ((a, Handle) -> ())
-    f proxy = uh_output (tyFort proxy)
+    f :: Ty a => Proxy a -> E (a -> ())
+    f proxy = func ("outputln_" ++ nameFromType ty) ["a"] $ \a ->
+      sepS stdout "\n" (uoutput ty stdout a)
+      where
+        ty = tyFort proxy
+
+sepS :: E Handle -> String -> E () -> E ()
+sepS h s a = seq a (putS h s)
 
 seqs_ :: [E ()] -> E ()
 seqs_ [] = unit
 seqs_ xs = seqs (init xs) (last xs)
 
+uoutput :: Type -> E Handle -> E a -> E ()
+uoutput t h a = app (opapp a (uh_output t)) h
+
+putS :: E Handle -> String -> E ()
+putS h s = app (opapp (string s) h_put_string) h
+
 uh_output :: Type -> E ((a, Handle) -> ())
 uh_output t0 = case t0 of
-  TyChar        -> unsafeCast h_put_char
-  TyString      -> unsafeCast h_put_string
+  TyChar        -> ok $ \(a,h) ->
+    delim h "#\"" "\"" $ app (opapp a (unsafeCast h_put_char)) h
+  TyString      -> ok $ \(a,h) ->
+    delim h "\"" "\"" $ app (opapp a (unsafeCast h_put_string)) h
   TySigned 64   -> unsafeCast h_put_sint64
   TyUnsigned 64 -> unsafeCast h_put_uint64
   TySigned sz   -> ok $ \(a,h) -> uoutput (TySigned 64) h (app (usext t0 (TySigned 64)) a)
@@ -1309,11 +1322,15 @@ uh_output t0 = case t0 of
     TyArray sz t1 -> ok $ \(a,h) -> uloop sz t1 a
     TyTuple ts    -> ok $ \(a,h) ->
       delim h "(" ")" $
-        seqs_ [ sep h ", " $ uoutput (TyAddress t) h (app (ugep t0 t i) a)
+        seqs_ [ sepS h ", " $ uoutput (TyAddress t) h (app (ugep t0 t i) a)
               | (i, t) <- zip [0..] ts]
     TyRecord bs   -> ok $ \(a,h) ->
       delim h "{" "}" $
-        seqs_ [ sep h ", " $ uoutput (TyAddress t) h (app (ugep t0 t i) a)
+        seqs_ [ sepS h ", " $
+                  seqs_ [ putS h fld
+                        , putS h " = "
+                        , uoutput (TyAddress t) h (app (ugep t0 t i) a)
+                        ]
               | (i, (fld,t)) <- zip [0..] bs ]
     TyVariant bs  -> ok $ \(a,h) ->
       let f (s, t) = \_ -> case () of
@@ -1332,15 +1349,12 @@ uh_output t0 = case t0 of
   where
     ok :: ((E a, E Handle) -> E ()) -> E ((a, Handle) -> ())
     ok f = ufunc (TyFun (tyTuple [t0, tyFort (Proxy :: Proxy Handle)]) tyUnit)
-      ("output_" ++ show (hash $ show t0)) ["a","h"] $ \v -> f (argTuple2 v)
-    uoutput :: Type -> E Handle -> E a -> E ()
-    uoutput t h a = app (opapp a (uh_output t)) h
-    sep :: E Handle -> String -> E () -> E ()
-    sep h s = seq (putS h s)
-    delim :: E Handle -> String -> String -> E () -> E ()
-    delim h l r a = seqs_ [putS h l, a, putS h r]
-    putS :: E Handle -> String -> E ()
-    putS h s = uoutput TyString h (string s)
+      ("output_" ++ nameFromType t0) ["a","h"] $ \v -> f (argTuple2 v)
+
+nameFromType = show . hash . show
+
+delim :: E Handle -> String -> String -> E () -> E ()
+delim h l r a = seqs_ [putS h l, a, putS h r]
 
 uloop :: Integer -> Type -> E a -> E ()
 uloop sz t _ = unit

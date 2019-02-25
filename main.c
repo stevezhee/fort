@@ -113,6 +113,7 @@ int main(int argc, char**argv)
       printf("%d,",perm[i]);
     }
   printf("\n");
+
   /* 228 */
   /* Pfannkuchen(7) = 16 */
   return 0;

@@ -13,7 +13,7 @@ FORT_FILES=$(wildcard $(TEST_DIR)/*.fort)
 # FORT_FILES=test/todd.fort
 # FORT_FILES=test/fannkuch-redux.fort
 # FORT_FILES=test/nestedif.fort
-FORT_FILES=test/enum.fort
+# FORT_FILES=test/enum.fort
 
 GEN_HS_FILES=$(addsuffix .hs, $(FORT_FILES))
 LL_FILES=$(addsuffix .ll, $(FORT_FILES))
@@ -53,7 +53,7 @@ coverage: $(HS_FILES) test/Spec.hs
 clean:
 	stack clean
 	rm -f a.out
-	rm test/*.ll
-	rm test/*.s
-	rm test/*.o
-	rm test/*.fort.hs
+	rm -f test/*.ll
+	rm -f test/*.s
+	rm -f test/*.o
+	rm -f test/*.fort.hs
