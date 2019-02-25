@@ -14,18 +14,18 @@ typedef struct {
 } MyStruct2;
 
 extern void reverse_n(int,int []);
-extern int fannkuch(int []);
-extern void hello_world();
-extern int powi(int, int);
-extern int squared(int);
-extern void inc(int*);
-extern void inc2(int*);
-extern void foo_array(int[2]);
-extern void foo_struct(MyStruct*, MyStruct2*);
-extern void char_io_test();
-extern void foo_2dim_array(int[2][3]);
-extern void add3AtLoc(int*);
-extern void enum_foo(int);
+extern int fannkuch_redux_fannkuch(int []);
+extern void char_hello_world();
+extern int powi_powi(int, int);
+extern int powi_squared(int);
+extern void address_inc(int*);
+extern void address_inc2(int*);
+extern void array_foo_array(int[2]);
+extern void struct_foo_struct(MyStruct*, MyStruct2*);
+extern void char_char_io_test();
+extern void array_foo_2dim_array(int[2][3]);
+extern void primitives_add3AtLoc(int*);
+extern void enum_enum_foo(int);
 
 void h_put_uint64(uint64_t x, FILE *h)
 {
@@ -46,20 +46,20 @@ int main(int argc, char**argv)
   g_stdin = stdin;
   g_stdout = stdout;
   g_stderr = stderr;
-  printf("3^2 = %d\n",powi(3,2));
-  printf("128^0 = %d\n",powi(128,0));
-  printf("128^1 = %d\n",powi(128,1));
-  printf("3^2 = %d\n",squared(3));
+  printf("3^2 = %d\n",powi_powi(3,2));
+  printf("128^0 = %d\n",powi_powi(128,0));
+  printf("128^1 = %d\n",powi_powi(128,1));
+  printf("3^2 = %d\n",powi_squared(3));
 
   int x = 0;
   printf("%d\n",x);
-  inc(&x);
+  address_inc(&x);
   printf("%d\n",x);
-  inc2(&x);
+  address_inc2(&x);
   printf("%d\n",x);
 
   int arr[2];
-  foo_array(arr);
+  array_foo_array(arr);
   printf("arr[0] %d\n",arr[0]);
   printf("arr[1] %d\n",arr[1]);
 
@@ -72,7 +72,7 @@ int main(int argc, char**argv)
   printf("sizeof MyStruct.y %lu\n", sizeof(mystruct.y));
   printf("sizeof MyStruct.z %lu\n", sizeof(mystruct.z));
   printf("sizeof MyStruct %lu\n", sizeof(mystruct));
-  foo_struct(&mystruct, &mystruct2);
+  struct_foo_struct(&mystruct, &mystruct2);
   printf("mystruct.x %d\n",mystruct.x);
   printf("mystruct.y %c\n",mystruct.y);
   printf("mystruct.z %llu\n",mystruct.z);
@@ -82,11 +82,11 @@ int main(int argc, char**argv)
 
   if(argc > 1)
     {
-      char_io_test();
+      char_char_io_test();
     }
 
   int arr2[2][3];
-  foo_2dim_array(arr2);
+  array_foo_2dim_array(arr2);
 
   int i,j;
   for(i=0;i<2;++i)
@@ -98,15 +98,15 @@ int main(int argc, char**argv)
     }
 
   int myInt = 4;
-  add3AtLoc(&myInt);
+  primitives_add3AtLoc(&myInt);
   printf("myInt = %d\n", myInt);
 
-  hello_world();
+  char_hello_world();
 
   int perm[] = {4,2,1,5,3};
-  printf("flips: %d\n", fannkuch(perm));
+  printf("flips: %d\n", fannkuch_redux_fannkuch(perm));
 
-  enum_foo(0);
+  enum_enum_foo(0);
 
   for(i=0; i < 5; ++i)
     {

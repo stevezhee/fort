@@ -7,7 +7,6 @@ module Typed where
 
 import Control.Monad.State.Strict
 import Data.Bifunctor
-import Data.Graph                          as G
 import Data.Hashable
 import Data.List
 import Data.Maybe
@@ -15,10 +14,11 @@ import Data.Proxy
 import Data.String
 import Data.Text.Prettyprint.Doc
 import Debug.Trace
-import Fort (neededBits, neededBitsList, ppTuple, ppListV)
+import Fort (canonicalizeName, neededBits, neededBitsList, ppTuple, ppListV)
 import LLVM.AST (Operand, Instruction)
 import LLVM.AST.Constant (Constant)
 import Prelude hiding (seq)
+import System.FilePath
 import qualified Data.HashMap.Strict       as HMS
 import qualified Data.Text.Lazy.IO         as T
 import qualified Instr as I
@@ -84,9 +84,10 @@ data St = St
   , sfuncs  :: [CPSFunc]
   , instrs  :: [Instr]
   , conts   :: HMS.HashMap Name (HMS.HashMap Nm Integer)
+  , path    :: FilePath
   } deriving Show
 
-initSt :: St
+initSt :: FilePath -> St
 initSt = St 0 mempty mempty mempty mempty mempty mempty mempty
 
 type M a = State St a -- BAL: break up into multiple monads
@@ -641,12 +642,15 @@ toLLVMModule ::
   FilePath -> [(String, Var)] -> [(Name, Type)] -> [SSAFunc] -> AST.Module
 toLLVMModule file strs exts xs = AST.defaultModule
   { AST.moduleSourceFileName = fromString file
-  , AST.moduleName = fromString file
-  , AST.moduleDefinitions =
+  , AST.moduleName           = fromString $ modNameOf file
+  , AST.moduleDefinitions    =
       map toLLVMExternDefn exts ++
       map toLLVMStringDefn strs ++
       map toLLVMFunction xs
   }
+  where
+
+modNameOf = canonicalizeName . takeBaseName
 
 toLLVMFunction :: SSAFunc -> AST.Definition
 toLLVMFunction (SSAFunc nm vs xs) =
@@ -730,7 +734,7 @@ codegen file ds = do
   when verbose $ putStrLn file
 
   when verbose $ putStrLn "--- typed input ------------------------"
-  let (fs, st) = runState (toFuncs ds) initSt
+  let (fs, st) = runState (toFuncs ds) $ initSt file
   when verbose $ print $ ppFuncs ppFunc fs
 
   when verbose $ putStrLn "--- a-normalization (ANF) --------------"
@@ -943,10 +947,13 @@ type UPat = [Name] -- BAL: handle nested patterns
 func :: (Ty a, Ty b) => Name -> UPat -> (E a -> E b) -> E (a -> b)
 func n pat (f :: (E a -> E b)) = ufunc (tyFort (Proxy :: Proxy (a -> b))) n pat f
 
+qualifyName a b = modNameOf b ++ "_" ++ a
+
 ufunc :: Type -> Name -> UPat -> (E a -> E b) -> E (a -> b)
-ufunc ty n pat f = E $ do
+ufunc ty n0 pat f = E $ do
+  n   <- qualifyName n0 <$> gets path
   tbl <- gets funcs
-  let (nm,g) = funTys n ty
+  let (nm, g) = funTys n ty
   case HMS.lookup n tbl of
     Just _  -> pure ()
     Nothing -> do
