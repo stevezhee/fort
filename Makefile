@@ -42,11 +42,9 @@ a.out.actual: $(OUT_FILE)
 
 %.fort.s: %.fort.ll
 	llc $<
-	@echo generated asm $@!
 
 %.fort.o: %.fort.s
 	clang -o $@ -c $^
-	@echo generated object file $@!
 
 $(OUT_FILE): main.c $(O_FILES)
 	clang -lc $^
