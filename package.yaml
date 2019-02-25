@@ -26,9 +26,9 @@ library:
   source-dirs: src
   exposed-modules:
     - Fort
-    - Eval
+    - Instr
     - Parser
-    - LLVM
+    - Typed
   dependencies:
     - mtl
     - lexer-applicative
@@ -44,6 +44,9 @@ library:
     - text
     - prettyprinter
     - prettyprinter-ansi-terminal
+    - unordered-containers
+    - hashable
+    - filepath
 
 executables:
   fort-exe:

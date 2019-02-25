@@ -1,37 +1,39 @@
 ;; types
-Char = /char 8
-Handle = /address (/unsigned 32)
-RealWorld = /unsigned 1
+Char = /char
+Handle = /address (/unsigned 64)
 String = /string
 
+;; primitives
 stdin: Handle
 stdout: Handle
 stderr: Handle
+
+h-get-char: Handle -> Char
+output: a -> ()
+
+;; constants
 
 a = #"a"
 b: Char = #"b"
 s: String = "hello, world"
 
+;; functions
+
+char-foo: Char -> Char = \_ => fst (#"z",#"a")
+char-bar: Char -> Char = \_ => fst (a,b : Char)
+
+get-char: () -> Char = \() => h-get-char stdin
+
+char-io-test: () -> () = \w => /do
+  output (get-char w)
+
+hello-world: () -> () = \_ => /do
+  output (s)
+  output ("hi, again")
+
 fst: (Char, Char) -> Char = \(x,_) => x
-foo: Char -> Char = \_ => fst (#"z",#"z")
-bar: Char -> Char = \_ => fst (a,b : Char)
+
 qux: Char -> Char = \_ => fst (c,d)
   /where
     c = #"c"
     d: Char = #"d"
-
-h-get-char: Handle -> Char
-get-char: RealWorld -> Char = \_ => h-get-char stdin
-h-put: (a, Handle) -> ()
-
-put-char: Char -> () = h-put (,stdout)
-
-put-string: String -> () = h-put (,stdout)
-
-char-io-test: RealWorld -> () = \w => /do
-  put-char (get-char w)
-  put-char #"!"
-
-hello-world: RealWorld -> () = \_ => /do
-  put-string (s)
-  put-string ("hello, world")

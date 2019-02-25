@@ -1,49 +1,61 @@
+.SUFFIXES:
+.PRECIOUS: %.fort.hs %.fort.ll %.fort.s %.fort.o
+
 TEST_DIR=test
-GEN_DIR=generated
-GEN_PATH=$(GEN_DIR)/$(TEST_DIR)
-DIRS = $(TEST_DIR) $(GEN_DIR) $(GEN_PATH)
 HS_FILES=$(shell find src -name \*.hs) $(shell find app -name \*.hs)
+
 FORT_FILES=$(wildcard $(TEST_DIR)/*.fort)
-GEN_FILE_NAMES=$(FORT_FILES:$(TEST_DIR)/%.fort=%)
-GEN_HS_FILES=$(GEN_FILE_NAMES:%=$(GEN_PATH)/%.fort.hs)
-GEN_LL_FILES=$(GEN_FILE_NAMES:%=$(GEN_PATH)/%.fort.ll)
-GEN_S_FILES=$(GEN_FILE_NAMES:%=$(GEN_PATH)/%.fort.s)
-GEN_O_FILES=$(GEN_FILE_NAMES:%=$(GEN_PATH)/%.fort.o)
+# FORT_FILES=test/address.fort
+# FORT_FILES=test/array.fort
+# FORT_FILES=test/char.fort
+# FORT_FILES=test/powi.fort
+# FORT_FILES=test/struct.fort
+# FORT_FILES=test/todd.fort
+# FORT_FILES=test/fannkuch-redux.fort
+# FORT_FILES=test/nestedif.fort
+# FORT_FILES=test/enum.fort
+
+GEN_HS_FILES=$(addsuffix .hs, $(FORT_FILES))
+LL_FILES=$(addsuffix .ll, $(FORT_FILES))
+O_FILES=$(addsuffix .o, $(FORT_FILES))
 OUT_FILE=a.out
 
-.PRECIOUS: $(GEN_HS_FILES) $(GEN_LL_FILES) $(GEN_S_FILES) $(GEN_O_FILES)
-
 .PHONY: all
-all: coverage run
+all: diff
 
-$(DIRS):
-	mkdir -p $@
+.PHONY: diff
+diff: a.out.actual
+	diff a.out.expected $<
 
-.PHONY: run
-run: $(OUT_FILE)
-	./$<
+a.out.actual: $(OUT_FILE)
+	./$< | tee ./a.out.actual
 
-$(GEN_PATH)/%.fort.hs: test/%.fort $(HS_FILES) | $(GEN_PATH)
+%.fort.hs: %.fort $(HS_FILES)
 	stack runghc -- -isrc app/Main.hs $<
 
-$(GEN_PATH)/%.fort.ll: $(GEN_PATH)/%.fort.hs $(HS_FILES) | $(GEN_PATH)
+%.fort.ll: %.fort.hs
 	stack runghc -- -isrc $<
 
-$(GEN_PATH)/%.fort.s: $(GEN_PATH)/%.fort.ll | $(GEN_PATH)
-	llc $^
+%.fort.s: %.fort.ll
+	llc $<
+	@echo generated asm $@!
 
-$(GEN_PATH)/%.fort.o: $(GEN_PATH)/%.fort.s | $(GEN_PATH)
+%.fort.o: %.fort.s
 	clang -o $@ -c $^
+	@echo generated object file $@!
 
-$(OUT_FILE): main.c $(GEN_O_FILES)
+$(OUT_FILE): main.c $(O_FILES)
 	clang -lc $^
 
 .PHONY: coverage
-coverage: $(HS_FILES)
+coverage: $(HS_FILES) test/Spec.hs
 	stack test --coverage
 
 .PHONY: clean
 clean:
 	stack clean
 	rm -f a.out
-	rm -f $(GEN_PATH)/*.*
+	rm -f test/*.ll
+	rm -f test/*.s
+	rm -f test/*.o
+	rm -f test/*.fort.hs

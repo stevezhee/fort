@@ -1,25 +1,26 @@
 ;; types
 Int = /signed 32
-Bool = /unsigned 1
-Char = /char 8
+Bool = /bool
+Char = /char
 
 ;; primitives
 load: /address a -> a
+output: a -> ()
 
 ;; case expressions
 ;; integer
 int-case: Int -> Int = \x => /case x /of
   42 = 0
   24 = x
-  _ = \_ => 1 ;; BAL: should be \_ => 1
+  \_ => 1
 
 ;; character
 char-case: Char -> Char = \x => /case x /of
   #"a" = #"b"
-  _ = \c => c
+  \c => c
 
 ;; enum
-Color = /variant
+Color = /enum
   Red
   Green
   Blue
@@ -27,23 +28,41 @@ Color = /variant
 enum-case: Color -> Color = \c => /case c /of
   Red = green
   Green = red
-  _ = \_ => blue ;; BAL: should be \_ => blue
+  \_ => blue
+
+enum-foo: Color -> () = \c => /do
+  output green
+  output c
+  output (enum-case c)
+  output (enum-case blue)
 
 ;; variant
-Either = /variant
+Either = /enum
   Left: Char
   Right: Int
+  
+either-case-0: /address Either -> Int = \x => /case x /of
+  Left  = \_ => 1
+  Right = \_ => 2
+
+either-case-1: /address Either -> Int = \x => /case x /of
+  Left  = \_ => 42
+  Right = \b => load b
 
 either-case: /address Either -> () = \x => /case x /of
-  Left = \a => left (x, load a)
+  Left  = \a => left (x, load a)
   Right = \b => right (x, load b)
 
 ;; variant mixed
-Optional = /variant
+Optional = /enum
   None
   Some: Char
 
 optional-case: /address Optional -> () = \x => /case x /of
-  None = none x
-  Some = \c => some (x, load c)
+  None = /do
+    none x
+    output x
+  Some = \c => /do
+    some (x, load c)
+    output x
 

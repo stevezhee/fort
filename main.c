@@ -1,61 +1,40 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 
 typedef struct {
-  int x;
-  char y;
-  long int z;
+  int32_t x;
+  uint8_t y;
+  int64_t z;
 } MyStruct;
 
 typedef struct {
-  int y;
-  long int x;
+  int32_t a;
+  int64_t b;
 } MyStruct2;
 
 extern void reverse_n(int,int []);
-extern int fannkuch(int []);
-extern void hello_world();
-extern int powi(int, int);
-extern int squared(int);
-extern void inc(int*);
-extern void inc2(int*);
-extern void foo_array(int[2]);
-extern void foo_struct(MyStruct*, MyStruct2*);
-extern void char_io_test(int);
-extern void foo_2dim_array(int[2][3]);
-extern void add3AtLoc(int*);
+extern int fannkuch_redux_fannkuch(int []);
+extern void char_hello_world();
+extern int powi_powi(int, int);
+extern int powi_squared(int);
+extern void address_inc(int*);
+extern void address_inc2(int*);
+extern void array_foo_array(int[2]);
+extern void struct_foo_struct(MyStruct*, MyStruct2*);
+extern void char_char_io_test();
+extern void array_foo_2dim_array(int[2][3]);
+extern void primitives_add3AtLoc(int*);
+extern void enum_enum_foo(int);
 
-void h_put_uint(unsigned int x, FILE *h)
+void h_put_uint64(uint64_t x, FILE *h)
 {
-  if (x == 0)
-    {
-      fputc('0',h);
-      return;
-    }
-
-  char buf[11];
-  buf[10] = '\0';
-  int idx = 10;
-
-  while (x > 0) // faster way to do this? (eliminate divisions)
-    {
-      idx--;
-      buf[idx] = '0' + x % 10;
-      x /= 10;
-    }
-  fputs(&buf[idx], h);
+  fprintf(h, "%llu", x);
 }
 
-void h_put_sint(int x, FILE *h)
+void h_put_sint64(int64_t x, FILE *h)
 {
-  if (x < 0)
-    {
-      fputc('-', h);
-      h_put_uint((unsigned int)(-x), h);
-    } else
-    {
-      h_put_uint((unsigned int)(x), h);
-    }
+  fprintf(h, "%lld", x);
 }
 
 FILE* g_stdin;
@@ -64,57 +43,51 @@ FILE* g_stderr;
 
 int main(int argc, char**argv)
 {
-  h_put_sint(42, stdout);
-  printf("\n");
-  h_put_sint(-42, stdout);
-  printf("\n");
-
   g_stdin = stdin;
   g_stdout = stdout;
   g_stderr = stderr;
-  printf("%d\n",powi(3,2));
-  printf("%d\n",powi(128,0));
-  printf("%d\n",powi(128,1));
-  printf("%d\n",powi(3,3));
-  printf("%d\n",powi(2,3));
-  printf("%d\n",powi(4,6));
-  printf("%d\n",squared(3));
+
+  printf("3^2 = %d\n",powi_powi(3,2));
+  printf("128^0 = %d\n",powi_powi(128,0));
+  printf("128^1 = %d\n",powi_powi(128,1));
+  printf("3^2 = %d\n",powi_squared(3));
 
   int x = 0;
   printf("%d\n",x);
-  inc(&x);
+  address_inc(&x);
   printf("%d\n",x);
-  inc2(&x);
+  address_inc2(&x);
   printf("%d\n",x);
 
   int arr[2];
-  foo_array(arr);
+  array_foo_array(arr);
   printf("arr[0] %d\n",arr[0]);
   printf("arr[1] %d\n",arr[1]);
 
-  MyStruct mystruct;
-  MyStruct2 mystruct2;
   printf("sizeof int %lu\n", sizeof(int));
   printf("sizeof FILE* %lu\n", sizeof(FILE*));
+
+  MyStruct mystruct;
+  MyStruct2 mystruct2;
   printf("sizeof MyStruct.x %lu\n", sizeof(mystruct.x));
   printf("sizeof MyStruct.y %lu\n", sizeof(mystruct.y));
   printf("sizeof MyStruct.z %lu\n", sizeof(mystruct.z));
   printf("sizeof MyStruct %lu\n", sizeof(mystruct));
-  foo_struct(&mystruct, &mystruct2);
+  struct_foo_struct(&mystruct, &mystruct2);
   printf("mystruct.x %d\n",mystruct.x);
   printf("mystruct.y %c\n",mystruct.y);
-  printf("mystruct.z %lu\n",mystruct.z);
-  printf("mystruct2.y %d\n",mystruct2.y);
-  printf("mystruct2.x %lu\n",mystruct2.x);
+  printf("mystruct.z %llu\n",mystruct.z);
+  printf("mystruct2.a %d\n",mystruct2.a);
+  printf("mystruct2.b %llu\n",mystruct2.b);
   printf("stdin %p\n",stdin);
 
   if(argc > 1)
     {
-      char_io_test(42); // 42 is obviously the value for the RealWorld
+      char_char_io_test();
     }
 
   int arr2[2][3];
-  foo_2dim_array(arr2);
+  array_foo_2dim_array(arr2);
 
   int i,j;
   for(i=0;i<2;++i)
@@ -126,19 +99,22 @@ int main(int argc, char**argv)
     }
 
   int myInt = 4;
-  add3AtLoc(&myInt);
+  primitives_add3AtLoc(&myInt);
   printf("myInt = %d\n", myInt);
 
-  hello_world();
-  printf("\n");
+  char_hello_world();
 
   int perm[] = {4,2,1,5,3};
-  printf("flips: %d\n", fannkuch(perm));
+  printf("flips: %d\n", fannkuch_redux_fannkuch(perm));
+
+  enum_enum_foo(0);
+
   for(i=0; i < 5; ++i)
     {
       printf("%d,",perm[i]);
     }
   printf("\n");
+
   /* 228 */
   /* Pfannkuchen(7) = 16 */
   return 0;

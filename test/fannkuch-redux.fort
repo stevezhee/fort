@@ -1,16 +1,18 @@
 ;; types
 Int = /unsigned 32
 Perm = /address (/array 5 Int) ;; BAL: make this configurable
-Bool = /unsigned 1 ;; BAL: should be variant type
+Bool = /bool
 
 ;; primitives
-add: (Int, Int) -> Int
+add: (a, a) -> a
 + = add
+equals: (a, a) -> Bool
+== = equals
 
-subtract: (Int, Int) -> Int
+subtract: (a, a) -> a
 - = subtract
 
-greater-than-or-equals: (Int, Int) -> Bool
+greater-than-or-equals: (a, a) -> Bool
 >= = greater-than-or-equals
 
 store: (/address a, a) -> ()
@@ -22,7 +24,7 @@ load: /address a -> a
 index: (/address (/array sz a), Int) -> /address a
 # = index
 
-truncate: Int -> Bool
+truncate: a -> b
 
 ;; code
 is-odd: Int -> Bool = truncate
@@ -31,20 +33,20 @@ fannkuch: Perm -> Int = \p => go 0
   /where
     go: Int -> Int = \num-flips => /case load (p # 0) /of
       1 = num-flips
-      _ = \i => /do
+      \i => /do
         reverse-n (i, p)
         go (num-flips + 1)
 
-;; BAL: try multiply version
+;; BAL: try multiply version when benchmarking
 checksum: (Int, Int) -> Int = \(csum, n-flips) => /if
-  is-odd n-flips => csum - n-flips
-  _ => csum + n-flips ;; BAL: should be =
+  is-odd n-flips = csum - n-flips
+  _ = csum + n-flips
   
-reverse-n: (Int, Perm) -> () = \(n,p) => go (0,n - 1)
+reverse-n: (Int, Perm) -> () = \(n,p) => go (0, n - 1)
   /where
     go: (Int, Int) -> () = \(l,r) => /if
-      l >= r => ()
-      _ => /do
+      l >= r = ()
+      _ = /do
         swap (p # l, p # r)
         go (l + 1, r - 1)
 

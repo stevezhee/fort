@@ -1,5 +1,6 @@
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RecursiveDo #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 
 module Parser
   ( parseAndCodeGen
@@ -8,18 +9,18 @@ where
 
 import Control.Applicative
 import Control.Monad.State
+import Data.List
 import Data.Loc
 import Data.String
 import Fort
 import Language.Lexer.Applicative
 import Prelude hiding (lex)
+import System.Exit
 import System.IO
 import Text.Earley hiding (satisfy)
 import Text.Regex.Applicative
 import qualified Language.Lexer.Applicative as L
 import qualified Text.Earley as E
-import System.Exit
-import Data.List
 
 pCon :: P r Con
 pCon = satisfy (startsWith upper)
@@ -37,7 +38,7 @@ pBind :: P r a -> P r a
 pBind p = p <* reserved "="
 
 reservedWords :: [String]
-reservedWords = ["\\", "=", "=>", "->", ":", "/where", "/let", "/if", "/case", "/of", "/do", "/record", "/variant", "/signed", "/unsigned", "/address", "/char", "/string", "/array", ",", ";", "{", "}", "[", "]", "(", ")"]
+reservedWords = ["\\", "=", "=>", "->", ":", "/where", "/let", "/if", "/case", "/of", "/do", "/record", "/enum", "/signed", "/unsigned", "/address", "/char", "/bool", "/string", "/array", ",", ";", "{", "}", "[", "]", "(", ")"]
 
 parens :: P r a -> P r a
 parens = between "(" ")"
@@ -78,23 +79,27 @@ grammar = mdo
     (pure TyChar <* reserved "/char") <|>
     (pure TyString <* reserved "/string") <|>
     (pure TySigned <* reserved "/signed") <|>
+    (pure TyBool <* reserved "/bool") <|>
     (pure TyAddress <* reserved "/address") <|>
     (pure TyArray <* reserved "/array") <|>
     (TyCon <$> pCon <?> "type constructor") <|>
     (TyVar <$> pVar <?> "type variable") <|>
     (TyRecord <$> (reserved "/record" *> blockList (pTypedVar (,))) <?> "record type") <|>
-    (TyVariant <$> (reserved "/variant" *> blockList pConOptionalAscription) <?> "variant type") <|>
+    (TyVariant <$> (reserved "/enum" *> blockList pConOptionalAscription) <?> "variant type") <|>
     (TySize <$> pSize <?> "sized type") <|>
     pTuple TyTuple pType <?> "tuple type"
   pAscription <- rule $ reserved ":" *> pType <?> "type ascription"
-  pOptionalAscription <- rule $ pAscription <|> pure TyNone
-  pVarOptionalAscription <- rule ((,) <$> pVar <*> pOptionalAscription)
-  pConOptionalAscription <- rule ((,) <$> pCon <*> pOptionalAscription)
-  pAltOptionalAscription <- rule ((,) <$> pAlt <*> pOptionalAscription)
-  pExprDecl <- rule $ ED <$> pBind pVarOptionalAscription <*> pExpr
-  pCaseDecl <- rule $ (,) <$> pBind pAltOptionalAscription <*> pExpr
-
-  let pIfAlt = (,) <$> pExpr <*> (reserved "=>" *> pExpr)
+  pVarOptionalAscription <- rule ((,) <$> pVar <*> optional pAscription)
+  pConOptionalAscription <- rule ((,) <$> pCon <*> optional pAscription)
+  pAltPatOptionalAscription <- rule ((,) <$> pAltPat <*> optional pAscription)
+  pFieldDecl <- rule $ (,) <$> pBind pVarOptionalAscription <*> pExpr
+  pExprDecl <- rule $ ED <$> pBind pPat <*> pExpr
+  pDefaultPat <- rule $
+    ((DefaultP,Nothing),) <$> (Lam <$> pLam pPat <*> pLamE <?> "default pattern")
+  pAlt <- rule $
+    ((,) <$> pBind pAltPatOptionalAscription <*> pExpr) <|>
+    pDefaultPat
+  let pIfAlt = (,) <$> pExpr <*> (reserved "=" *> pExpr)
   pExpr <- rule $
     (mkWhere <$> pLamE <*> (reserved "/where" *> blockList pExprDecl) <?> "where clause") <|>
     pLamE
@@ -107,20 +112,20 @@ grammar = mdo
     pKeywordE
   pKeywordE <- rule $
     (Sequence <$> (reserved "/do" *> blockList pExpr) <?> "do block") <|>
-    (Case <$> (reserved "/case" *> pExpr <* reserved "/of") <*> blockList pCaseDecl <?> "case expression") <|>
+    (Case <$> (reserved "/case" *> pExpr <* reserved "/of") <*> blockList pAlt <?> "case expression") <|>
     (mkIf <$> (reserved "/if" *> blockList pIfAlt) <?> "if expression") <|>
     pAscriptionE
   pAscriptionE <- rule $
     (Ascription <$> pE0 <*> pAscription) <|>
     pE0
   pE0 <- rule $
-    (Record <$> blockList pExprDecl <?> "record") <|>
+    (Record <$> blockList pFieldDecl <?> "record") <|>
     (pSomeTuple Tuple (optional pExpr) <?> "tuple") <|>
     -- ^ pSomeTuple is needed because the expr is optional
     (Prim <$> pPrim)
   pPat <- rule $
-    (VarP <$> pVar <*> pOptionalAscription <?> "var pattern") <|>
-    (pTuple TupleP pPat <*> pOptionalAscription <?> "tuple pattern")
+    (VarP <$> pVar <*> optional pAscription <?> "var pattern") <|>
+    (pTuple TupleP pPat <*> optional pAscription <?> "tuple pattern")
   return (blockItems pDecl)
   where
     blockList = braces . blockItems
@@ -129,14 +134,14 @@ grammar = mdo
 
 mkApp :: Expr -> Expr -> Expr
 mkApp x y = case y of
-  Tuple bs | Just (ps, ts) <- go freshVars [] [] bs -> Lam (TupleP ps TyNone) $ App x (Tuple ts)
+  Tuple bs | Just (ps, ts) <- go freshVars [] [] bs -> Lam (TupleP ps Nothing) $ App x (Tuple ts)
   _ -> App x y
   where
     go :: [Var] -> [Pat] -> [Maybe Expr] -> [Maybe Expr] -> Maybe ([Pat], [Maybe Expr])
     go _  vs es [] = if null vs then Nothing else Just (reverse vs, reverse es)
     go fs vs es (m:ms) = case m of
       Just{} -> go fs vs (m : es) ms
-      Nothing -> go (tail fs) (VarP v TyNone : vs) (Just (Prim (Var v)) : es) ms
+      Nothing -> go (tail fs) (VarP v Nothing : vs) (Just (Prim (Var v)) : es) ms
         where v = head fs
 
 freshVars :: [Var]
@@ -192,9 +197,8 @@ pIntLit = (\s -> useLoc (readError msg $ unLoc s) s) <$> satisfy isInt <?> msg
   where
     msg = "integer literal"
 
-pAlt :: P r Alt
-pAlt =
-  const DefaultP <$> satisfy (== "_") <|>
+pAltPat :: P r AltPat
+pAltPat =
   ConP <$> pCon <|>
   IntP <$> pIntLit <|>
   CharP <$> pCharLit <|>
@@ -230,48 +234,63 @@ inclusive a b c = c >= a && c <= b
 
 parseAndCodeGen :: FilePath -> IO ()
 parseAndCodeGen fn = do
-  putStrLn ("compiling " ++ fn)
+  putStrFlush fn
+  putStrFlush "->Lex->"
   s <- readFile fn
   let eab = streamToEitherList $ runLexer (mconcat
         [ L.token (longest tok)
         , whitespace (longest tokWS)
         ]) fn s
   case eab of
-    Left e -> hPutStrLn stderr (show e) -- >> return Nothing
+    Left e -> putStrLn "" >> hPutStrLn stderr (show e) -- >> return Nothing
     Right a -> do
+      putStrFlush "Indent->"
       let toks = indentation a
-      let (asts, rpt) = fullParses (parser grammar) toks
-      case (asts, unconsumed rpt) of
-        ([ast], []) -> do
-          putStrLn "; it parsed!"
-          let oFile = "generated/" ++ fn ++ ".hs"
-          writeFile oFile $ show $ ppDecls fn ast
-          -- return (Just ast)
-          -- print $ pp $ mkModule fn ast
-        (_, []) -> do
-          print "ambiguous :O"
-          -- print toks
-          mapM_ (\z -> putStrLn "" >> mapM_ print z) asts
-          -- return Nothing
-          exitFailure
-        _ -> do
-          let errtok@(L errloc _) = toks !! (position rpt)
-          putStrLn $ displayLoc errloc ++ ":error:unexpected token:"
-          case errloc of
-            NoLoc -> return ()
-            Loc start _ -> do
-              putStrLn (lines s !! (posLine start - 1))
-              putStrLn (replicate (posCol start - 1) ' ' ++ replicate (length $ unLoc errtok) '^')
-          putStrLn $ "got: " ++ show (unLoc errtok)
-          putStrLn $ "expected: " ++ show (expected rpt)
-            -- print toks
-          -- print asts
-          -- print rpt
-          -- print errtok
-          -- print errloc
-          -- print ()
-          exitFailure
-          -- return Nothing
+      case toks of
+        [] -> done fn []
+        _  -> parse fn s toks
+
+parse fn s toks = do
+  putStrFlush "Parse->"
+  let (asts, rpt) = fullParses (parser grammar) toks
+  case (asts, unconsumed rpt) of
+    ([ast], []) -> done fn ast
+    (_, []) -> do
+      putStrLn ""
+      hPutStrLn stderr "ambiguous :O"
+      -- print toks
+      mapM_ (\z -> hPutStrLn stderr "" >> mapM_ (hPutStrLn stderr . show) z) asts
+      -- return Nothing
+      exitFailure
+    _ -> do
+      putStrLn ""
+      let errtok@(L errloc _) = toks !! (position rpt)
+      -- putStrLn $ unwords $ map unLoc toks
+      hPutStrLn stderr $ displayLoc errloc ++ ":error:unexpected token:"
+      case errloc of
+        NoLoc -> return ()
+        Loc start _ -> do
+          hPutStrLn stderr (lines s !! (posLine start - 1))
+          hPutStrLn stderr (replicate (posCol start - 1) ' ' ++ replicate (length $ unLoc errtok) '^')
+      hPutStrLn stderr $ "got: " ++ show (unLoc errtok)
+      hPutStrLn stderr $ "expected: " ++ show (expected rpt)
+        -- print toks
+      -- print asts
+      -- print rpt
+      -- print errtok
+      -- print errloc
+      -- print ()
+      exitFailure
+      -- return Nothing
+
+done fn ast = do
+  -- putStrLn $ unwords $ map unLoc toks
+  putStrFlush "Haskell->"
+  let oFile = fn ++ ".hs"
+  writeFile oFile $ show (ppDecls fn ast) ++ "\n"
+  putStrLn oFile
+  -- return (Just ast)
+  -- print $ pp $ mkModule fn ast
 
 column :: Located a => a -> Int
 column x = case locOf x of
@@ -285,18 +304,22 @@ indentation toks@(t0:_) = go t0 [] toks
     go _ [] [] = []
     go prev cols [] = replicate (length cols) (useLoc "}" prev)
     go prev cols xs0@(x : xs)
-      | col < indentTop && not (col `elem` (1 : cols)) = error $ "unaligned indentation:" ++ show (locOf x)
+      | col < indentTop && not (col `elem` (1 : cols)) =
+          error $ "unaligned indentation:" ++ show (locOf x)
       | col == indentTop && unLoc x == "/where" || col < indentTop = close
+      | col == indentTop && isOpen = openAndSep
+      | isOpen = open
       | col == indentTop = sep
-      | unLoc x `elem` ["/of", "/where", "/if", "/do", "/record","/variant"] = open
       | otherwise = adv
       where
+        isOpen = unLoc x `elem` ["/of", "/where", "/if", "/do", "/record","/enum"]
         col = column (locOf x)
         indentTop = case cols of
           [] -> 1
           t : _ -> t
         close = useLoc "}" x : go prev (tail cols) xs0
         sep = useLoc ";" x : adv
+        openAndSep = useLoc ";" x : open
         open = case xs of
           [] -> error "no token following keyword"
           a : _ -> x : useLoc "{" x : go x (column (locOf a) : cols) xs

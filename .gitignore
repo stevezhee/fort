@@ -9,3 +9,7 @@ fort.cabal
 *.keep
 *.ll
 *.fort.hs
+*.swp
+.DS_Store
+settings
+config.log

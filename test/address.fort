@@ -1,15 +1,22 @@
 ;; types
+
 Int = /signed 64
 
 ;; primitives
+
 load: /address a -> a ;; where a is a primitive type
 store: (/address a, a) -> () ;; where a is a primitive type
 
-+ = add
-add: (Int, Int) -> Int
+add: (a, a) -> a ;; where a is a number type
 
-inc: /address Int -> () = \p => store (p, load p + 1)
+;; functions
+
+inc: /address Int -> () = \p => store (p, add (1, load p))
+
+;; operator
++ = add
+inc-op: /address Int -> () = \p => store (p, load p + 1)
 
 inc2: /address Int -> () = \p => /do
   inc p
-  inc p
+  inc-op p
