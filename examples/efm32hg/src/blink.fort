@@ -1,3 +1,6 @@
+;; efm32hg blink example by @toddtreece
+;; ported from C: https://github.com/toddtreece/tomu-llvm
+
 ;; ┌┬┐┬ ┬┌─┐┌─┐┌─┐
 ;;  │ └┬┘├─┘├┤ └─┐
 ;;  ┴  ┴ ┴  └─┘└─┘
