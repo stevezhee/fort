@@ -1,9 +1,10 @@
 module Main where
 
-import Parser
-import System.Environment
+import           Parser
+
+import           System.Environment
 
 main :: IO ()
 main = do
-  xs <- getArgs
-  mapM_ parseAndCodeGen xs
+    xs <- getArgs
+    mapM_ parseAndCodeGen xs

@@ -1,16 +1,20 @@
 module Instr where
 
-import Prelude hiding (and, or, pred)
-import Data.Word
-import LLVM.AST hiding (args, dests)
-import LLVM.AST.Type as AST
-import LLVM.AST.Typed
-import LLVM.AST.ParameterAttribute
-import qualified LLVM.AST as AST
-import qualified LLVM.AST.CallingConvention as CC
-import qualified LLVM.AST.Constant as C
-import qualified LLVM.AST.IntegerPredicate as IP
+import           Data.Word
+
+import           LLVM.AST                        hiding ( args, dests )
+
+import qualified LLVM.AST                        as AST
+import qualified LLVM.AST.CallingConvention      as CC
+import qualified LLVM.AST.Constant               as C
+
 import qualified LLVM.AST.FloatingPointPredicate as FP
+import qualified LLVM.AST.IntegerPredicate       as IP
+import           LLVM.AST.ParameterAttribute
+import           LLVM.AST.Type                   as AST
+import           LLVM.AST.Typed
+
+import           Prelude                         hiding ( and, or, pred )
 
 fadd :: Operand -> Operand -> Instruction
 fadd a b = FAdd noFastMathFlags a b []
@@ -76,7 +80,7 @@ store :: Operand -> Operand -> Instruction
 store addr val = Store False addr val Nothing 0 []
 
 gep :: Operand -> Operand -> Instruction
-gep addr i = GetElementPtr False addr [ConstantOperand $ C.Int 32 0, i] []
+gep addr i = GetElementPtr False addr [ ConstantOperand $ C.Int 32 0, i ] []
 
 trunc :: Operand -> Type -> Instruction
 trunc a to = Trunc a to []
@@ -142,8 +146,8 @@ phi :: [(Operand, Name)] -> Instruction
 phi xs = Phi ty xs []
   where
     ty = case xs of
-      [] -> AST.void
-      (a,_):_ -> typeOf a
+        [] -> AST.void
+        (a, _) : _ -> typeOf a
 
 retVoid :: Terminator
 retVoid = Ret Nothing []
@@ -152,15 +156,15 @@ ret :: Operand -> Terminator
 ret val = Ret (Just val) []
 
 call :: Operand -> [(Operand, [ParameterAttribute])] -> Instruction
-call fun args = Call {
-    AST.tailCallKind = Nothing
-  , AST.callingConvention = CC.C
-  , AST.returnAttributes = []
-  , AST.function = Right fun
-  , AST.arguments = filter ((/=) VoidType . typeOf . fst) args
-  , AST.functionAttributes = []
-  , AST.metadata = []
-  }
+call fun args =
+    Call { AST.tailCallKind       = Nothing
+         , AST.callingConvention  = CC.C
+         , AST.returnAttributes   = []
+         , AST.function           = Right fun
+         , AST.arguments          = filter ((/=) VoidType . typeOf . fst) args
+         , AST.functionAttributes = []
+         , AST.metadata           = []
+         }
 
 switch :: Operand -> Name -> [(C.Constant, Name)] -> Terminator
 switch val def dests = Switch val def dests []
