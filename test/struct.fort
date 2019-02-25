@@ -28,3 +28,4 @@ foo-struct: (/address MyStruct, /address MyStruct2) -> () = \(mystr, mystr2) => 
   a mystr2 := 24
   b mystr2 := 24242424
   output mystr2
+

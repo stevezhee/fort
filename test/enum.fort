@@ -34,6 +34,7 @@ enum-foo: Color -> () = \c => /do
   output green
   output c
   output (enum-case c)
+  output (enum-case blue)
 
 ;; variant
 Either = /enum

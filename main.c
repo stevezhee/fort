@@ -46,6 +46,7 @@ int main(int argc, char**argv)
   g_stdin = stdin;
   g_stdout = stdout;
   g_stderr = stderr;
+
   printf("3^2 = %d\n",powi_powi(3,2));
   printf("128^0 = %d\n",powi_powi(128,0));
   printf("128^1 = %d\n",powi_powi(128,1));

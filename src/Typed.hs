@@ -1047,14 +1047,10 @@ string s = app f str
     f = uinstr (TyFun (TyAddress t) TyString) "string" (\[a] -> I.bitcast a (toTyLLVM TyString))
     t = TyAddress (TyArray (genericLength s + 1) TyChar)
     str = E $ do
-      tbl <- gets strings
-      n <- case HMS.lookup s tbl of
-        Nothing -> do
-          v <- freshVar t "s"
-          modify' $ \st -> st{ strings = HMS.insert s v $ strings st }
-          pure v
-        Just v -> pure v
-      pure $ AtomE $ String s n
+      -- tbl <- gets strings
+      let v = V t $ "s." ++ hashName s
+      modify' $ \st -> st{ strings = HMS.insert s v $ strings st }
+      pure $ AtomE $ String s v
 
 atomE :: Atom -> E a
 atomE = E . pure . AtomE
@@ -1291,7 +1287,7 @@ output :: Ty a => E (a -> ())
 output = f Proxy
   where
     f :: Ty a => Proxy a -> E (a -> ())
-    f proxy = func ("outputln_" ++ nameFromType ty) ["a"] $ \a ->
+    f proxy = func ("outputln_" ++ hashName ty) ["a"] $ \a ->
       sepS stdout "\n" (uoutput ty stdout a)
       where
         ty = tyFort proxy
@@ -1356,9 +1352,10 @@ uh_output t0 = case t0 of
   where
     ok :: ((E a, E Handle) -> E ()) -> E ((a, Handle) -> ())
     ok f = ufunc (TyFun (tyTuple [t0, tyFort (Proxy :: Proxy Handle)]) tyUnit)
-      ("output_" ++ nameFromType t0) ["a","h"] $ \v -> f (argTuple2 v)
+      ("output_" ++ hashName t0) ["a","h"] $ \v -> f (argTuple2 v)
 
-nameFromType = show . hash . show
+hashName :: (Show a) => a -> String
+hashName = show . hash . show
 
 delim :: E Handle -> String -> String -> E () -> E ()
 delim h l r a = seqs_ [putS h l, a, putS h r]

@@ -21,12 +21,14 @@ O_FILES=$(addsuffix .o, $(FORT_FILES))
 OUT_FILE=a.out
 
 .PHONY: all
-all: run
+all: diff
 
-.PHONY: run
-run: $(OUT_FILE)
+.PHONY: diff
+diff: a.out.actual
+	diff a.out.expected $<
+
+a.out.actual: $(OUT_FILE)
 	./$< | tee ./a.out.actual
-	diff a.out.expected a.out.actual
 
 %.fort.hs: %.fort $(HS_FILES)
 	stack runghc -- -isrc app/Main.hs $<
