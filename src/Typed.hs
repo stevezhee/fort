@@ -20,6 +20,7 @@ import LLVM.AST (Operand, Instruction)
 import LLVM.AST.Constant (Constant)
 import Prelude hiding (seq)
 import System.FilePath
+import qualified System.IO                 as IO
 import qualified Data.HashMap.Strict       as HMS
 import qualified Data.Text.Lazy.IO         as T
 import qualified Instr as I
@@ -731,34 +732,51 @@ verbose = False
 
 codegen :: FilePath -> [M Expr] -> IO ()
 codegen file ds = do
-  when verbose $ putStrLn "=================================="
-  when verbose $ putStrLn file
+  if verbose
+    then do
+      putStrLn "=================================="
+      putStrLn file
+      putStrLn "--- typed input ------------------------"
+    else putStrFlush "Typed->"
 
-  when verbose $ putStrLn "--- typed input ------------------------"
   let (fs, st) = runState (toFuncs ds) $ initSt file
-  when verbose $ print $ ppFuncs ppFunc fs
+  if verbose
+    then do
+      print $ ppFuncs ppFunc fs
+      putStrLn "--- a-normalization (ANF) --------------"
+    else putStrFlush "ANF->"
 
-  when verbose $ putStrLn "--- a-normalization (ANF) --------------"
   let (anfs, st1) = runState (mapM toAFuncs fs) st
-  when verbose $ print $ ppFuncs (vcat . ((:) "---") . map ppAFunc) anfs
+  if verbose
+    then do
+      print $ ppFuncs (vcat . ((:) "---") . map ppAFunc) anfs
+      putStrLn "--- continuation passing style (CPS) ---"
+    else putStrFlush "CPS->"
 
-  when verbose $ putStrLn "--- continuation passing style (CPS) ---"
   let (cpss :: [[CPSFunc]], st2) = runState (mapM toCPSFuncs anfs) st1
-  when verbose $ print $ ppFuncs (vcat . ((:) "---") . map ppCPSFunc) cpss
+  if verbose
+    then do
+      print $ ppFuncs (vcat . ((:) "---") . map ppCPSFunc) cpss
+      putStrLn "--- single static assignment (SSA) -----"
+    else putStrFlush "SSA->"
 
-  when verbose $ putStrLn "--- single static assignment (SSA) -----"
   let ssas :: [SSAFunc] = map toSSAFunc cpss
-  when verbose $ print $ ppFuncs ppSSAFunc ssas
+  if verbose
+    then do
+      print $ ppFuncs ppSSAFunc ssas
+      putStrLn "--- LLVM -----"
+    else putStrLn "LLVM."
 
-  when verbose $ putStrLn "--- LLVM -----"
   let m = toLLVMModule file (HMS.toList $ strings st) (HMS.toList $ externs st) ssas
   let s = AST.ppllvm m
   when verbose $ T.putStrLn s
   let oFile = file ++ ".ll"
   T.writeFile oFile s
-  putStrLn $ "generated LLVM " ++ oFile ++ "!"
+  putStrLn $ "LLVM written to" ++ oFile ++ "."
 
   when verbose $ putStrLn "=================================="
+
+putStrFlush s = putStr s >> IO.hFlush IO.stdout
 
 toFuncs :: [M Expr] -> M [Func]
 toFuncs ds = do
@@ -1306,35 +1324,32 @@ uoutput t h a = app (opapp a (uh_output t)) h
 putS :: E Handle -> String -> E ()
 putS h s = app (opapp (string s) h_put_string) h
 
-foreach :: Integer -> Type -> E (Addr a -> ()) -> E (Addr (Array sz a) -> ())
-foreach sz t f =
-  ufunc (TyFun (TyAddress (TyArray sz t)) tyUnit) "foreach" ["arr"] (\v ->
+ugep :: Type -> Type -> E ((a, UInt32) -> b)
+ugep t0 t =
+  uinstr (TyFun t0 (TyAddress t)) "ugep" $ \[addr, a] ->
+    I.gep addr a
+
+-- This runs forward.  Generally, running backwards is faster.
+uforeach :: Integer -> Type -> (E (Addr a) -> E ()) -> E ((b, Handle) -> ())
+uforeach sz t f = ufunc (TyFun (tyTuple [tyArr, tyHandle]) tyUnit)
+  ("foreach." ++ hashName tyArr) ["arr", "h"] (\v ->
   let
-    arr = v in
+    (arr, h) = argTuple2 v in
       (let
         go :: E (UInt32 -> ()) = callLocal "go"
       in
       (where_ (((app go) (int 0)))
-        [ uletFunc undefined "go" ["i"] (((\v ->
+        [ uletFunc (TyFun (TyUnsigned 32) tyUnit) "go" ["i"] (((\v ->
           let
             i = v in
               (if_ (app (opapp i greater_than_or_equals) (int sz))
                 (unit)
                 ((seqs
-                  -- [ -- ((app f) ((app index) (tuple2 (arr, i))))
-                  [ app f (app (ugep undefined undefined) (tuple2 (arr,i)))
+                  [ f (app (ugep tyArr t) (tuple2 (arr,i)))
                   ] (((app go) ((app ((opapp i add))) (int 1))))))))))
         ])))
-
-{-
-let loop i =
-  if i >= sz
-    then ()
-    else do
-      uoutput ? h (app (ugep ? ? i) a)
-      loop (i + 1)
-in loop 0
--}
+  where
+    tyArr = TyAddress (TyArray sz t)
 
 uh_output :: Type -> E ((a, Handle) -> ())
 uh_output t0 = case t0 of
@@ -1353,11 +1368,12 @@ uh_output t0 = case t0 of
     let c:cs = [ (s, \_ -> putS h s) | s <- ss ]
     in ucase t0 a (snd c) cs
   TyAddress t   -> case t of
-    TyArray sz t1 -> ok $ \(a,h) -> uloop sz t1 a
+    TyArray sz t1 -> ok $ \(a,h) ->
+      delim h "[" "]" $ app (uforeach sz t1 (\p -> sepS h ", " $ uoutput (TyAddress t1) h p)) (tuple2 (a,h))
     TyTuple ts    -> ok $ \(a,h) ->
       delim h "(" ")" $
         seqs_ [ sepS h ", " $ uoutput (TyAddress t) h (app (ugepi t0 t i) a)
-              | (i, t) <- zip [0..] ts]
+              | (i, t) <- zip [0..] ts ]
     TyRecord bs   -> ok $ \(a,h) ->
       delim h "{" "}" $
         seqs_ [ sepS h ", " $
@@ -1379,11 +1395,13 @@ uh_output t0 = case t0 of
       let c : cs = zip (map fst bs) (map f bs) in
       ucase t0 a (snd c) cs
     t -> ok $ \(a,h) -> uoutput t h (app (uload t) a)
-  _ -> impossible $ "h_output:" ++ show t0
+  _ -> impossible $ "uh_output:" ++ show t0
   where
     ok :: ((E a, E Handle) -> E ()) -> E ((a, Handle) -> ())
-    ok f = ufunc (TyFun (tyTuple [t0, tyFort (Proxy :: Proxy Handle)]) tyUnit)
+    ok f = ufunc (TyFun (tyTuple [t0, tyHandle]) tyUnit)
       ("output_" ++ hashName t0) ["a","h"] $ \v -> f (argTuple2 v)
+
+tyHandle = tyFort (Proxy :: Proxy Handle)
 
 hashName :: (Show a) => a -> String
 hashName = show . hash . show
@@ -1393,11 +1411,6 @@ delim h l r a = seqs_ [putS h l, a, putS h r]
 
 uloop :: Integer -> Type -> E a -> E ()
 uloop sz t _ = unit
-
-ugep :: Type -> Type -> E ((a, UInt32) -> b)
-ugep t0 t =
-  uinstr (TyFun t0 (TyAddress t)) "ugep" $ \[addr, a] ->
-    I.gep addr a
 
 ugepi :: Type -> Type -> Integer -> E (a -> b)
 ugepi t0 t i = opapp (int i) (swapargs (ugep t0 t))
@@ -1413,75 +1426,6 @@ uzext ta tb = uinstr (TyFun ta tb) "zext" $ \[a] -> I.zext a (toTyLLVM tb)
 
 ubitcast :: Type -> Type -> E (a -> b)
 ubitcast ta tb = uinstr (TyFun ta tb) "bitcast" $ \[a] -> I.bitcast a (toTyLLVM tb)
-
-
--- This runs forward.  Generally, running backwards is faster.
--- uReduceArray :: Integer -> M Expr -> (M Expr -> M Expr) -> M Expr
--- uReduceArray sz x f = do
---   a <- x
---   let v :: Var = undefined
---   let nm :: Nm = undefined
---   let i = undefined
---   let p :: M Expr = undefined -- i >= sz
---   let e1 = undefined -- f (v[i]) ; CallE (nm, LocalDefn) [i + 1]
---   e <- uif tyUnit p (pure $ TupleE []) e1
---   pure $ LetE [v] a $ LetRecE [ Func nm [i] e ] $ CallE (nm, LocalDefn) [AtomE $ Int 32 0]
-
--- foo :: Expr -> Type -> M Expr -> M Expr
--- foo h = go
---   where
---     goPrim :: Expr -> E ((a, Handle) -> ()) -> M Expr
---     goPrim e (E x) = do
---       a <- x
---       case a of
---         CallE f [] -> pure $ CallE f [e, h]
---         _ -> impossible "foo:goPrim"
-
---     go t0 m = do
---       e <- m
---       let x = pure e -- BAL: actually need to use a let expression, correct? OR! turn these into functions and the right thing will happen
---       case t0 of
---         TyChar        -> goPrim e h_put_char
---         TyString      -> goPrim e h_put_string
---         TySigned 64   -> goPrim e h_put_sint64
---         TyUnsigned 64 -> goPrim e h_put_uint64
---         TyEnum ss     -> ucase t0 x (snd c) cs
---           where
---             c : cs = [ (s, \_ -> putS s) | s <- ss ]
---         TyAddress t0  -> case t0 of
---           TyArray sz t -> delim "[" "]" $ uReduceArray sz x (\a -> putS ", " >> go t a)
---           TyTuple ts   -> delim "(" ")" $ sep ", " [ go t (ugep t0 i t x) | (i,t) <- zip [0..] ts ]
---           TyRecord bs  -> delim "{" "}" $ sep ", "
---             [ putS s >> putS " = " >> go t (ugep t0 i t x) | (i,(s,t)) <- zip [0..] bs ]
---           TyVariant bs -> ucase t0 x (snd c) cs
---             where
---               c : cs = [ (s, \a -> putS s >> putS " " >> (go t $ uvalueField t0 t a))
---                        | (i, (s, t)) <- zip [0..] bs ]
---           t -> go t (uload t0 x)
---         _ -> err
---       where
---         err = impossible $ "foo:" ++ show t0
---         putS s = go TyString (unE $ string s)
---         delim l r f = putS l >> f >> putS r
---         sep a fs = sequence_ [ putS a >> f | f <- fs ]
-
--- uload :: Type -> M Expr -> M Expr
--- uload t0@(TyAddress t1) x = do
---   e <- x
---   pure $ CallE (Nm (TyFun t0 t1) "load", Instruction (\[a] -> I.load a)) [e]
-
--- ugep :: Type -> Integer -> Type -> M Expr -> M Expr
--- ugep t0 i t1 x = do
---   e <- x
---   pure $ CallE (Nm (TyFun (tyTuple [t0, TyUnsigned 32]) (TyAddress t1)) "gep", Instruction (\[a,b] -> I.gep a b)) [e, AtomE $ Int 32 i]
-
--- uvalueField :: Type -> Type -> M Expr -> M Expr
--- uvalueField t0 t1 x = ubitcast (TyAddress (TyUnsigned 64)) (TyAddress t1) $ ugep t0 1 (TyUnsigned 64) x
-
--- ubitcast :: Type -> Type -> M Expr -> M Expr
--- ubitcast t0 t1 x = do
---   e <- x
---   pure $ CallE (Nm (TyFun t0 t1) "bitcast", Instruction (\[a] -> I.bitcast a $ toTyLLVM t1)) [e]
 
 h_get_char :: E (Handle -> Char_)
 h_get_char = extern "fgetc"
