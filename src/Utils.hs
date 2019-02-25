@@ -5,9 +5,32 @@ module Utils where
 
 import           Data.List
 import           Data.Text.Prettyprint.Doc
-
 import           System.FilePath
 import           System.IO
+import           Data.Loc
+import           Data.Maybe
+import           Data.Char
+import           Text.Read                 hiding ( parens )
+
+useLoc :: Located b => a -> b -> L a
+useLoc s t = L (locOf t) s
+
+column :: Located a => a -> Int
+column x = case locOf x of
+    NoLoc -> error "NoLoc"
+    Loc p _ -> posCol p
+
+ppLoc :: Pretty a => L a -> Doc x
+ppLoc = pretty . unLoc
+
+readError :: Read a => String -> String -> a
+readError desc s = fromMaybe err (readMaybe s)
+  where
+    err = error $ "unable to read:" ++ desc ++ ":" ++ show s
+
+lowercase :: String -> String
+lowercase "" = ""
+lowercase (c : cs) = toLower c : cs
 
 canonicalizeName :: String -> String
 canonicalizeName = map f

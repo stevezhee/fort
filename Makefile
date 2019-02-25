@@ -35,10 +35,10 @@ a.out.actual: $(OUT_FILE)
 	./$< | tee ./a.out.actual
 
 %.fort.hs: %.fort $(HS_FILES)
-	stack runghc -- -isrc app/Main.hs $<
+	stack runghc -- -Wall -isrc app/Main.hs $<
 
 %.fort.ll: %.fort.hs
-	stack runghc -- -isrc $<
+	stack runghc -- -Wall -isrc $<
 
 %.fort.s: %.fort.ll
 	llc $<

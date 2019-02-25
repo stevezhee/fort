@@ -8,20 +8,8 @@
 
 module LLVM where
 
-import           ANF
-
-import           CPS
-
-import           Control.Monad.State.Strict
-
-import           Data.Bifunctor
-import qualified Data.HashMap.Strict        as HMS
-import           Data.List
-import           Data.Maybe
-
 import           Data.Proxy
 import           Data.String
-import           Data.Text.Prettyprint.Doc
 
 import           IRTypes
 
@@ -29,18 +17,11 @@ import qualified Instr                      as I
 
 import qualified LLVM.AST                   as AST
 
-import           LLVM.AST                   ( Instruction, Operand )
-
-import qualified LLVM.AST                   as AST
-import           LLVM.AST.Constant          ( Constant )
-
 import qualified LLVM.AST.Constant          as AST
 import qualified LLVM.AST.Global
 import qualified LLVM.AST.Global            as AST
-import qualified LLVM.AST.IntegerPredicate  as AST
 import qualified LLVM.AST.Linkage           as AST
 import qualified LLVM.AST.Type              as AST
-import qualified LLVM.Pretty                as AST
 
 import           Utils
 
@@ -76,8 +57,10 @@ toLLVMFunction (SSAFunc nm vs xs) =
                                                     map toLLVMBasicBlock xs
                                               }
 
+mkParams :: [(String, Type)] -> ([AST.Parameter], Bool)
 mkParams xs = (map mkParam $ filter ((/=) tyUnit . snd) xs, False)
 
+mkParam :: (String, Type) -> AST.Parameter
 mkParam (n, t) = AST.Parameter (toTyLLVM t) (AST.mkName n) []
 
 toLLVMExternDefn :: (Name, Type) -> AST.Definition
@@ -120,6 +103,7 @@ toLLVMInstruction (pat, DefnCall _ xs f) = case pat of
     [ V _ v ] -> AST.mkName v AST.:= f (map toOperand xs)
     _ -> impossible "toLLVMInstruction"
 
+toLLVMTerminator :: SSATerm -> AST.Named AST.Terminator
 toLLVMTerminator x = AST.Do $ case x of
     SwitchS a b cs ->
         I.switch (toOperand a)
@@ -132,7 +116,7 @@ toLLVMTerminator x = AST.Do $ case x of
         _ -> impossible $ "toLLVMTerminator:" ++ show x
     UnreachableS{} -> I.unreachable
 
-toOperand :: Atom -> Operand
+toOperand :: Atom -> AST.Operand
 toOperand x = case x of
     Var a -> AST.LocalReference (toTyLLVM $ vTy a) (AST.mkName $ vName a)
     Int sz i -> AST.ConstantOperand $ I.constInt sz i
@@ -151,18 +135,18 @@ toTyLLVM = go
   where
     go :: Type -> AST.Type
     go x = case x of
-        TyChar -> go tyChar
-        TySigned sz -> go $ TyUnsigned sz
+        TyChar        -> go tyChar
+        TySigned sz   -> go $ TyUnsigned sz
         TyUnsigned sz -> AST.IntegerType $ fromInteger sz
-        TyString -> AST.ptr (go TyChar)
-        TyAddress a -> AST.ptr (go a)
-        TyArray sz a -> AST.ArrayType (fromInteger sz) (go a)
-        TyTuple [] -> AST.void
-        TyTuple bs -> AST.StructureType False $ map go bs
-        TyRecord bs -> go $ tyRecordToTyTuple bs
-        TyVariant bs -> go $ tyVariantToTyTuple bs
-        TyEnum bs -> go $ tyEnumToTyUnsigned bs
-        TyFun a b ->
+        TyString      -> AST.ptr (go TyChar)
+        TyAddress a   -> AST.ptr (go a)
+        TyArray sz a  -> AST.ArrayType (fromInteger sz) (go a)
+        TyTuple []    -> AST.void
+        TyTuple bs    -> AST.StructureType False $ map go bs
+        TyRecord bs   -> go $ tyRecordToTyTuple bs
+        TyVariant bs  -> go $ tyVariantToTyTuple bs
+        TyEnum bs     -> go $ tyEnumToTyUnsigned bs
+        TyFun _ b     ->
             AST.FunctionType (toTyLLVM b) (map toTyLLVM $ unTupleTy b) False
-        TyCont _ -> impossible "toTyLLVM"
+        TyCont _     -> impossible "toTyLLVM"
 

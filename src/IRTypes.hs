@@ -18,7 +18,6 @@ import           Data.Text.Prettyprint.Doc
 
 import           LLVM.AST                   ( Instruction, Operand )
 
-import qualified LLVM.AST                   as AST
 import           LLVM.AST.Constant          ( Constant )
 
 import           Utils
@@ -148,6 +147,9 @@ tyUnit = tyTuple []
 tyChar :: Type
 tyChar = TyUnsigned 8
 
+tyHandle :: Type
+tyHandle = tyFort (Proxy :: Proxy Handle)
+
 ptrSize :: Integer
 ptrSize = 64 -- BAL: architecture dependent
 
@@ -169,9 +171,11 @@ returnTy x = case x of
 ppFuncs :: (a -> Doc ann) -> [a] -> Doc ann
 ppFuncs f xs = indent 2 (vcat $ map f xs)
 
+ppFunc :: Func -> Doc ann
 ppFunc (Func n p e) = pretty (nName n) <+> ppPat p <+> "=" <> line
     <> indent 2 (ppExpr e)
 
+ppPat :: Pat -> Doc ann
 ppPat x = case x of
     [ a ] -> pretty a
     _ -> ppTuple $ map pretty x
@@ -198,8 +202,10 @@ ppExpr x = case x of
 ppAlt :: (Tag, Expr) -> Doc ann
 ppAlt ((s, _), e) = pretty s <> ppAltRHS e
 
+ppAltRHS :: Expr -> Doc ann
 ppAltRHS e = ":" <> line <> indent 2 (ppExpr e)
 
+ppAtom :: Atom -> Doc ann
 ppAtom x = case x of
     Int _ i -> pretty i
     Enum a -> pretty (fst a)
@@ -385,6 +391,8 @@ sizeFort x = case x of
     TyRecord bs -> sizeFort $ tyRecordToTyTuple bs
     TyVariant bs -> sizeFort $ tyVariantToTyTuple bs
     TyEnum bs -> sizeFort $ tyEnumToTyUnsigned bs
+    TyFun{} -> impossible "sizeFort:TyFun"
+    TyCont{} -> impossible "sizeFort:TyFun"
 
 tyEnumToTyUnsigned :: [a] -> Type
 tyEnumToTyUnsigned bs = TyUnsigned (neededBitsList bs)

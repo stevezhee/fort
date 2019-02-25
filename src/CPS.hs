@@ -11,6 +11,7 @@ module CPS where
 import           ANF
 
 import           Control.Monad.State.Strict
+import           Data.Text.Prettyprint.Doc
 
 import           Data.Bifunctor
 import qualified Data.HashMap.Strict        as HMS
@@ -23,6 +24,7 @@ import           Instr                      ( constInt )
 
 import           Utils
 
+ppCPSFunc :: CPSFunc -> Doc ann
 ppCPSFunc = ppFunc . fromCPSFunc
 
 toCPSFuncs :: [AFunc] -> M [CPSFunc]
@@ -34,10 +36,10 @@ toCPSFuncs (x : xs) = do
     modify' $ \st -> st { sfuncs = mempty }
     let (l, r) = partition ((==) (afName x) . cpsName) bs
     pure $ map (toCPSFuncPost contTbl) $ l ++ r
-
+toCPSFuncs _ = impossible "toCPSFuncs"
+  
 fromCPSFunc :: CPSFunc -> Func
-fromCPSFunc (CPSFunc nm vs ys z) = Func nm vs $ foldr (\f b -> f b) (goTerm z) $
-    map go ys
+fromCPSFunc (CPSFunc nm vs ys z) = Func nm vs $ foldr ((\f b -> f b) . go) (goTerm z) ys
   where
     go :: Instr -> Expr -> Expr
     go (pat, DefnCall n bs f) = LetE pat (CallE (n, Defn f) $ map AtomE bs)
@@ -53,6 +55,7 @@ fromCPSFunc (CPSFunc nm vs ys z) = Func nm vs $ foldr (\f b -> f b) (goTerm z) $
         SwitchT a b cs -> SwitchE (AtomE a) (goLocalCall b) $
             map (second goLocalCall) cs
 
+emitCPSRetFunc :: Type -> M Nm
 emitCPSRetFunc rTy = do
     pat <- freshBind rTy
     modify' $ \st -> st { sfuncs = [ CPSFunc nm pat [] $ RetT $ map Var pat ] }
@@ -97,8 +100,8 @@ mkLocalCont ty cont pat x = do
 
 callWithCont :: Cont -> LocalCall -> M LocalCall
 callWithCont cont (LocalCall nm bs) = case cont of
-    VarC n a -> pure $ lc (Var $ V (TyCont n) a)
-    NmC a -> do
+    VarC a b -> pure $ lc (Var $ V (TyCont a) b)
+    NmC a    -> do
         contTbl <- gets conts
         i <- case HMS.lookup n contTbl of
             Nothing -> do
@@ -119,9 +122,11 @@ callWithCont cont (LocalCall nm bs) = case cont of
 
     lc v = LocalCall (addTyCont nm) (v : bs)
 
+addTyCont :: Nm -> Nm
 addTyCont nm = case nTy nm of
     TyFun a b -> nm { nTy = TyFun (tyTuple $ TyCont (nName nm) : unTupleTy a) b
                     }
+    _ -> impossible "addTyCont"
 
 toCPSTerm :: Cont -> AExpr -> M CPSTerm
 toCPSTerm cont x = case x of
@@ -176,21 +181,22 @@ toCPSFuncPost contTbl (CPSFunc nm vs ys t) = CPSFunc nm' vs' ys t'
         ContT n
               a
               bs -> case HMS.toList $ fromMaybe mempty $ HMS.lookup n contTbl of
-            [ (c0, _) ] -> CallT $ contToLocalCall c0
-            cs0@((n0, _) : cs) ->
+            [ (c0, _) ]    -> CallT $ contToLocalCall c0
+            ((n0, _) : cs) ->
                 SwitchT (Var $ V (tyCont n) a)
                         (contToLocalCall n0)
                         [ ((nName c, constInt (contSz n) i), contToLocalCall c)
                         | (c, i) <- cs
                         ]
-            [] -> RetT bs -- BAL: Doesn't seem right.  Probably need to track down the appropriate type here...
+            []             -> RetT bs
+            -- BAL: ^ Track down the appropriate type here and do a CallT?
           where
             contToLocalCall = flip LocalCall bs
 
-    fixContArg (LocalCall n bs) = LocalCall n bs'
+    fixContArg (LocalCall a bs) = LocalCall a bs'
       where
         bs' = case bs of
-            Cont n1 (n2, _, i) : rest -> Cont n1 (n2, contSz n2, i) : rest
+            Cont n1 (n2, _, i) : rest   -> Cont n1 (n2, contSz n2, i) : rest
             Var (V (TyCont n) v) : rest -> Var (V (tyCont n) v) : rest
             _ -> bs
 

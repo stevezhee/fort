@@ -8,16 +8,11 @@
 
 module SSA where
 
-import           ANF
-
 import           CPS
-
-import           Control.Monad.State.Strict
 
 import           Data.Bifunctor
 import qualified Data.HashMap.Strict        as HMS
 import           Data.List
-import           Data.Maybe
 
 import           Data.Text.Prettyprint.Doc
 
@@ -29,6 +24,7 @@ import qualified LLVM.AST                   as AST
 
 import           Utils
 
+ppSSAFunc :: SSAFunc -> Doc ann
 ppSSAFunc = vcat . map ppCPSFunc . fromSSAFunc
 
 toSSAFunc :: [CPSFunc] -> SSAFunc
@@ -53,6 +49,7 @@ toSSABlocks xs = map (toSSABlock tbl) xs
   where
     tbl = insertWithAppend mempty (concatMap phis xs)
 
+insertWithAppend :: HMS.HashMap Name [a] -> [(Name, a)] -> HMS.HashMap Name [a]
 insertWithAppend = foldr (\(k, v) -> HMS.insertWith (++) k [ v ])
 
 toSSABlock :: HMS.HashMap Name [[(Atom, Name)]] -> CPSFunc -> SSABlock
@@ -64,6 +61,7 @@ toSSABlock tbl (CPSFunc nm vs ys t) =
         CallT a -> BrS (lcNm a)
         RetT bs -> RetS bs
         UnreachableT a -> UnreachableS a
+        ContT{} -> impossible "toSSABlock"
 
     phiNodes :: [(Var, [(Atom, Name)])]
     phiNodes = case HMS.lookup (nName nm) tbl of

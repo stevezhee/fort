@@ -2,7 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 
-module Parser ( parseAndCodeGen ) where
+module Parser (grammar) where
 
 import           Control.Applicative
 import           Control.Monad.State
@@ -11,23 +11,18 @@ import           Data.List
 import           Data.Loc
 import           Data.String
 
-import           Fort
-
-import           Language.Lexer.Applicative
-
-import qualified Language.Lexer.Applicative as L
+import SyntaxTypes
 
 import           Prelude                    hiding ( lex )
-
-import           System.Exit
-import           System.IO
 
 import           Text.Earley                hiding ( satisfy )
 
 import qualified Text.Earley                as E
-import           Text.Regex.Applicative
 
 import           Utils
+import Lexer
+
+type P r a = Prod r String Token a
 
 pCon :: P r Con
 pCon = satisfy (startsWith upper)
@@ -39,7 +34,7 @@ pVar :: P r Var
 pVar = satisfy (startsWith lower)
 
 pOp :: P r Token
-pOp = satisfy (\s -> startsWith oper s && not (s `elem` reservedWords)
+pOp = satisfy (\s -> startsWith oper s && (s `notElem` reservedWords)
                && not (hasCharLitPrefix s))
 
 pBind :: P r a -> P r a
@@ -88,8 +83,6 @@ sepMany sep p = sepSome sep p <|> pure []
 
 between :: String -> String -> P r a -> P r a
 between a b p = reserved a *> p <* reserved b
-
-type P r a = Prod r String Token a
 
 pTuple :: ([a] -> b) -> P r a -> P r b
 pTuple f p = f <$> parens (sepMany (reserved ",") p)
@@ -202,7 +195,7 @@ pLam :: P r a -> P r a
 pLam p = reserved "\\" *> p <* reserved "=>"
 
 reserved :: String -> P r ()
-reserved s = satisfy ((==) s) *> pure () <?> s
+reserved s = satisfy (s ==) *> pure () <?> s
 
 satisfy :: (String -> Bool) -> P r Token
 satisfy f = E.satisfy (f . unLoc)
@@ -222,7 +215,7 @@ pCharLit = f <$> satisfy hasCharLitPrefix <?> "character literal"
         _ -> error $ "unexpected character literal syntax:" ++ show s
 
 pStringLit :: P r Token
-pStringLit = satisfy (startsWith ((==) '"')) <?> "string literal"
+pStringLit = satisfy (startsWith ('"' ==)) <?> "string literal"
 
 pIntLit :: P r (L Int)
 pIntLit = (\s -> useLoc (readError msg $ unLoc s) s) <$> satisfy isInt <?> msg
@@ -243,153 +236,3 @@ isInt s = case s of
     '-' : b : _ -> digit b
     _ -> startsWith digit s
 
-upper, digit, lower, ident, special :: Char -> Bool
-upper = inclusive 'A' 'Z'
-
-digit = inclusive '0' '9'
-
-lower c = inclusive 'a' 'z' c || c == '_'
-
-ident c = lower c || upper c || digit c || c `elem` ("-?^~'" :: String)
-
-special = flip elem ("()[]{},;" :: [Char])
-
-oper :: Char -> Bool
-oper c = inclusive '#' '\'' c || inclusive '*' '+' c || inclusive '-' '/' c
-    || inclusive '<' '@' c || c `elem` ("!:\\^|~`" :: [Char])
-
-inclusive :: Ord a => a -> a -> a -> Bool
-inclusive a b c = c >= a && c <= b
-
-parseAndCodeGen :: FilePath -> IO ()
-parseAndCodeGen fn = do
-    putStrFlush fn
-    putStrFlush "->Lex->"
-    s <- readFile fn
-    let eab = streamToEitherList $
-            runLexer (mconcat [ L.token (longest tok)
-                              , whitespace (longest tokWS)
-                              ])
-                     fn
-                     s
-    case eab of
-        Left e -> putStrLn "" >> hPutStrLn stderr (show e) -- >> return Nothing
-        Right a -> do
-            putStrFlush "Indent->"
-            let toks = indentation a
-            case toks of
-                [] -> done fn []
-                _ -> parse fn s toks
-
-parse fn s toks = do
-    putStrFlush "Parse->"
-    let (asts, rpt) = fullParses (parser grammar) toks
-    case (asts, unconsumed rpt) of
-        ([ ast ], []) -> done fn ast
-        (_, []) -> do
-            putStrLn ""
-            hPutStrLn stderr "ambiguous :O"
-            -- print toks
-            mapM_ (\z -> hPutStrLn stderr ""
-                   >> mapM_ (hPutStrLn stderr . show) z)
-                  asts
-            -- return Nothing
-            exitFailure
-        _ -> do
-            putStrLn ""
-            let errtok@(L errloc _) = toks !! (position rpt)
-            -- putStrLn $ unwords $ map unLoc toks
-            hPutStrLn stderr $ displayLoc errloc ++ ":error:unexpected token:"
-            case errloc of
-                NoLoc -> return ()
-                Loc start _ -> do
-                    hPutStrLn stderr (lines s !! (posLine start - 1))
-                    hPutStrLn stderr
-                              (replicate (posCol start - 1) ' '
-                               ++ replicate (length $ unLoc errtok) '^')
-            hPutStrLn stderr $ "got: " ++ show (unLoc errtok)
-            hPutStrLn stderr $ "expected: " ++ show (expected rpt)
-            -- print toks
-            -- print asts
-            -- print rpt
-            -- print errtok
-            -- print errloc
-            -- print ()
-            exitFailure
-
--- return Nothing
-done fn ast = do
-    -- putStrLn $ unwords $ map unLoc toks
-    putStrFlush "Haskell->"
-    let oFile = fn ++ ".hs"
-    writeFile oFile $ show (ppDecls fn ast) ++ "\n"
-    putStrLn oFile
-
--- return (Just ast)
--- print $ pp $ mkModule fn ast
-column :: Located a => a -> Int
-column x = case locOf x of
-    NoLoc -> error "NoLoc"
-    Loc p _ -> posCol p
-
-indentation :: [Token] -> [Token]
-indentation [] = []
-indentation toks@(t0 : _) = go t0 [] toks
-  where
-    go _ [] [] = []
-    go prev cols [] = replicate (length cols) (useLoc "}" prev)
-    go prev cols xs0@(x : xs)
-        | col < indentTop && not (col `elem` (1 : cols)) = error $
-            "unaligned indentation:" ++ show (locOf x)
-        | col == indentTop && unLoc x == "/where" || col < indentTop = close
-        | col == indentTop && isOpen = openAndSep
-        | isOpen = open
-        | col == indentTop = sep
-        | otherwise = adv
-      where
-        isOpen = unLoc x
-            `elem` [ "/of", "/where", "/if", "/do", "/record", "/enum" ]
-
-        col = column (locOf x)
-
-        indentTop = case cols of
-            [] -> 1
-            t : _ -> t
-
-        close = useLoc "}" x : go prev (tail cols) xs0
-
-        sep = useLoc ";" x : adv
-
-        openAndSep = useLoc ";" x : open
-
-        open = case xs of
-            [] -> error "no token following keyword"
-            a : _ -> x : useLoc "{" x : go x (column (locOf a) : cols) xs
-
-        adv = x : go x cols xs
-
-tokWS :: Tok
-tokWS = some (sym ' ') <|> some (sym '\n') <|> string ";;"
-    *> many (psym ((/=) '\n'))
-
-tok :: Tok
-tok = (:) <$> sym '/' <*> some (psym lower) <|> -- reserved words
-    (:) <$> psym (\c -> lower c || upper c) <*> many (psym ident)
-    <|> (:) <$> sym '-' <*> digits <|> digits <|> charLit <|> some (psym oper)
-    <|> stringLit <|> (: []) <$> psym special
-
-type Tok = RE Char String
-
-charLit :: Tok
-charLit = (:) <$> sym '#' <*> stringLit
-
-stringLit :: Tok
-stringLit = (\a bs c -> a : concat bs ++ [ c ]) <$> sym '"' <*> many p
-    <*> sym '"'
-  where
-    p = esc <|> ((: []) <$> psym (\c -> c /= '"' && c /= '\n'))
-
-    esc = (\a b -> [ a, b ]) <$> sym '\\' <*> psym ((/=) '\n')
-
-digits :: Tok
-digits = some $ psym digit

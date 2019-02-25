@@ -9,52 +9,29 @@
 module Typed ( module Typed, module IRTypes ) where
 
 import           ANF
-
 import           CPS
-
 import           Control.Monad.State.Strict
-
-import           Data.Bifunctor
-
-import qualified Data.HashMap.Strict        as HMS
 import           Data.Hashable
 import           Data.List
 import           Data.Maybe
 import           Data.Proxy
 import           Data.String
-
-import qualified Data.Text.Lazy.IO          as T
 import           Data.Text.Prettyprint.Doc
-
-import           Debug.Trace
-
 import           IRTypes
-
-import qualified Instr                      as I
-
 import           LLVM
-
 import           LLVM.AST                   ( Instruction, Operand )
-
+import           Prelude                    hiding ( seq )
+import           SSA
+import           Utils
+import qualified Data.HashMap.Strict        as HMS
+import qualified Data.Text.Lazy.IO          as T
+import qualified Instr                      as I
 import qualified LLVM.AST                   as AST
-import           LLVM.AST.Constant          ( Constant )
-
 import qualified LLVM.AST.Constant          as AST
-import qualified LLVM.AST.Global
-import qualified LLVM.AST.Global            as AST
 import qualified LLVM.AST.IntegerPredicate  as AST
-import qualified LLVM.AST.Linkage           as AST
-import qualified LLVM.AST.Type              as AST
 import qualified LLVM.Pretty                as AST
 
-import           Prelude                    hiding ( seq )
-
-import           SSA
-
-import           System.FilePath
-
-import           Utils
-
+verbose :: Bool
 verbose = False
 
 codegen :: FilePath -> [M Expr] -> IO ()
@@ -76,14 +53,14 @@ codegen file ds = do
     let (anfs, st1) = runState (mapM toAFuncs fs) st
     if verbose
         then do
-            print $ ppFuncs (vcat . ((:) "---") . map ppAFunc) anfs
+            print $ ppFuncs (vcat . ("---" :) . map ppAFunc) anfs
             putStrLn "--- continuation passing style (CPS) ---"
         else putStrFlush "CPS->"
 
-    let (cpss :: [[CPSFunc]], st2) = runState (mapM toCPSFuncs anfs) st1
+    let cpss :: [[CPSFunc]] = evalState (mapM toCPSFuncs anfs) st1
     if verbose
         then do
-            print $ ppFuncs (vcat . ((:) "---") . map ppCPSFunc) cpss
+            print $ ppFuncs (vcat . ("---" :) . map ppCPSFunc) cpss
             putStrLn "--- single static assignment (SSA) -----"
         else putStrFlush "SSA->"
 
@@ -120,7 +97,7 @@ where_ :: Ty a => E a -> [M Func] -> E a
 where_ e ms = E $ LetRecE <$> sequence ms <*> unE e
 
 case_ :: Ty a => E a -> (E a -> E b) -> [(String, E a -> E b)] -> E b
-case_ (x :: E a) f ys = ucase (tyFort (Proxy :: Proxy a)) x f ys
+case_ (x :: E a) = ucase (tyFort (Proxy :: Proxy a)) x
 
 ucase :: Type -> E a -> (E a -> E b) -> [(String, E a -> E b)] -> E b
 ucase ty (E x) f ys = E $ do
@@ -152,7 +129,7 @@ ucase ty (E x) f ys = E $ do
             let mkAlt :: (E a -> E b) -> M Expr
                 mkAlt g = unE $ g $ E $ pure ea
             b <- mkAlt f
-            bs <- mapM mkAlt $ map snd ys
+            bs <- mapM (mkAlt . snd) ys
             pure $ SwitchE tg b $
                 safeZip "ucase" (map (readTag ty . fst) ys) bs
 
@@ -166,13 +143,13 @@ readTag :: Type -> String -> Tag
 readTag x s = (s, go x)
   where
     go t = case t of
-        TyChar -> I.constInt 8 $ toInteger $ fromEnum (read s :: Char)
-        TySigned sz -> I.constInt sz (read s)
+        TyChar        -> I.constInt 8 $ toInteger $ fromEnum (read s :: Char)
+        TySigned sz   -> I.constInt sz (read s)
         TyUnsigned sz -> I.constInt sz (read s)
+        TyEnum tags   -> I.constInt (neededBitsList tags) $
+            maybe err fromIntegral (elemIndex s tags)
         TyAddress (TyVariant bs) -> go (TyEnum $ map fst bs)
-        TyEnum tags -> I.constInt (neededBitsList tags) $
-            maybe err id (lookup s $ zip tags [ 0 .. ])
-        _ -> err
+        _             -> err
 
     err = impossible $ "readTag:" ++ show (s, x)
 
@@ -185,15 +162,13 @@ let_ upat (E x) (f :: E a -> E b) = E $ LetE pat <$> x
 fromUPat :: Type -> UPat -> Pat
 fromUPat ty upat = case (unTupleTy ty, upat) of
     ([], [ v ]) -> [ V tyUnit v ]
-    (tys, _) -> safeZipWith "fromUPat" V (unTupleTy ty) upat
+    (tys, _) -> safeZipWith "fromUPat" V tys upat
 
 swapargs :: E ((a, b) -> c) -> E ((b, a) -> c)
 swapargs (E x) = E $ do
-    a <- x
-    let g f = \[ a, b ] -> f [ b, a ]
-    case a of
-        CallE (nm, a) bs -> case a of
-            Defn f -> pure $ CallE (nm, Defn $ g f) bs
+    e <- x
+    case e of
+        CallE (nm, Defn f) bs -> pure $ CallE (nm, Defn $ \[ p, q ] -> f [ q, p ]) bs
         _ -> impossible "swapargs"
 
 letFunc :: (Ty a, Ty b) => Name -> UPat -> (E a -> E b) -> M Func
@@ -201,11 +176,11 @@ letFunc n upat (f :: E a -> E b) =
     uletFunc (tyFort (Proxy :: Proxy (a -> b))) n upat f
 
 uletFunc :: Type -> Name -> UPat -> (E a -> E b) -> M Func
-uletFunc ty@(TyFun tyA _) n upat f = Func nm pat <$> (unE $ f $ patToExpr pat)
+uletFunc ty@(TyFun tyA _) n upat f = Func nm pat <$> unE (f $ patToExpr pat)
   where
     nm = Nm ty n
-
     pat = fromUPat tyA upat
+uletFunc _ _ _ _ = impossible "uletFunc"
 
 callLocal :: (Ty a, Ty b) => Name -> E (a -> b)
 callLocal n = go Proxy
@@ -219,6 +194,7 @@ func :: (Ty a, Ty b) => Name -> UPat -> (E a -> E b) -> E (a -> b)
 func n pat (f :: (E a -> E b)) =
     ufunc (tyFort (Proxy :: Proxy (a -> b))) n pat f
 
+qualifyName :: String -> FilePath -> String
 qualifyName a b = modNameOf b ++ "_" ++ a
 
 ufunc :: Type -> Name -> UPat -> (E a -> E b) -> E (a -> b)
@@ -325,7 +301,6 @@ string s = app f str
     t = TyAddress (TyArray (genericLength s + 1) TyChar)
 
     str = E $ do
-        -- tbl <- gets strings
         let v = V t $ "s." ++ hashName s
         modify' $ \st -> st { strings = HMS.insert s v $ strings st }
         pure $ AtomE $ String s v
@@ -335,7 +310,7 @@ atomE = E . pure . AtomE
 
 -- non-primitives
 if_ :: Ty a => E Bool_ -> E a -> E a -> E a
-if_ x t f = case_ x (\_ -> t) [ ("False", \_ -> f) ]
+if_ x t f = case_ x (Prelude.const t) [ ("False", Prelude.const f) ]
 
 const :: E a -> E b -> E a
 const x _ = x
@@ -380,10 +355,10 @@ exprToPat (_ :: E a) = go $ tyFort (Proxy :: Proxy a)
         _ -> [ V x "x" ]
 
 injectTagF :: (Ty a, Ty c) => String -> E c -> E (Addr a) -> E ()
-injectTagF con i e = app (opapp i (swapargs store)) (tagField e)
+injectTagF con i e = app (opapp i (swapargs store)) (tagField con e)
 
-tagField :: (Ty a, Ty b) => E (Addr a) -> E (Addr b)
-tagField = app (field "tag" 0)
+tagField :: (Ty a, Ty b) => String -> E (Addr a) -> E (Addr b)
+tagField con = app (field ("tag:" ++ con) 0)
 
 valueField :: (Ty a) => String -> E (Addr a) -> E (Addr UInt64)
 valueField con = app (field ("value:" ++ con) 1)
@@ -485,7 +460,7 @@ bitop s f = g Proxy
         t -> error $
             "unable to perform bit operations on values of type:" ++ show t
       where
-        ok = unop s (flip f (tyLLVM proxy))
+        ok = unop s (`f` tyLLVM proxy)
 
 load :: Ty a
      => E (Addr a -> a) -- BAL: call B.load_volatile if needed by the type
@@ -614,31 +589,29 @@ uforeach sz t f =
     ufunc (TyFun (tyTuple [ tyArr, tyHandle ]) tyUnit)
           ("foreach." ++ hashName tyArr)
           [ "arr", "h" ]
-          (\v ->
-           let (arr, h) = argTuple2 v
+          (\v0 ->
+           let (arr, _) = argTuple2 v0
            in
-               (let go :: E (UInt32 -> ()) = callLocal "go"
-                in
-                    (where_ (((app go) (int 0)))
+               let go :: E (UInt32 -> ()) = callLocal "go"
+               in
+                    where_ (app go (int 0))
                             [ uletFunc (TyFun (TyUnsigned 32) tyUnit)
                                        "go"
                                        [ "i" ]
-                                       (((\v ->
-                                          let i = v
-                                          in
-                                              (if_ (app (opapp i
+                                       $ \i ->
+                                              if_ (app (opapp i
                                                                greater_than_or_equals)
                                                         (int sz))
-                                                   (unit)
-                                                   ((seqs [ f (app (ugep tyArr
+                                                   unit
+                                                   (seqs [ f (app (ugep tyArr
                                                                          t)
                                                                    (tuple2 ( arr
                                                                            , i
                                                                            )))
                                                           ]
-                                                          (((app go) ((app ((opapp i
-                                                                                   add))) (int 1))))))))))
-                            ])))
+                                                          (app go (app (opapp i
+                                                                                   add) (int 1))))
+                            ])
   where
     tyArr = TyAddress (TyArray sz t)
 
@@ -648,22 +621,22 @@ uh_output t0 = case t0 of
         app (opapp a (unsafeCast h_put_char)) h
     TyString -> ok $ \(a, h) -> delim h "\"" "\"" $
         app (opapp a (unsafeCast h_put_string)) h
-    TySigned 64 -> unsafeCast h_put_sint64
-    TyUnsigned 64 -> unsafeCast h_put_uint64
-    TySigned sz -> ok $ \(a, h) ->
+    TySigned 64   -> unsafeCast h_put_sint64
+    TySigned _    -> ok $ \(a, h) ->
         uoutput (TySigned 64) h (app (usext t0 (TySigned 64)) a)
-    TyUnsigned sz -> ok $ \(a, h) ->
+    TyUnsigned 64 -> unsafeCast h_put_uint64
+    TyUnsigned _  -> ok $ \(a, h) ->
         uoutput (TySigned 64) h (app (uzext t0 (TyUnsigned 64)) a)
     TyFun{} -> ok $ \(_, h) -> putS h "<function>"
     TyCont{} -> ok $ \(_, h) -> putS h "<continuation>"
     TyTuple [] -> ok $ \(_, h) -> putS h "()"
     TyEnum ss -> ok $ \(a, h) ->
         let c : cs = [ (s, \_ -> putS h s) | s <- ss ] in ucase t0 a (snd c) cs
-    TyAddress t -> case t of
+    TyAddress ta -> case ta of
         TyArray sz t1 -> ok $ \(a, h) -> delim h "[" "]" $
             app (uforeach sz
                           t1
-                          (\p -> sepS h ", " $ uoutput (TyAddress t1) h p))
+                          (sepS h ", " . uoutput (TyAddress t1) h))
                 (tuple2 (a, h))
         TyTuple ts -> ok $ \(a, h) -> delim h "(" ")" $
             seqs_ [ sepS h ", " $
@@ -679,7 +652,7 @@ uh_output t0 = case t0 of
                   | (i, (fld, t)) <- zip [ 0 .. ] bs
                   ]
         TyVariant bs -> ok $ \(a, h) ->
-            let f (s, t) = \_ -> case () of
+            let f (s, t) _ = case () of
                     ()
                         | t == tyUnit -> putS h s
                         | otherwise ->
@@ -702,16 +675,11 @@ uh_output t0 = case t0 of
                  ("output_" ++ hashName t0)
                  [ "a", "h" ] $ \v -> f (argTuple2 v)
 
-tyHandle = tyFort (Proxy :: Proxy Handle)
-
 hashName :: (Show a) => a -> String
 hashName = show . hash . show
 
 delim :: E Handle -> String -> String -> E () -> E ()
 delim h l r a = seqs_ [ putS h l, a, putS h r ]
-
-uloop :: Integer -> Type -> E a -> E ()
-uloop sz t _ = unit
 
 ugepi :: Type -> Type -> Integer -> E (a -> b)
 ugepi t0 t i = opapp (int i) (swapargs (ugep t0 t))

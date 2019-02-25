@@ -1,6 +1,6 @@
 module Main where
 
-import           Parser
+import           Fort
 
 import           System.Environment
 

@@ -9,18 +9,18 @@
 module ANF where
 
 import           Control.Monad.State.Strict
-
 import           Data.Bifunctor
 import qualified Data.HashMap.Strict        as HMS
 import           Data.List
 import           Data.Maybe
-
 import           IRTypes
-
+import           Data.Text.Prettyprint.Doc
 import           Utils
 
+ppAFunc :: AFunc -> Doc ann
 ppAFunc = ppFunc . fromAFunc
 
+toAFuncs :: Func -> M [AFunc]
 toAFuncs x = do
     af <- toAFunc x
     bs <- gets lifted
@@ -52,7 +52,7 @@ letEToAExpr pat x y = case x of
     TupleA bs -> subst (mkSubst pat bs) <$> toAExpr y
     CExprA a -> do
         pat' <- freshPat pat
-        LetA pat' a <$> subst (mkSubst pat $ map Var pat') <$> toAExpr y
+        LetA pat' a . subst (mkSubst pat $ map Var pat') <$> toAExpr y
     LetA pat1 a e -> do
         pat1' <- freshPat pat1
         LetA pat1' a
@@ -83,10 +83,8 @@ toAExpr x = case x of
              <*> sequence [ (s, ) <$> toAExpr c | (s, c) <- cs ])
 
 mkLambdaLift :: Func -> M (AFunc, (Name, (Nm, [Atom])))
-
--- mkLambdaLift :: Func -> M (AFunc, (Name, Nm))
 mkLambdaLift x = do
-    f@(AFunc n pat e) <- toAFunc x
+    AFunc n pat e <- toAFunc x
     pat' <- freshPat pat
     let tbl = mkSubst pat (map Var pat')
     n' <- freshNm (nTy n) (nName n)
@@ -94,10 +92,7 @@ mkLambdaLift x = do
     pure (AFunc n' (pat' ++ fvs) $ subst tbl e, (nName n, (n', map Var fvs)))
 
 -- BAL: probably don't need to lift the free vars
--- pure (AFunc n' pat' $ subst tbl e, (nName n, n'))
 lambdaLift :: HMS.HashMap Name (Nm, [Atom]) -> AExpr -> AExpr
-
--- lambdaLift :: HMS.HashMap Name Nm -> AExpr -> AExpr
 lambdaLift tbl = go
   where
     go x = case x of
@@ -111,6 +106,7 @@ lambdaLift tbl = go
             Nothing -> x
             Just (n', fvs) -> CallLocalA $ LocalCall n' (bs ++ fvs)
         SwitchA a b cs -> SwitchA a (go b) $ map (second go) cs
+        UnreachableA{} -> x
 
 fromAExpr :: AExpr -> Expr
 fromAExpr x = case x of
@@ -143,8 +139,6 @@ subst tbl = go
         CExprA a -> CExprA $ goCExpr a
         LetA pat a b -> LetA pat (goCExpr a) (subst (remove pat) b)
 
-    goAFunc (AFunc n pat e) = AFunc n pat (subst (remove pat) e)
-
     goDefnCall (DefnCall n bs f) = DefnCall n (map goAtom bs) f
 
     goLocalCall (LocalCall n bs) = LocalCall n (map goAtom bs)
@@ -156,10 +150,8 @@ subst tbl = go
         UnreachableA{} -> x
 
     goAtom x = case x of
-        Var a -> case HMS.lookup a tbl of
-            Just b -> b
-            Nothing -> x
-        _ -> x
+        Var a -> fromMaybe x (HMS.lookup a tbl)
+        _     -> x
 
     remove pat = HMS.filterWithKey (\k _ -> k `notElem` pat) tbl
 
@@ -169,7 +161,7 @@ freeVars bvs = go
     go x = case x of
         TupleA bs -> nub $ concatMap goAtom bs
         CExprA a -> goCExpr a
-        LetA pat a b -> nub $ concat [ goCExpr a, freeVars (pat ++ bvs) b ]
+        LetA pat a b -> nub ( goCExpr a ++ freeVars (pat ++ bvs) b )
 
     goAtom x = case x of
         Var v
