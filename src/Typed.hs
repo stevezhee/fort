@@ -459,7 +459,7 @@ enum (x, i) = f Proxy
 char :: Char -> E Char_
 char = atomE . Char
 
-volatile :: Ty a => E (UInt64 -> Addr a)
+volatile :: (Ty a, Ty b) => E (a -> Addr b)
 volatile = inttoptr
 
 field :: (Ty a, Ty b) => String -> Integer -> E (Addr a -> Addr b)
