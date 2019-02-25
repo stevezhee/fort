@@ -1288,6 +1288,7 @@ h_output = f Proxy
     f proxy = uh_output (tyFort proxy)
 
 seqs_ :: [E ()] -> E ()
+seqs_ [] = unit
 seqs_ xs = seqs (init xs) (last xs)
 
 uh_output :: Type -> E ((a, Handle) -> ())
@@ -1315,8 +1316,15 @@ uh_output t0 = case t0 of
         seqs_ [ sep h ", " $ uoutput (TyAddress t) h (app (ugep t0 t i) a)
               | (i, (fld,t)) <- zip [0..] bs ]
     TyVariant bs  -> ok $ \(a,h) ->
-      let f (s, t) = \_ ->
-            seqs_ [ putS h s, putS h " ", uoutput (TyAddress t) h $ app (ugep t0 t 1) a ] in
+      let f (s, t) = \_ -> case () of
+            () | t == tyUnit -> putS h s
+               | otherwise ->
+                  seqs_ [ putS h s
+                        , putS h " "
+                        , uoutput (TyAddress t) h $
+                            app (ubitcast (TyAddress (TyUnsigned 64)) (TyAddress t))
+                              (app (ugep t0 (TyUnsigned 64) 1) a)
+                        ] in
       let c : cs = zip (map fst bs) (map f bs) in
       ucase t0 a (snd c) cs
     t -> ok $ \(a,h) -> uoutput t h (app (uload t) a)
@@ -1349,6 +1357,10 @@ usext ta tb = uinstr (TyFun ta tb) "sext" $ \[a] -> I.sext a (toTyLLVM tb)
 
 uzext :: Type -> Type -> E (a -> b)
 uzext ta tb = uinstr (TyFun ta tb) "zext" $ \[a] -> I.zext a (toTyLLVM tb)
+
+ubitcast :: Type -> Type -> E (a -> b)
+ubitcast ta tb = uinstr (TyFun ta tb) "bitcast" $ \[a] -> I.bitcast a (toTyLLVM tb)
+
 
 -- This runs forward.  Generally, running backwards is faster.
 -- uReduceArray :: Integer -> M Expr -> (M Expr -> M Expr) -> M Expr
