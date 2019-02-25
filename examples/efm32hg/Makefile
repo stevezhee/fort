@@ -2,17 +2,17 @@
 .PRECIOUS: %.fort.hs %.fort.ll %.fort.s %.fort.o
 
 PREFIX    ?=
-PRJ       := tomu-fort
-LDSCRIPT  := tomu.ld
+PRJ       := efm32hg-fort
+LDSCRIPT  := efm32hg.ld
 OPT_LEVEL := z
 ARCH      := cortex-m0plus
 C_STD     := c11
 DBG_LEVEL := 3
-Q         :=
+Q         := @
 
 OUT := .
 CSRC:= $(wildcard src/*.c)
-FSRC:= src/main.fort
+FSRC:= src/blink.fort
 HS_FILES=$(shell find ../../src -name \*.hs) $(shell find ../../app -name \*.hs)
 OBJ := $(addprefix $(OUT)/, $(filter %.o,$(CSRC:.c=.o) $(addsuffix .o, $(FSRC))))
 
@@ -56,8 +56,7 @@ LDFLAGS += --gc-sections
 LDFLAGS += --Map $(TARGET_MAP)
 LDFLAGS += --script $(LDSCRIPT)
 
-#all: $(TARGET_BIN) $(TARGET_LST) $(TARGET_DFU) size
-all: $(OUT)/$(FSRC).ll
+all: $(TARGET_BIN) $(TARGET_LST) $(TARGET_DFU) size
 
 $(OUT)/$(FSRC).hs: $(FSRC) $(HS_FILES)
 	stack --stack-yaml ../../stack.yaml runghc -- -i../../src ../../app/Main.hs $<
@@ -100,7 +99,15 @@ size: $(TARGET)
 
 clean:
 	@echo CLEAN
-	@rm -fR $(OUT)
+	$(Q)rm -f $(OUT)/src/*.ll
+	$(Q)rm -f $(OUT)/src/*.s
+	$(Q)rm -f $(OUT)/src/*.o
+	$(Q)rm -f $(OUT)/src/*.hs
+	$(Q)rm -f $(OUT)/*.bin
+	$(Q)rm -f $(OUT)/*.dfu
+	$(Q)rm -f $(OUT)/*.elf
+	$(Q)rm -f $(OUT)/*.lst
+	$(Q)rm -f $(OUT)/*.map
 
 rebuild: clean all
 

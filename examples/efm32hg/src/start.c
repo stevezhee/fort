@@ -4,8 +4,8 @@
 extern unsigned int __etext, __data_start__, __data_end__, __bss_start__, __bss_end__, __stack;
 volatile uint32_t msTicks = 0;
 
-// call run from tomu.fort
-extern void run();
+// call run from blink.fort
+extern void blink_run();
 
 _Noreturn void Reset_Handler(void)
 {
@@ -18,7 +18,7 @@ _Noreturn void Reset_Handler(void)
   for (dst = &__bss_start__; dst < &__bss_end__; dst++)
     *dst = 0;
 
-  run();
+  blink_run();
 
   while (1)
     __asm__ volatile ("WFI");
@@ -29,7 +29,7 @@ _Noreturn void Default_Handler(void)
   while (1);
 }
 
-void tomu_delay(uint32_t dlyTicks)
+void efm32hg_delay(uint32_t dlyTicks)
 {
   uint32_t curTicks;
   curTicks = msTicks;

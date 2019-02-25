@@ -1343,8 +1343,8 @@ store
 
 store = binop "store" I.store
 
-tomu_delay :: Ty a => E (a -> ())
-tomu_delay = extern "tomu_delay"
+efm32hg_delay :: Ty a => E (a -> ())
+efm32hg_delay = extern "efm32hg_delay"
 
 add :: Ty a => E ((a, a) -> a)
 add = arithop "add" I.add
