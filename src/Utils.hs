@@ -6,11 +6,15 @@ module Utils where
 import           Data.Text.Prettyprint.Doc
 import Data.List
 import           System.IO
+import           System.FilePath
 
 canonicalizeName :: String -> String
 canonicalizeName = map f
   where
     f c = if c == '-' then '_' else c -- '-' is semantically identical to '_'
+
+modNameOf :: FilePath -> String
+modNameOf = canonicalizeName . takeBaseName
 
 neededBits :: (Integral n, Integral m) => n -> m
 neededBits n = if n <= 0
