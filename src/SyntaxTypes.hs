@@ -68,10 +68,24 @@ data Expr -- BAL: pass locations through to all constructs
     | Extern
     deriving Show
 
+tuple :: [Expr] -> Expr
+tuple [x] = x
+tuple xs  = Tuple $ map Just xs
+
+unit :: Expr
+unit = tuple []
+
 type Alt = ((AltPat, Maybe Type), Expr)
 
 data Pat = VarP Var (Maybe Type) | TupleP [Pat] (Maybe Type)
     deriving Show
+
+instance Located Pat where
+  locOf x = case x of
+    VarP a _ -> locOf a
+    TupleP bs _ -> case bs of
+      [] -> noLoc -- BAL: add pass location info to here
+      b : _ -> locOf b
 
 data Prim =
     Var Var | StringL (L String) | IntL (L Int) | CharL (L Char) | Op Op

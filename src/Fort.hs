@@ -22,10 +22,11 @@ import           Text.Earley                hiding ( satisfy )
 parseAndCodeGen :: FilePath -> IO ()
 parseAndCodeGen fn = do
     putStrFlush fn
+    putStrFlush "->"
     s <- readFile fn
-    putStrFlush "->Lex->"
+    putStrFlush "Lex->"
     ts <- tokenize fn s
-    putStrFlush "->Indent->"
+    putStrFlush "Indent->"
     case indentation ts of
         []   -> done fn []
         toks -> parse fn s toks
@@ -230,9 +231,14 @@ ppTopDecl x = case x of
                                        | (n, t) <- bs
                                        ]
                      ]
-        ] ++ [ ppAscription (ppVar v)
-                            (Just $ TyFun (tyAddress $ TyCon a) (tyAddress t))
-                 <+> "= T.field" <+> stringifyName v <+> pretty i
+        ] ++ [ vcat [
+                ppAscription (ppVar v)
+                            (Just $ TyFun (TyCon a) t)
+                 <+> "= T.getField" <+> stringifyName v <+> pretty i
+                , ppAscription ("set_" <> ppVar v)
+                            (Just $ TyFun (tyTuple [t, TyCon a]) (TyCon a))
+                 <+> "= T.setField" <+> stringifyName v <+> pretty i
+                    ]
              | ((v, t), i) <- zip bs [ 0 :: Int .. ]
              ]
     TyDecl a (TyVariant bs)
@@ -362,7 +368,7 @@ ppExprDecl isTopLevel (ED (VarP v t) e) = case e of
         | isTopLevel -> lhs <+> "=" <+> "T.func" <+> rhs
         | otherwise -> lhs <+> "=" <+> "T.callLocal" <+> stringifyName v
       where
-        rhs = stringifyName v <+> stringifyPat a <+> ppLam a b
+        rhs = stringifyName v <+> stringifyPat a <+> ppLetBindLam a b
 
     _ -> lhs <+> "=" <+> ppExpr e
   where
@@ -373,7 +379,7 @@ ppExprDeclLabelBody :: ExprDecl -> Maybe (Doc ann)
 ppExprDeclLabelBody x = case x of
   ED (VarP v t) (Lam a b) ->
     Just ("T.letFunc" <+> stringifyName v <+> stringifyPat a
-                     <+> ascribeLetFunc t (ppLam a b))
+                     <+> ascribeLetFunc t (ppLetBindLam a b))
   _ -> Nothing
 
 ascribeLetFunc :: Maybe Type -> Doc ann -> Doc ann
@@ -382,11 +388,14 @@ ascribeLetFunc x d = case x of
         parens (parens d <+> ":: T.E" <+> ppType a <+> "-> T.E" <+> ppType b)
     _ -> parens d
 
-ppLam :: Pat -> Expr -> Doc ann
-ppLam x y = parens ("\\" <> ppVar v <+> "->" <> line
-                    <> indent 2 (letBind (L NoLoc "v") x (ppExpr y)))
+ppLetBindLam :: Pat -> Expr -> Doc ann
+ppLetBindLam x y =
+  ppLam v $ letBind v x (ppExpr y)
   where
-    v = L NoLoc "v"  -- BAL: create a fresh variable
+    v :: Var = "v" `useLoc` x -- BAL: create a fresh variable
+
+ppLam :: Var -> Doc ann -> Doc ann
+ppLam x y = parens ("\\" <> ppVar x <+> "->" <> line <> indent 2 y)
 
 ppType :: Type -> Doc ann
 ppType x = case x of
@@ -424,7 +433,7 @@ ppExpr x = case x of
     Tuple [ Just e ] -> ppExpr e
     Tuple bs -> parens ("T.tuple" <> pretty (length bs)
                         <+> ppTuple (map (maybe mempty ppExpr) bs))
-    Lam a b -> ppLam a b
+    Lam a b -> ppLetBindLam a b
     Ascription a b -> parens (ppAscription (ppExpr a) $ Just b)
     Sequence a -> ppSequence a
     If a b c ->
@@ -440,7 +449,16 @@ ppExpr x = case x of
     Where a bs -> ppWhere (map (ppExprDecl False) bs) $
         parens ("T.where_" <+> parens (ppExpr a)
                 <> ppListV (mapMaybe ppExprDeclLabelBody bs))
+    Record [] -> ppExpr unit
+    Record bs -> parens ("T.record" <> ppListV (map ppRecordField bs))
     _ -> error $ "ppExpr:" ++ show x
+
+ppRecordField :: ((Var, Maybe Type), Expr) -> Doc ann
+ppRecordField ((x, mt), e) =
+  ppTuple
+    [ stringifyName x
+    , "T.opapp" <+> ppExpr (maybe id (flip Ascription) mt e) <+> "set_" <> ppVar x
+    ]
 
 ppProxy :: Type -> Doc ann
 ppProxy t = parens ("P.Proxy :: P.Proxy" <+> parens (ppType t))
@@ -473,7 +491,7 @@ ppSequence = go []
     go rs (b : bs) = case b of
         Let (ED v e) -> f rs
                           ("T.let_" <+> stringifyPat v <+> parens (ppExpr e)
-                           <+> ppLam v (Sequence bs))
+                           <+> ppLetBindLam v (Sequence bs))
         _ -> go (b : rs) bs
 
     f rs d = parens ("T.seqs" <> ppListV (map ppExpr $ reverse rs) <+> parens d)

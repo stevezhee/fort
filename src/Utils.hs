@@ -13,7 +13,7 @@ import           Data.Char
 import           Text.Read                 hiding ( parens )
 
 useLoc :: Located b => a -> b -> L a
-useLoc s t = L (locOf t) s
+useLoc a b = L (locOf b) a
 
 column :: Located a => a -> Int
 column x = case locOf x of

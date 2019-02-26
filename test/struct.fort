@@ -20,12 +20,34 @@ store: (/address a, a) -> ()
 output: a -> ()
 
 ;; code
-foo-struct: (/address MyStruct, /address MyStruct2) -> () = \(mystr, mystr2) => /do
-  x mystr := 42
-  y mystr := #"c"
-  z mystr := 42424242
-  output mystr
-  a mystr2 := 24
-  b mystr2 := 24242424
-  output mystr2
+;; foo-struct: (/address MyStruct, /address MyStruct2) -> () = \(mystr, mystr2) => /do
+  ;; x mystr := 42
+  ;; y mystr := #"c"
+  ;; z mystr := 42424242
+  ;; output mystr
+  ;; a mystr2 := 24
+  ;; b mystr2 := 24242424
+  ;; output mystr2
 
+foo: MyStruct -> Char = \mystr => y mystr
+
+bar: MyStruct -> MyStruct = \mystr => set-x (24, set-y (#"a", mystr))
+
+qux: MyStruct = {
+  ; x = 42
+  ; y = #"z"
+  ; z = 0xff
+  }
+
+foo_: () -> () = \_ => /do
+  output qux
+  output (foo (bar qux))
+
+;; baz: MyStruct -> MyStruct = /set
+;;   x = 24
+;;   z = -1
+
+;; qux2: MyStruct = /record
+;;   x = 42
+;;   y = #"z"
+;;   z = 0xff

@@ -16,7 +16,7 @@ import           Data.List
 import           Data.Maybe
 import           Data.Proxy
 import           Data.String
-import           Data.Text.Prettyprint.Doc
+import           Data.Text.Prettyprint.Doc hiding (group)
 import           IRTypes
 import           LLVM
 import           LLVM.AST                   ( Instruction, Operand )
@@ -344,11 +344,46 @@ volatile = inttoptr
 field :: (Ty a, Ty b) => String -> Integer -> E (Addr a -> Addr b)
 field fld i = opapp (intE 32 i) (swapargs (gep ("field." ++ fld)))
 
+record :: Ty a => [(String, E (a -> a))] -> E a
+record (xs :: [(String, E (a -> a))]) = case filter ((1 /=) . length) groups of
+  [] -> case tyFort (Proxy :: Proxy a) of
+    TyRecord bs -> case map fst bs \\ labels of
+      []   -> reduce (map snd xs) undef
+      lbls -> impossible $ "missing labels:" ++ show lbls -- BAL: user error
+    _ -> impossible "record"
+  bs -> impossible $ "multiply defined labels:" ++ show (map head bs) -- BAL: user error
+  where
+    labels = map fst xs
+    groups = group $ sort labels
+  -- | otherwise = case tyFort (Proxy :: Proxy a) of
+
+undef :: Ty a => E a
+undef = f Proxy
+  where
+    f :: Ty a => Proxy a -> E a
+    f proxy = atomE $ Undef $ tyFort proxy
+
+reduce :: Ty a => [E (a -> a)] -> E a -> E a
+reduce [] x = x
+reduce (f : fs) (x :: E a) = let_ ["v"] (app f x) (reduce fs)
+
+getField :: (Ty a, Ty b) => String -> Integer -> E (a -> b)
+getField fld = extractValue ("field." ++ fld)
+
+setField :: (Ty a, Ty b) => String -> Integer -> E ((b, a) -> a)
+setField fld = insertValue ("set-field." ++ fld)
+
 index :: (Size sz, Ty a) => E ((Addr (Array sz a), UInt32) -> Addr a)
 index = gep "index"
 
 gep :: (Ty a, Ty b) => String -> E ((Addr a, UInt32) -> Addr b)
 gep s = binop s I.gep
+
+extractValue :: (Ty a, Ty b) => String -> Integer -> E (a -> b)
+extractValue s i = unop s $ \a -> I.extractValue a (fromInteger i)
+
+insertValue :: (Ty a, Ty b) => String -> Integer -> E ((b, a) -> a)
+insertValue s i = binop s $ \b a -> I.insertValue a b (fromInteger i)
 
 exprToPat :: Ty a => E a -> Pat
 exprToPat (_ :: E a) = go $ tyFort (Proxy :: Proxy a)
@@ -574,10 +609,6 @@ uoutput t h a = app (opapp a (uh_output t)) h
 putS :: E Handle -> String -> E ()
 putS h s = app (opapp (string s) h_put_string) h
 
-ugep :: Type -> Type -> E ((a, UInt32) -> b)
-ugep t0 t = uinstr (TyFun t0 (TyAddress t)) "ugep" $
-    \[ addr, a ] -> I.gep addr a
-
 -- This runs forward.  Generally, running backwards is faster.
 uforeach :: Integer -> Type -> (E (Addr a) -> E ()) -> E ((b, Handle) -> ())
 uforeach sz t f =
@@ -663,12 +694,28 @@ uh_output t0 = case t0 of
                 in
                     ucase t0 a (snd c) cs
         t -> ok $ \(a, h) -> uoutput t h (app (uload t) a)
+    TyRecord bs -> ok $ \(a, h) -> delim h "{" "}" $
+        seqs_ [ sepS h ", " $
+                  seqs_ [ putS h fld
+                        , putS h " = "
+                        , uoutput t h (app (uExtractValue t0 t i) a)
+                        ]
+              | (i, (fld, t)) <- zip [ 0 .. ] bs
+              ]
     _ -> impossible $ "uh_output:" ++ show t0
   where
     ok :: ((E a, E Handle) -> E ()) -> E ((a, Handle) -> ())
     ok f = ufunc (TyFun (tyTuple [ t0, tyHandle ]) tyUnit)
                  ("output_" ++ hashName t0)
                  [ "a", "h" ] $ \v -> f (argTuple2 v)
+
+ugep :: Type -> Type -> E ((a, UInt32) -> b)
+ugep t0 t = uinstr (TyFun t0 (TyAddress t)) "ugep" $
+    \[ addr, a ] -> I.gep addr a
+
+uExtractValue :: Type -> Type -> Integer -> E (a -> b)
+uExtractValue ta tb i = uinstr (TyFun ta tb) "uExtractValue" $
+  \[a] -> I.extractValue a (fromInteger i)
 
 hashName :: (Show a) => a -> String
 hashName = show . hash . show

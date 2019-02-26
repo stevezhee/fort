@@ -118,14 +118,15 @@ toLLVMTerminator x = AST.Do $ case x of
 
 toOperand :: Atom -> AST.Operand
 toOperand x = case x of
-    Var a -> AST.LocalReference (toTyLLVM $ vTy a) (AST.mkName $ vName a)
-    Int sz i -> AST.ConstantOperand $ I.constInt sz i
-    Char a -> toOperand $ Int 8 $ fromIntegral $ fromEnum a
+    Var a      -> AST.LocalReference (toTyLLVM $ vTy a) (AST.mkName $ vName a)
+    Int sz i   -> AST.ConstantOperand $ I.constInt sz i
+    Char a     -> toOperand $ Int 8 $ fromIntegral $ fromEnum a
     String _ a -> toOperand $ Global a
-    Enum (_, (t, i)) -> toOperand $ Int (sizeFort t) i
+    Undef t    -> AST.ConstantOperand $ AST.Undef $ toTyLLVM t
+    Global a   ->
+      AST.ConstantOperand $ AST.GlobalReference (toTyLLVM $ vTy a) (AST.mkName $ vName a)
+    Enum (_, (t, i))  -> toOperand $ Int (sizeFort t) i
     Cont _ (_, sz, i) -> toOperand $ Int sz i
-    Global a -> AST.ConstantOperand $
-        AST.GlobalReference (toTyLLVM $ vTy a) (AST.mkName $ vName a)
 
 tyLLVM :: Ty a => Proxy a -> AST.Type
 tyLLVM = toTyLLVM . tyFort

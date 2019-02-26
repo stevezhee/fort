@@ -15,6 +15,7 @@
 - generate convience functions for variant `/case`s
 - create `volatile` type builtin
 - unary operators
+- generate c header file for fort ffi defined functions
 
 done:
 - make bool an enum type

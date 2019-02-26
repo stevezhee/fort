@@ -71,6 +71,7 @@ data Atom = Int Integer Integer
           | Var Var
           | Global Var
           | String String Var
+          | Undef Type
           | Cont Nm (Name, Integer, Integer)
     deriving Show
 
@@ -78,7 +79,7 @@ data CallType = LocalDefn | Defn ([Operand] -> Instruction)
 
 instance Show CallType where
     show x = case x of
-        Defn{} -> "defn"
+        Defn{}    -> "defn"
         LocalDefn -> "local"
 
 data AFunc = AFunc { afNm :: Nm, afParams :: Pat, afBody :: AExpr }
@@ -214,6 +215,7 @@ ppAtom x = case x of
     Global v -> pretty v
     String s _ -> pretty (show s)
     Cont a _ -> "%" <> pretty a
+    Undef _  -> "<undef>"
 
 data DefnCall =
     DefnCall { dcNm :: Nm, dcArgs :: [Atom], dcF :: [Operand] -> Instruction }
@@ -267,12 +269,13 @@ tyExpr x = case x of
 
 tyAtom :: Atom -> Type
 tyAtom x = case x of
-    Enum (_, (t, _)) -> t
     Int sz _ -> TyUnsigned sz
-    Char{} -> tyChar
-    Var a -> vTy a
+    Char{}   -> tyChar
+    Var a    -> vTy a
     Global a -> vTy a
     String{} -> TyString
+    Undef t  -> t
+    Enum (_, (t, _)) -> t
     Cont _ (_, a, _) -> TyUnsigned a
 
 freshPat :: Pat -> M Pat

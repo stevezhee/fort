@@ -130,11 +130,11 @@ insertElement v e i = InsertElement v e i []
 shuffleVector :: Operand -> Operand -> C.Constant -> Instruction
 shuffleVector a b m = ShuffleVector a b m []
 
-extractValue :: Operand -> [Word32] -> Instruction
-extractValue a i = ExtractValue a i []
+extractValue :: Operand -> Word32 -> Instruction
+extractValue a i = ExtractValue a [i] []
 
-insertValue :: Operand -> Operand -> [Word32] -> Instruction
-insertValue a e i = InsertValue a e i []
+insertValue :: Operand -> Operand -> Word32 -> Instruction
+insertValue a e i = InsertValue a e [i] []
 
 icmp :: IP.IntegerPredicate -> Operand -> Operand -> Instruction
 icmp pred a b = ICmp pred a b []
