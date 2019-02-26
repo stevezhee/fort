@@ -52,7 +52,7 @@ reverse-n: (Int, Perm) -> () = \(n,p) => go (0, n - 1)
 
 swap: (/address Int, /address Int) -> () = \(p,q) => /do
   /let temp = load p
-  p := (load q) ;; BAL: shouldn't need these parens
+  p := load q
   q := temp
 
 ;; asdf = foreach p in permutations() /do

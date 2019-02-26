@@ -8,6 +8,7 @@ FORT_FILES=$(wildcard $(TEST_DIR)/*.fort)
 # FORT_FILES=test/address.fort
 # FORT_FILES=test/array.fort
 # FORT_FILES=test/char.fort
+# FORT_FILES=test/primitives.fort
 # FORT_FILES=test/powi.fort
 # FORT_FILES=test/struct.fort
 # FORT_FILES=test/todd.fort

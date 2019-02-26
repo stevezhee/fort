@@ -131,7 +131,13 @@ grammar = mdo
         (mkWhere <$> pLamE <*> (reserved "/where" *> blockList pExprDecl)
          <?> "where clause") <|> pLamE
     pLamE <- rule $ (Lam <$> pLam pPat <*> pLamE <?> "lambda expression")
-        <|> (Let <$> (reserved "/let" *> pExprDecl) <?> "let binding") <|> pAppE
+        <|> (Let <$> (reserved "/let" *> pExprDecl) <?> "let binding") <|> pOpAppE
+    pOpAppE <- rule $
+        (App <$> (App <$> pAppE <*> pOpE) <*> pAppE) <|>
+        (App <$> pAppE <*> pOpE) <|>
+        (App <$> pOpE <*> pAppE) <|>
+        pOpE <|>
+        pAppE
     pAppE <- rule $ (mkApp <$> pAppE <*> pKeywordE <?> "application")
         <|> pKeywordE
     pKeywordE <- rule $
@@ -145,7 +151,7 @@ grammar = mdo
     pE0 <- rule $ (Record <$> blockList pFieldDecl <?> "record")
         <|> (pSomeTuple Tuple (optional pExpr) <?> "tuple") <|>
         -- ^ pSomeTuple is needed because the expr is optional
-        (Prim <$> pPrim)
+        (Prim <$> pPrimNotOp)
     pPat <- rule $ (VarP <$> pVar <*> optional pAscription <?> "var pattern")
         <|> (pTuple TupleP pPat <*> optional pAscription <?> "tuple pattern")
     return (blockItems pDecl)
@@ -203,9 +209,11 @@ reserved s = satisfy (s ==) *> pure () <?> s
 satisfy :: (String -> Bool) -> P r Token
 satisfy f = E.satisfy (f . unLoc)
 
-pPrim :: P r Prim
-pPrim = (Var <$> pVar <?> "variable") <|> (Op <$> pOp <?> "operator")
-    <|> (StringL <$> pStringLit) <|> (CharL <$> pCharLit) <|> (IntL <$> pIntLit)
+pOpE :: P r Expr
+pOpE = Prim . Op <$> pOp <?> "operator"
+
+pPrimNotOp :: P r Prim
+pPrimNotOp = (Var <$> pVar <?> "variable") <|> (StringL <$> pStringLit) <|> (CharL <$> pCharLit) <|> (IntL <$> pIntLit)
 
 hasCharLitPrefix :: String -> Bool
 hasCharLitPrefix = isPrefixOf "#\""

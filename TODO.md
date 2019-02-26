@@ -12,12 +12,12 @@
 - add constraints for ad-hoc polymophism
 - n-dimensional tuples
 - polymorphic containers (arrays, tuples, variants, records)
-- make bools a variant type
 - generate convience functions for variant `/case`s
 - create `volatile` type builtin
 - unary operators
 
 done:
+- make bool an enum type
 - add hex, octal, and binary literals
 - get dependencies in makefile correct
 - generate output functions for each datatype
