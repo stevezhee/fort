@@ -217,10 +217,7 @@ extern n = f Proxy
       TyFun{} -> externFunc n
       _       -> global n
 
-global :: Ty a
-       => String
-       -> E a -- BAL: combine with extern and make accessable to the user
-
+global :: Ty a => String -> E a
 global s = app load (f Proxy)
   where
     f :: Ty a => Proxy a -> E (Addr a)
