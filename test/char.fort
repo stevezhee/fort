@@ -4,11 +4,12 @@ Handle = /address (/unsigned 64)
 String = /string
 
 ;; primitives
-stdin: Handle
+stdin: Handle = /extern "g_stdin"
 stdout: Handle
-stderr: Handle
+stderr: Handle = /extern "g_stderr"
 
-h-get-char: Handle -> Char
+h-get-char: Handle -> Char = /extern "fgetc"
+
 output: a -> ()
 
 ;; constants

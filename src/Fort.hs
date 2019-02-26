@@ -162,19 +162,19 @@ declTypes x = case x of
 
 exprTypes :: Expr -> [Type]
 exprTypes x = case x of
-    Prim{} -> []
-    Lam a b -> patTypes a ++ exprTypes b
-    App a b -> exprTypes a ++ exprTypes b
-    Where a b -> exprTypes a ++ concatMap exprDeclTypes b
-    If a b c -> exprTypes a ++ exprTypes b ++ exprTypes c
+    Prim{}      -> []
+    Extern      -> []
+    Lam a b     -> patTypes a ++ exprTypes b
+    App a b     -> exprTypes a ++ exprTypes b
+    Where a b   -> exprTypes a ++ concatMap exprDeclTypes b
+    If a b c    -> exprTypes a ++ exprTypes b ++ exprTypes c
     Sequence bs -> concatMap exprTypes bs
-    Record bs ->
-        concat [ maybeToList mt ++ exprTypes e | ((_, mt), e) <- bs ]
-    Tuple bs -> concatMap exprTypes $ catMaybes bs
-    Ascription a b -> b : exprTypes a
-    Case a bs -> exprTypes a
+    Record bs   -> concat [ maybeToList mt ++ exprTypes e | ((_, mt), e) <- bs ]
+    Tuple bs    -> concatMap exprTypes $ catMaybes bs
+    Case a bs   -> exprTypes a
         ++ concat [ maybeToList mt ++ exprTypes e | ((_, mt), e) <- bs ]
-    Let a -> exprDeclTypes a
+    Let a       -> exprDeclTypes a
+    Ascription a b -> b : exprTypes a
 
 ppToken :: Token -> Doc ann
 ppToken = ppLoc
@@ -413,6 +413,9 @@ ppType x = case x of
 ppExpr :: Expr -> Doc ann
 ppExpr x = case x of
     Prim a -> ppPrim a
+    App Extern b -> case b of
+      Prim (StringL s) -> parens ("T.extern" <+> pretty (unLoc s))
+      _ -> error "/extern can only be applied to a constant string"
     App a b
         | isOpExpr b -> parens (parens ("T.opapp" <+> ppExpr a) <+> ppExpr b)
         | otherwise -> parens (parens ("T.app" <+> ppExpr a) <+> ppExpr b)

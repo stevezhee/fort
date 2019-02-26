@@ -17,7 +17,7 @@ Bool = /bool
 load: /address a -> a
 store: (/address a, a) -> ()
 volatile: UInt32 -> Pointer
-efm32hg_delay: UInt32 -> ()
+efm32hg_delay: UInt32 -> () = /extern "efm32hg_delay"
 
 ;; ┌─┐┌─┐┌─┐┬─┐┌─┐┌┬┐┌─┐┬─┐┌─┐
 ;; │ │├─┘├┤ ├┬┘├─┤ │ │ │├┬┘└─┐

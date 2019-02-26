@@ -57,6 +57,7 @@ reservedWords =
     , "/enum"
     , "/signed"
     , "/unsigned"
+    , "/extern"
     , "/address"
     , "/char"
     , "/bool"
@@ -137,6 +138,7 @@ grammar = mdo
         <|> (Case <$> (reserved "/case" *> pExpr <* reserved "/of")
              <*> blockList pAlt <?> "case expression")
         <|> (mkIf <$> (reserved "/if" *> blockList pIfAlt) <?> "if expression")
+        <|> (pure Extern <* reserved "/extern" <?> "/extern")
         <|> pAscriptionE
     pAscriptionE <- rule $ (Ascription <$> pE0 <*> pAscription) <|> pE0
     pE0 <- rule $ (Record <$> blockList pFieldDecl <?> "record")

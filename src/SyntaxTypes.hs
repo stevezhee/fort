@@ -65,6 +65,7 @@ data Expr -- BAL: pass locations through to all constructs
     | Record [((Var, Maybe Type), Expr)]
     | Tuple [Maybe Expr]
     | Ascription Expr Type
+    | Extern
     deriving Show
 
 type Alt = ((AltPat, Maybe Type), Expr)

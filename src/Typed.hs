@@ -209,6 +209,14 @@ ufunc ty n0 pat f = E $ do
             modify' $ \st -> st { funcs = HMS.insert n lbl $ funcs st }
     unE (callE nm (Defn g) :: E (a -> b))
 
+extern :: Ty a => Name -> E a
+extern n = f Proxy
+  where
+    f :: Ty a => Proxy a -> E a
+    f proxy = case tyFort proxy of
+      TyFun{} -> externFunc n
+      _       -> global n
+
 global :: Ty a
        => String
        -> E a -- BAL: combine with extern and make accessable to the user
@@ -221,10 +229,10 @@ global s = app load (f Proxy)
         modify' $ \st -> st { externs = HMS.insert s t $ externs st }
         pure $ AtomE $ Global $ V (TyAddress t) s
 
-extern :: (Ty a, Ty b) => Name -> E (a -> b)
-extern n = f Proxy
+externFunc :: Ty a => Name -> E a
+externFunc n = f Proxy
   where
-    f :: (Ty a, Ty b) => Proxy (a -> b) -> E (a -> b)
+    f :: Ty a => Proxy a -> E a
     f proxy = E $ do
         let (nm, g) = funTys n $ tyFort proxy
         modify' $ \st -> st { externs = HMS.insert n (nTy nm) $ externs st }
@@ -473,9 +481,6 @@ store
 
 store = binop "store" I.store
 
-efm32hg_delay :: Ty a => E (a -> ())
-efm32hg_delay = extern "efm32hg_delay"
-
 add :: Ty a => E ((a, a) -> a)
 add = arithop "add" I.add
 
@@ -547,15 +552,8 @@ inttoptr :: (Ty a, Ty b) => E (a -> b) -- BAL: make part of bitcast?
 
 inttoptr = bitop "inttoptr" I.inttoptr
 
--- BAL: define in .fort
-stdin :: E Handle
-stdin = global "g_stdin"
-
 stdout :: E Handle
 stdout = global "g_stdout"
-
-stderr :: E Handle
-stderr = global "g_stderr"
 
 output :: Ty a => E (a -> ())
 output = f Proxy
@@ -697,18 +695,15 @@ ubitcast :: Type -> Type -> E (a -> b)
 ubitcast ta tb = uinstr (TyFun ta tb) "bitcast" $ \[ a ] ->
     I.bitcast a (toTyLLVM tb)
 
-h_get_char :: E (Handle -> Char_)
-h_get_char = extern "fgetc"
-
 h_put_char :: E ((Char_, Handle) -> ())
-h_put_char = extern "fputc"
+h_put_char = externFunc "fputc"
 
 h_put_string :: E ((String_, Handle) -> ())
-h_put_string = extern "fputs"
+h_put_string = externFunc "fputs"
 
 h_put_uint64 :: E ((Unsigned Size64, Handle) -> ())
-h_put_uint64 = extern "h_put_uint64"
+h_put_uint64 = externFunc "h_put_uint64"
 
 h_put_sint64 :: E ((Signed Size64, Handle) -> ())
-h_put_sint64 = extern "h_put_sint64"
+h_put_sint64 = externFunc "h_put_sint64"
 
