@@ -16,9 +16,9 @@
 - generate convience functions for variant `/case`s
 - create `volatile` type builtin
 - unary operators
-- add hex, octal, and binary constants
 
 done:
+- add hex, octal, and binary literals
 - get dependencies in makefile correct
 - generate output functions for each datatype
 - added user defined externals

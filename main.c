@@ -24,7 +24,7 @@ extern void array_foo_array(int[2]);
 extern void struct_foo_struct(MyStruct*, MyStruct2*);
 extern void char_char_io_test();
 extern void array_foo_2dim_array(int[2][3]);
-extern void primitives_add3AtLoc(int*);
+extern void primitives_add315AtLoc(int*);
 extern void enum_enum_foo(int);
 
 void h_put_uint64(uint64_t x, FILE *h)
@@ -99,7 +99,7 @@ int main(int argc, char**argv)
     }
 
   int myInt = 4;
-  primitives_add3AtLoc(&myInt);
+  primitives_add315AtLoc(&myInt);
   printf("myInt = %d\n", myInt);
 
   char_hello_world();

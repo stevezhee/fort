@@ -17,7 +17,8 @@ Some random stuff about fort:
   - type signatures are specified after a `:`, e.g. `x: Int`
   - type signatures can be added most everywhere
   - `/if`s are multi-way ifs
-  - the syntax is designed to be "low friction", i.e. cutting/pasting/naming expressions should work without extra syntax
+  - the syntax is designed to be "low friction", i.e. cutting/pasting/naming
+    expressions should work without extra syntax
   - top level declarations can have any order
 
 # Dependency/Installation help

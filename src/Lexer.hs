@@ -44,14 +44,19 @@ tokWS = some (sym ' ') <|> some (sym '\n') <|> string ";;"
 tok :: Tok
 tok = (:) <$> sym '/' <*> some (psym lower) <|> -- reserved words
     (:) <$> psym (\c -> lower c || upper c) <*> many (psym ident)
+    <|> hexLit <|> octLit <|> binLit
     <|> (:) <$> sym '-' <*> digits <|> digits <|> charLit <|> some (psym oper)
     <|> stringLit <|> (: []) <$> psym special
 
-upper, digit, lower, ident, special :: Char -> Bool
+upper, digit, lower, ident, special, hexDigit, octDigit, binDigit :: Char -> Bool
 upper = inclusive 'A' 'Z'
 
 ident c = lower c || upper c || digit c || c `elem` ("-?^~'" :: String)
 digit = inclusive '0' '9'
+hexDigit c = digit c || inclusive 'a' 'f' c
+octDigit = inclusive '0' '7'
+binDigit = inclusive '0' '1'
+
 lower c = inclusive 'a' 'z' c || c == '_'
 special = flip elem "()[]{},;"
 
@@ -100,6 +105,15 @@ indentation toks@(t0 : _) = go t0 [] toks
 
 charLit :: Tok
 charLit = (:) <$> sym '#' <*> stringLit
+
+hexLit :: Tok
+hexLit = (:) <$> sym '0' <*> ((:) <$> sym 'x' <*> some (psym hexDigit))
+
+octLit :: Tok
+octLit = (:) <$> sym '0' <*> ((:) <$> sym 'o' <*> some (psym octDigit))
+
+binLit :: Tok
+binLit = (:) <$> sym '0' <*> ((:) <$> sym 'b' <*> some (psym binDigit))
 
 stringLit :: Tok
 stringLit = (\a bs c -> a : concat bs ++ [ c ]) <$> sym '"' <*> many p

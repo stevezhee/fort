@@ -52,8 +52,8 @@ add1: Int -> Int = \x => x + 1
 
 ;; mutable values
 
-add3AtLoc: /address Int -> () = \p => /do ;; /do sequences operations
-  store (p, 1 + (load p)) ;; BAL: shouldn't need parens here
-  store (p, 1 + (load p))
-  store (p, 1 + (load p))
+add315AtLoc: /address Int -> () = \p => /do ;; /do sequences operations
+  store (p, 0xff + (load p)) ;; BAL: shouldn't need parens here
+  store (p, 0o71 + (load p))
+  store (p, 0b11 + (load p))
 

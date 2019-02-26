@@ -10,6 +10,7 @@ import           Control.Monad.State
 import           Data.List
 import           Data.Loc
 import           Data.String
+import Data.Char
 
 import SyntaxTypes
 
@@ -220,9 +221,15 @@ pStringLit :: P r Token
 pStringLit = satisfy (startsWith ('"' ==)) <?> "string literal"
 
 pIntLit :: P r (L Int)
-pIntLit = (\s -> useLoc (readError msg $ unLoc s) s) <$> satisfy isInt <?> msg
+pIntLit = (\a -> useLoc (f (unLoc a)) a) <$> satisfy isInt <?> msg
   where
     msg = "integer literal"
+    f s = case s of
+      '0' : 'b' : bs -> readBin bs
+      _              -> readError msg s
+
+readBin :: String -> Int
+readBin = foldl' (\acc x -> acc * 2 + digitToInt x) 0
 
 pAltPat :: P r AltPat
 pAltPat = ConP <$> pCon <|> IntP <$> pIntLit <|> CharP <$> pCharLit
