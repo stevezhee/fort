@@ -1,29 +1,27 @@
-- get dependencies in makefile correct
-- pretty printer for .ll
 - make builds faster
 - there must be a faster way to do installs
 - pretty print Haskell code (both written and generated)
-- add git hooks for pretty printing and hlint
 - add haddock
 - test out more complicated nested ifs/arrays/records (which I stupidly named the test file struct.fort)
 - string buffers
 - create a stack datatype which is a record with an Int for the `top` and an array of the data
 - initialization of constructed datatypes (i.e. records, arrays, variants (once I get them working))
-- investigate using llvm-hs-typed
 - make error reporting better
 - add sizes to array indices
 - add an easy mechanism to write tests
 - add constraints for ad-hoc polymophism
-- use type families instead of functional dependencies?
 - n-dimensional tuples
 - polymorphic containers (arrays, tuples, variants, records)
 - make bools a variant type
 - generate convience functions for variant `/case`s
-- generate output functions for each datatype
 - create `volatile` type builtin
 - unary operators
+- add hex, octal, and binary constants
 
 done:
+- get dependencies in makefile correct
+- generate output functions for each datatype
+- added user defined externals
 - get up to date on latest llvm-hs
 - add all the llvm arithmetic operators
 - add the llvm `bitcast` operator and some of the other non-arithmetic ones
@@ -33,3 +31,6 @@ done:
 - add sizes to Arrays
 - make chars their own types
 - constant strings
+- use type families instead of functional dependencies?
+- investigate using llvm-hs-typed
+- added make target for pretty printing and have hlint running in emacs
