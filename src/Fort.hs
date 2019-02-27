@@ -279,8 +279,8 @@ ppTopDecl x = case x of
     ExprDecl a -> ppExprDecl True a
 
 ppUnsafeCon :: Con -> (Con, Maybe Type) -> Doc ann
-ppUnsafeCon _ (c, Nothing) =
-    vcat [ pretty (unsafeUnConName c) <+> ":: T.E a -> T.E b -> T.E a" -- BAL: put type in here
+ppUnsafeCon a (c, Nothing) =
+    vcat [ pretty (unsafeUnConName c) <+> ":: T.Ty a => T.E a -> T.E" <+> ppCon a <+> "-> T.E a" -- BAL: put type in here
          , pretty (unsafeUnConName c) <+> "= T.const"
          ]
 ppUnsafeCon a (c, Just t) =

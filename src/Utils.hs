@@ -11,9 +11,13 @@ import           Data.Loc
 import           Data.Maybe
 import           Data.Char
 import           Text.Read                 hiding ( parens )
+import           Data.Hashable
 
 useLoc :: Located b => a -> b -> L a
 useLoc a b = L (locOf b) a
+
+hashName :: (Show a) => a -> String
+hashName = show . hash . show
 
 column :: Located a => a -> Int
 column x = case locOf x of

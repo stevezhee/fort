@@ -18,6 +18,7 @@
 - generate c header file for fort ffi defined functions
 - underscores in numeric literals
 - module system and qualified names
+- nested patterns
 
 done:
 - make bool an enum type

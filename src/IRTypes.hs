@@ -142,6 +142,12 @@ data Type = TyChar
           | TyCont Name
     deriving ( Show, Eq )
 
+tyBool :: Type
+tyBool = tyEnum ["False", "True"]
+
+tyEnum :: [String] -> Type
+tyEnum = TyEnum -- BAL: do something different with 0 or 1 strings?
+
 tyUnit :: Type
 tyUnit = tyTuple []
 
