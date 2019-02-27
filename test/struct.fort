@@ -20,14 +20,6 @@ store: (/address a, a) -> ()
 output: a -> ()
 
 ;; code
-;; foo-struct: (/address MyStruct, /address MyStruct2) -> () = \(mystr, mystr2) => /do
-  ;; x mystr := 42
-  ;; y mystr := #"c"
-  ;; z mystr := 42424242
-  ;; output mystr
-  ;; a mystr2 := 24
-  ;; b mystr2 := 24242424
-  ;; output mystr2
 
 get-y: MyStruct -> Char = \mystr => y mystr
 
@@ -43,10 +35,12 @@ foo: () -> () = \_ => /do
   output qux
   output (get-y (bar qux))
 
+;; BAL: proposed syntax
 ;; baz: MyStruct -> MyStruct = /set
 ;;   x = 24
 ;;   z = -1
 
+;; BAL: proposed syntax
 ;; qux2: MyStruct = /record
 ;;   x = 42
 ;;   y = #"z"

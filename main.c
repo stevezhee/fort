@@ -2,17 +2,6 @@
 #include <stdlib.h>
 #include <stdint.h>
 
-typedef struct {
-  int32_t x;
-  uint8_t y;
-  int64_t z;
-} MyStruct;
-
-typedef struct {
-  int32_t a;
-  int64_t b;
-} MyStruct2;
-
 extern void reverse_n(int,int []);
 extern int fannkuch_redux_fannkuch(int []);
 extern void char_hello_world();
@@ -21,7 +10,6 @@ extern int powi_squared(int);
 extern void address_inc(int*);
 extern void address_inc2(int*);
 extern void array_foo_array(int[2]);
-/* extern void struct_foo_struct_(MyStruct*, MyStruct2*); */
 extern void char_char_io_test();
 extern void array_foo_2dim_array(int[2][3]);
 extern void primitives_add315AtLoc(int*);
@@ -69,18 +57,6 @@ int main(int argc, char**argv)
   printf("sizeof int %lu\n", sizeof(int));
   printf("sizeof FILE* %lu\n", sizeof(FILE*));
 
-  MyStruct mystruct;
-  MyStruct2 mystruct2;
-  printf("sizeof MyStruct.x %lu\n", sizeof(mystruct.x));
-  printf("sizeof MyStruct.y %lu\n", sizeof(mystruct.y));
-  printf("sizeof MyStruct.z %lu\n", sizeof(mystruct.z));
-  printf("sizeof MyStruct %lu\n", sizeof(mystruct));
-  /* struct_foo_struct(&mystruct, &mystruct2); */
-  printf("mystruct.x %d\n",mystruct.x);
-  printf("mystruct.y %c\n",mystruct.y);
-  printf("mystruct.z %llu\n",mystruct.z);
-  printf("mystruct2.a %d\n",mystruct2.a);
-  printf("mystruct2.b %llu\n",mystruct2.b);
   printf("stdin %p\n",stdin);
 
   if(argc > 1)
