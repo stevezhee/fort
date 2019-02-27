@@ -3,15 +3,19 @@
 
 module Utils where
 
+import           Data.Char
+
+import           Data.Hashable
 import           Data.List
-import           Data.Text.Prettyprint.Doc
-import           System.FilePath
-import           System.IO
+
 import           Data.Loc
 import           Data.Maybe
-import           Data.Char
+import           Data.Text.Prettyprint.Doc
+
+import           System.FilePath
+import           System.IO
+
 import           Text.Read                 hiding ( parens )
-import           Data.Hashable
 
 useLoc :: Located b => a -> b -> L a
 useLoc a b = L (locOf b) a

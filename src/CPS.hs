@@ -11,12 +11,12 @@ module CPS where
 import           ANF
 
 import           Control.Monad.State.Strict
-import           Data.Text.Prettyprint.Doc
 
 import           Data.Bifunctor
 import qualified Data.HashMap.Strict        as HMS
 import           Data.List
 import           Data.Maybe
+import           Data.Text.Prettyprint.Doc
 
 import           IRTypes
 
@@ -37,9 +37,10 @@ toCPSFuncs (x : xs) = do
     let (l, r) = partition ((==) (afName x) . cpsName) bs
     pure $ map (toCPSFuncPost contTbl) $ l ++ r
 toCPSFuncs _ = impossible "toCPSFuncs"
-  
+
 fromCPSFunc :: CPSFunc -> Func
-fromCPSFunc (CPSFunc nm vs ys z) = Func nm vs $ foldr ((\f b -> f b) . go) (goTerm z) ys
+fromCPSFunc (CPSFunc nm vs ys z) = Func nm vs $
+    foldr ((\f b -> f b) . go) (goTerm z) ys
   where
     go :: Instr -> Expr -> Expr
     go (pat, DefnCall n bs f) = LetE pat (CallE (n, Defn f) $ map AtomE bs)
@@ -101,7 +102,7 @@ mkLocalCont ty cont pat x = do
 callWithCont :: Cont -> LocalCall -> M LocalCall
 callWithCont cont (LocalCall nm bs) = case cont of
     VarC a b -> pure $ lc (Var $ V (TyCont a) b)
-    NmC a    -> do
+    NmC a -> do
         contTbl <- gets conts
         i <- case HMS.lookup n contTbl of
             Nothing -> do
@@ -181,22 +182,22 @@ toCPSFuncPost contTbl (CPSFunc nm vs ys t) = CPSFunc nm' vs' ys t'
         ContT n
               a
               bs -> case HMS.toList $ fromMaybe mempty $ HMS.lookup n contTbl of
-            [ (c0, _) ]    -> CallT $ contToLocalCall c0
+            [ (c0, _) ] -> CallT $ contToLocalCall c0
             ((n0, _) : cs) ->
                 SwitchT (Var $ V (tyCont n) a)
                         (contToLocalCall n0)
                         [ ((nName c, constInt (contSz n) i), contToLocalCall c)
                         | (c, i) <- cs
                         ]
-            []             -> RetT bs
-            -- BAL: ^ Track down the appropriate type here and do a CallT?
+            [] -> RetT bs
+        -- BAL: ^ Track down the appropriate type here and do a CallT?
           where
             contToLocalCall = flip LocalCall bs
 
     fixContArg (LocalCall a bs) = LocalCall a bs'
       where
         bs' = case bs of
-            Cont n1 (n2, _, i) : rest   -> Cont n1 (n2, contSz n2, i) : rest
+            Cont n1 (n2, _, i) : rest -> Cont n1 (n2, contSz n2, i) : rest
             Var (V (TyCont n) v) : rest -> Var (V (tyCont n) v) : rest
             _ -> bs
 

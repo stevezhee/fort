@@ -18,10 +18,10 @@ divide: (a, a) -> a
 ;; & = bitwise-and
 bitwise-and: (a, a) -> a
 
-truncate: a -> b
+cast: a -> b
 
 ;; code
-is-odd: Int -> Bool = truncate
+is-odd: Int -> Bool = cast
 
 ^ = powi
 

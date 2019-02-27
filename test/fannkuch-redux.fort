@@ -24,10 +24,10 @@ load: /address a -> a
 index: (/address (/array sz a), Int) -> /address a
 # = index
 
-truncate: a -> b
+cast: a -> b
 
 ;; code
-is-odd: Int -> Bool = truncate
+is-odd: Int -> Bool = cast
 
 fannkuch: Perm -> Int = \p => go 0
   /where

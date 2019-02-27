@@ -37,6 +37,8 @@ library:
     - Utils
     - Lexer
     - SyntaxTypes
+    - UExpr
+    - Expr
 
   dependencies:
     - mtl

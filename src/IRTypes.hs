@@ -79,7 +79,7 @@ data CallType = LocalDefn | Defn ([Operand] -> Instruction)
 
 instance Show CallType where
     show x = case x of
-        Defn{}    -> "defn"
+        Defn{} -> "defn"
         LocalDefn -> "local"
 
 data AFunc = AFunc { afNm :: Nm, afParams :: Pat, afBody :: AExpr }
@@ -143,7 +143,7 @@ data Type = TyChar
     deriving ( Show, Eq )
 
 tyBool :: Type
-tyBool = tyEnum ["False", "True"]
+tyBool = tyEnum [ "False", "True" ]
 
 tyEnum :: [String] -> Type
 tyEnum = TyEnum -- BAL: do something different with 0 or 1 strings?
@@ -227,7 +227,7 @@ ppAtom x = case x of
     Global v -> pretty v
     String s _ -> pretty (show s)
     Cont a _ -> "%" <> pretty a
-    Undef _  -> "<undef>"
+    Undef _ -> "<undef>"
 
 data DefnCall =
     DefnCall { dcNm :: Nm, dcArgs :: [Atom], dcF :: [Operand] -> Instruction }
@@ -269,24 +269,24 @@ instance Hashable Nm where
 
 tyExpr :: Expr -> Type
 tyExpr x = case x of
-    AtomE a        -> tyAtom a
-    TupleE bs      -> tyTuple $ map tyExpr bs
-    SwitchE _ b _  -> tyExpr b
-    LetE _ _ e     -> tyExpr e
-    LetRecE _ e    -> tyExpr e
+    AtomE a -> tyAtom a
+    TupleE bs -> tyTuple $ map tyExpr bs
+    SwitchE _ b _ -> tyExpr b
+    LetE _ _ e -> tyExpr e
+    LetRecE _ e -> tyExpr e
     UnreachableE t -> t
     CallE (n, _) _ -> case nTy n of
         TyFun _ t -> t
-        _         -> impossible $ "tyExpr:" ++ show x
+        _ -> impossible $ "tyExpr:" ++ show x
 
 tyAtom :: Atom -> Type
 tyAtom x = case x of
     Int sz _ -> TyUnsigned sz
-    Char{}   -> TyChar
-    Var a    -> vTy a
+    Char{} -> TyChar
+    Var a -> vTy a
     Global a -> vTy a
     String{} -> TyString
-    Undef t  -> t
+    Undef t -> t
     Enum (_, (t, _)) -> t
     Cont _ (_, a, _) -> TyUnsigned a
 
@@ -396,16 +396,16 @@ tyVariantToTyTuple bs =
 -- BAL: write sizeOf :: AST.Type -> Integer
 sizeFort :: Type -> Integer
 sizeFort x = case x of
-    TyChar        -> 8
-    TySigned sz   -> sz
+    TyChar -> 8
+    TySigned sz -> sz
     TyUnsigned sz -> sz
-    TyString      -> ptrSize
-    TyAddress _   -> ptrSize
-    TyArray sz a  -> sz * sizeFort a
-    TyTuple bs    -> sum $ map sizeFort bs
-    TyRecord bs   -> sizeFort $ tyRecordToTyTuple bs
-    TyVariant bs  -> sizeFort $ tyVariantToTyTuple bs
-    TyEnum bs     -> sizeFort $ unTyEnum bs
-    TyFun{}       -> impossible "sizeFort:TyFun"
-    TyCont{}      -> impossible "sizeFort:TyCont"
+    TyString -> ptrSize
+    TyAddress _ -> ptrSize
+    TyArray sz a -> sz * sizeFort a
+    TyTuple bs -> sum $ map sizeFort bs
+    TyRecord bs -> sizeFort $ tyRecordToTyTuple bs
+    TyVariant bs -> sizeFort $ tyVariantToTyTuple bs
+    TyEnum bs -> sizeFort $ unTyEnum bs
+    TyFun{} -> impossible "sizeFort:TyFun"
+    TyCont{} -> impossible "sizeFort:TyCont"
 

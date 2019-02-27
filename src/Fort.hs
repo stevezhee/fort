@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Fort (parseAndCodeGen) where
+module Fort ( parseAndCodeGen ) where
 
 -- This file performs a syntax directed translation from the input .fort file to
 -- a corresponding .hs (Haskell) file. Executing the .hs file will generate a
@@ -11,13 +11,18 @@ import           Data.Loc
 import           Data.Maybe
 import           Data.Text.Prettyprint.Doc
 
-import           Utils
-import SyntaxTypes
-import Lexer
-import Parser
-import           System.IO
+import           Lexer
+
+import           Parser
+
+import           SyntaxTypes
+
 import           System.Exit
-import           Text.Earley                hiding ( satisfy )
+import           System.IO
+
+import           Text.Earley               hiding ( satisfy )
+
+import           Utils
 
 parseAndCodeGen :: FilePath -> IO ()
 parseAndCodeGen fn = do
@@ -28,7 +33,7 @@ parseAndCodeGen fn = do
     ts <- tokenize fn s
     putStrFlush "Indent->"
     case indentation ts of
-        []   -> done fn []
+        [] -> done fn []
         toks -> parse fn s toks
 
 parse :: FilePath -> String -> [Token] -> IO ()
@@ -41,8 +46,7 @@ parse fn s toks = do
             putStrLn ""
             hPutStrLn stderr "ambiguous :O"
             -- print toks
-            mapM_ (\z -> hPutStrLn stderr ""
-                   >> mapM_ (hPrint stderr . show) z)
+            mapM_ (\z -> hPutStrLn stderr "" >> mapM_ (hPrint stderr . show) z)
                   asts
             exitFailure
         _ -> do
@@ -147,7 +151,7 @@ typeSizes x = case x of
 
 patTypes :: Pat -> [Type]
 patTypes x = case x of
-    VarP _ b    -> maybeToList b
+    VarP _ b -> maybeToList b
     TupleP bs c -> maybeToList c ++ concatMap patTypes bs
 
 exprDeclTypes :: ExprDecl -> [Type]
@@ -162,18 +166,18 @@ declTypes x = case x of
 
 exprTypes :: Expr -> [Type]
 exprTypes x = case x of
-    Prim{}      -> []
-    Extern      -> []
-    Lam a b     -> patTypes a ++ exprTypes b
-    App a b     -> exprTypes a ++ exprTypes b
-    Where a b   -> exprTypes a ++ concatMap exprDeclTypes b
-    If a b c    -> exprTypes a ++ exprTypes b ++ exprTypes c
+    Prim{} -> []
+    Extern -> []
+    Lam a b -> patTypes a ++ exprTypes b
+    App a b -> exprTypes a ++ exprTypes b
+    Where a b -> exprTypes a ++ concatMap exprDeclTypes b
+    If a b c -> exprTypes a ++ exprTypes b ++ exprTypes c
     Sequence bs -> concatMap exprTypes bs
-    Record bs   -> concat [ maybeToList mt ++ exprTypes e | ((_, mt), e) <- bs ]
-    Tuple bs    -> concatMap exprTypes $ catMaybes bs
-    Case a bs   -> exprTypes a
+    Record bs -> concat [ maybeToList mt ++ exprTypes e | ((_, mt), e) <- bs ]
+    Tuple bs -> concatMap exprTypes $ catMaybes bs
+    Case a bs -> exprTypes a
         ++ concat [ maybeToList mt ++ exprTypes e | ((_, mt), e) <- bs ]
-    Let a       -> exprDeclTypes a
+    Let a -> exprDeclTypes a
     Ascription a b -> b : exprTypes a
 
 ppToken :: Token -> Doc ann
@@ -230,13 +234,12 @@ ppTopDecl x = case x of
                                        | (n, t) <- bs
                                        ]
                      ]
-        ] ++ [ vcat [
-                ppAscription (ppVar v)
-                            (Just $ TyFun (TyCon a) t)
-                 <+> "= T.getField" <+> stringifyName v <+> pretty i
-                , ppAscription ("set_" <> ppVar v)
-                            (Just $ TyFun (tyTuple [t, TyCon a]) (TyCon a))
-                 <+> "= T.setField" <+> stringifyName v <+> pretty i
+        ] ++ [ vcat [ ppAscription (ppVar v) (Just $ TyFun (TyCon a) t)
+                          <+> "= T.getField" <+> stringifyName v <+> pretty i
+                    , ppAscription ("set_" <> ppVar v)
+                                   (Just $ TyFun (tyTuple [ t, TyCon a ])
+                                                 (TyCon a)) <+> "= T.setField"
+                          <+> stringifyName v <+> pretty i
                     ]
              | ((v, t), i) <- zip bs [ 0 :: Int .. ]
              ]
@@ -260,13 +263,14 @@ ppTopDecl x = case x of
                          [ ppCon a ]
                          [ "tyFort _ = T.TyVariant"
                                <> ppListV [ ppTuple [ stringifyName n
-                                                    , "T.tyFort"
-                                                          <+> ppProxy (fromMaybe tyUnit mt)
+                                                    , "T.tyFort" <+> ppProxy (fromMaybe tyUnit
+                                                                                        mt)
                                                     ]
                                           | (n, mt) <- bs
                                           ]
                          ]
-            ] ++ map (ppInject (neededBitsList bs) a) alts ++ map (ppUnsafeCon a) bs
+            ] ++ map (ppInject (neededBitsList bs) a) alts
+            ++ map (ppUnsafeCon a) bs
       where
         alts = zip bs [ 0 :: Int .. ]
 
@@ -280,7 +284,8 @@ ppTopDecl x = case x of
 
 ppUnsafeCon :: Con -> (Con, Maybe Type) -> Doc ann
 ppUnsafeCon a (c, Nothing) =
-    vcat [ pretty (unsafeUnConName c) <+> ":: T.Ty a => T.E a -> T.E" <+> ppCon a <+> "-> T.E a" -- BAL: put type in here
+    vcat [ pretty (unsafeUnConName c) <+> ":: T.Ty a => T.E a -> T.E"
+               <+> ppCon a <+> "-> T.E a" -- BAL: put type in here
          , pretty (unsafeUnConName c) <+> "= T.const"
          ]
 ppUnsafeCon a (c, Just t) =
@@ -292,12 +297,14 @@ ppUnsafeCon a (c, Just t) =
 ppInject :: Int -> Con -> ((Con, Maybe Type), Int) -> Doc ann
 ppInject tagsz a ((c, Nothing), i) =
     vcat [ pretty (conToVarName c) <+> ":: T.E" <+> ppType (TyCon a)
-         , pretty (conToVarName c) <+> "= T.injectTag" <+> stringifyName c <+> pretty tagsz <+> pretty i
+         , pretty (conToVarName c) <+> "= T.injectTag" <+> stringifyName c
+               <+> pretty tagsz <+> pretty i
          ]
 ppInject tagsz a ((c, Just t), i) =
     vcat [ pretty (conToVarName c) <+> ":: T.E"
                <+> parens (ppType (TyFun t (TyCon a)))
-         , pretty (conToVarName c) <+> "= T.inject" <+> stringifyName c <+> pretty tagsz <+> pretty i
+         , pretty (conToVarName c) <+> "= T.inject" <+> stringifyName c
+               <+> pretty tagsz <+> pretty i
          ]
 
 ppAscription :: Doc ann -> Maybe Type -> Doc ann
@@ -364,10 +371,10 @@ ppExprDecl _ _ = impossible "ppExprDecl"
 
 ppExprDeclLabelBody :: ExprDecl -> Maybe (Doc ann)
 ppExprDeclLabelBody x = case x of
-  ED (VarP v t) (Lam a b) ->
-    Just ("T.letFunc" <+> stringifyName v <+> stringifyPat a
-                     <+> ascribeLetFunc t (ppLetBindLam a b))
-  _ -> Nothing
+    ED (VarP v t) (Lam a b) ->
+        Just ("T.letFunc" <+> stringifyName v <+> stringifyPat a
+              <+> ascribeLetFunc t (ppLetBindLam a b))
+    _ -> Nothing
 
 ascribeLetFunc :: Maybe Type -> Doc ann -> Doc ann
 ascribeLetFunc x d = case x of
@@ -376,8 +383,7 @@ ascribeLetFunc x d = case x of
     _ -> parens d
 
 ppLetBindLam :: Pat -> Expr -> Doc ann
-ppLetBindLam x y =
-  ppLam v $ letBind v x (ppExpr y)
+ppLetBindLam x y = ppLam v $ letBind v x (ppExpr y)
   where
     v :: Var = "v" `useLoc` x -- BAL: create a fresh variable
 
@@ -410,8 +416,8 @@ ppExpr :: Expr -> Doc ann
 ppExpr x = case x of
     Prim a -> ppPrim a
     App Extern b -> case b of
-      Prim (StringL s) -> parens ("T.extern" <+> pretty (unLoc s))
-      _ -> error "/extern can only be applied to a constant string"
+        Prim (StringL s) -> parens ("T.extern" <+> pretty (unLoc s))
+        _ -> error "/extern can only be applied to a constant string"
     App a b
         | isOpExpr b -> parens (parens ("T.opapp" <+> ppExpr a) <+> ppExpr b)
         | otherwise -> parens (parens ("T.app" <+> ppExpr a) <+> ppExpr b)
@@ -442,10 +448,10 @@ ppExpr x = case x of
 
 ppRecordField :: ((Var, Maybe Type), Expr) -> Doc ann
 ppRecordField ((x, mt), e) =
-  ppTuple
-    [ stringifyName x
-    , "T.opapp" <+> ppExpr (maybe id (flip Ascription) mt e) <+> "set_" <> ppVar x
-    ]
+    ppTuple [ stringifyName x
+            , "T.opapp" <+> ppExpr (maybe id (flip Ascription) mt e)
+                  <+> "set_" <> ppVar x
+            ]
 
 ppProxy :: Type -> Doc ann
 ppProxy t = parens ("P.Proxy :: P.Proxy" <+> parens (ppType t))

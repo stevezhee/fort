@@ -13,7 +13,7 @@ Bool = /bool
 
 load: /address a -> a
 store: (/address a, a) -> ()
-inttoptr: UInt32 -> Pointer
+cast: a -> b
 
 ;; ┌─┐┌─┐┌─┐┬─┐┌─┐┌┬┐┌─┐┬─┐┌─┐
 ;; │ │├─┘├┤ ├┬┘├─┤ │ │ │├┬┘└─┐
@@ -92,11 +92,11 @@ led_red_pin: UInt32 = gpio7
 ;; └  └─┘┘└┘└─┘ ┴ ┴└─┘┘└┘└─┘
 
 get_register: UInt32 -> UInt32 = \a => /do
-  /let pointer = inttoptr a
+  /let pointer = cast a
   load pointer
 
 set_register: (UInt32, UInt32) -> () = \(a,b) => /do
-  /let pointer = inttoptr a
+  /let pointer = cast a
   store (pointer, b)
 
 _reg_bit: (UInt32, UInt32) -> UInt32 = \(base, bit) => /do

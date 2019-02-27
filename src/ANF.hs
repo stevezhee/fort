@@ -9,12 +9,16 @@
 module ANF where
 
 import           Control.Monad.State.Strict
+
 import           Data.Bifunctor
 import qualified Data.HashMap.Strict        as HMS
 import           Data.List
 import           Data.Maybe
-import           IRTypes
+
 import           Data.Text.Prettyprint.Doc
+
+import           IRTypes
+
 import           Utils
 
 ppAFunc :: AFunc -> Doc ann
@@ -151,7 +155,7 @@ subst tbl = go
 
     goAtom x = case x of
         Var a -> fromMaybe x (HMS.lookup a tbl)
-        _     -> x
+        _ -> x
 
     remove pat = HMS.filterWithKey (\k _ -> k `notElem` pat) tbl
 
@@ -161,7 +165,7 @@ freeVars bvs = go
     go x = case x of
         TupleA bs -> nub $ concatMap goAtom bs
         CExprA a -> goCExpr a
-        LetA pat a b -> nub ( goCExpr a ++ freeVars (pat ++ bvs) b )
+        LetA pat a b -> nub (goCExpr a ++ freeVars (pat ++ bvs) b)
 
     goAtom x = case x of
         Var v

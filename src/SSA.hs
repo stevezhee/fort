@@ -11,16 +11,16 @@ module SSA where
 import           CPS
 
 import           Data.Bifunctor
-import qualified Data.HashMap.Strict        as HMS
+import qualified Data.HashMap.Strict       as HMS
 import           Data.List
 
 import           Data.Text.Prettyprint.Doc
 
 import           IRTypes
 
-import qualified Instr                      as I
+import qualified Instr                     as I
 
-import qualified LLVM.AST                   as AST
+import qualified LLVM.AST                  as AST
 
 import           Utils
 

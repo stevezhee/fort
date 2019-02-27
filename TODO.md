@@ -1,5 +1,4 @@
 - make builds faster
-- there must be a faster way to do installs
 - pretty print Haskell code (both written and generated)
 - add haddock
 - test out more complicated nested ifs/arrays/records (which I stupidly named the test file struct.fort)
@@ -19,6 +18,8 @@
 - underscores in numeric literals
 - module system and qualified names
 - nested patterns
+- implement type inference/checker to replace Haskell stage
+- make self hosting
 
 done:
 - make bool an enum type

@@ -7,13 +7,13 @@ import           Data.List
 import           Data.Loc
 import           Data.String
 
-import SyntaxTypes
-
 import           Language.Lexer.Applicative
 
 import qualified Language.Lexer.Applicative as L
 
 import           Prelude                    hiding ( lex )
+
+import           SyntaxTypes
 
 import           System.Exit
 import           System.IO
@@ -24,18 +24,16 @@ import           Utils
 
 tokenize :: FilePath -> String -> IO [Token]
 tokenize fn s = case eab of
-        Left e -> do
-          putStrLn ""
-          hPrint stderr e
-          exitFailure
-        Right a -> pure a
+    Left e -> do
+        putStrLn ""
+        hPrint stderr e
+        exitFailure
+    Right a -> pure a
   where
     eab = streamToEitherList $
-            runLexer (mconcat [ L.token (longest tok)
-                              , whitespace (longest tokWS)
-                              ])
-                     fn
-                     s
+        runLexer (mconcat [ L.token (longest tok), whitespace (longest tokWS) ])
+                 fn
+                 s
 
 tokWS :: Tok
 tokWS = some (sym ' ') <|> some (sym '\n') <|> string ";;"
@@ -43,21 +41,27 @@ tokWS = some (sym ' ') <|> some (sym '\n') <|> string ";;"
 
 tok :: Tok
 tok = (:) <$> sym '/' <*> some (psym lower) <|> -- reserved words
-    (:) <$> psym (\c -> lower c || upper c) <*> many (psym ident)
-    <|> hexLit <|> octLit <|> binLit
-    <|> (:) <$> sym '-' <*> digits <|> digits <|> charLit <|> some (psym oper)
-    <|> stringLit <|> (: []) <$> psym special
+    (:) <$> psym (\c -> lower c || upper c) <*> many (psym ident) <|> hexLit
+    <|> octLit <|> binLit <|> (:) <$> sym '-' <*> digits <|> digits <|> charLit
+    <|> some (psym oper) <|> stringLit <|> (: []) <$> psym special
 
-upper, digit, lower, ident, special, hexDigit, octDigit, binDigit :: Char -> Bool
+upper, digit, lower, ident, special, hexDigit, octDigit, binDigit
+    :: Char
+    -> Bool
 upper = inclusive 'A' 'Z'
 
 ident c = lower c || upper c || digit c || c `elem` ("-?^~'" :: String)
+
 digit = inclusive '0' '9'
+
 hexDigit c = digit c || inclusive 'a' 'f' c
+
 octDigit = inclusive '0' '7'
+
 binDigit = inclusive '0' '1'
 
 lower c = inclusive 'a' 'z' c || c == '_'
+
 special = flip elem "()[]{},;"
 
 oper :: Char -> Bool

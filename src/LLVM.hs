@@ -13,15 +13,15 @@ import           Data.String
 
 import           IRTypes
 
-import qualified Instr                      as I
+import qualified Instr             as I
 
-import qualified LLVM.AST                   as AST
+import qualified LLVM.AST          as AST
 
-import qualified LLVM.AST.Constant          as AST
+import qualified LLVM.AST.Constant as AST
 import qualified LLVM.AST.Global
-import qualified LLVM.AST.Global            as AST
-import qualified LLVM.AST.Linkage           as AST
-import qualified LLVM.AST.Type              as AST
+import qualified LLVM.AST.Global   as AST
+import qualified LLVM.AST.Linkage  as AST
+import qualified LLVM.AST.Type     as AST
 
 import           Utils
 
@@ -118,14 +118,14 @@ toLLVMTerminator x = AST.Do $ case x of
 
 toOperand :: Atom -> AST.Operand
 toOperand x = case x of
-    Var a      -> AST.LocalReference (toTyLLVM $ vTy a) (AST.mkName $ vName a)
-    Int sz i   -> AST.ConstantOperand $ I.constInt sz i
-    Char a     -> toOperand $ Int 8 $ fromIntegral $ fromEnum a
+    Var a -> AST.LocalReference (toTyLLVM $ vTy a) (AST.mkName $ vName a)
+    Int sz i -> AST.ConstantOperand $ I.constInt sz i
+    Char a -> toOperand $ Int 8 $ fromIntegral $ fromEnum a
     String _ a -> toOperand $ Global a
-    Undef t    -> AST.ConstantOperand $ AST.Undef $ toTyLLVM t
-    Global a   ->
-      AST.ConstantOperand $ AST.GlobalReference (toTyLLVM $ vTy a) (AST.mkName $ vName a)
-    Enum (_, (t, i))  -> toOperand $ Int (sizeFort t) i
+    Undef t -> AST.ConstantOperand $ AST.Undef $ toTyLLVM t
+    Global a -> AST.ConstantOperand $
+        AST.GlobalReference (toTyLLVM $ vTy a) (AST.mkName $ vName a)
+    Enum (_, (t, i)) -> toOperand $ Int (sizeFort t) i
     Cont _ (_, sz, i) -> toOperand $ Int sz i
 
 tyLLVM :: Ty a => Proxy a -> AST.Type
@@ -136,18 +136,18 @@ toTyLLVM = go
   where
     go :: Type -> AST.Type
     go x = case x of
-        TyChar        -> go unTyChar
-        TySigned sz   -> go $ TyUnsigned sz
+        TyChar -> go unTyChar
+        TySigned sz -> go $ TyUnsigned sz
         TyUnsigned sz -> AST.IntegerType $ fromInteger sz
-        TyString      -> go unTyString
-        TyAddress a   -> AST.ptr (go a)
-        TyArray sz a  -> AST.ArrayType (fromInteger sz) (go a)
-        TyTuple []    -> AST.void
-        TyTuple bs    -> AST.StructureType False $ map go bs
-        TyRecord bs   -> go $ tyRecordToTyTuple bs
-        TyVariant bs  -> go $ tyVariantToTyTuple bs
-        TyEnum bs     -> go $ unTyEnum bs
-        TyFun _ b     ->
+        TyString -> go unTyString
+        TyAddress a -> AST.ptr (go a)
+        TyArray sz a -> AST.ArrayType (fromInteger sz) (go a)
+        TyTuple [] -> AST.void
+        TyTuple bs -> AST.StructureType False $ map go bs
+        TyRecord bs -> go $ tyRecordToTyTuple bs
+        TyVariant bs -> go $ tyVariantToTyTuple bs
+        TyEnum bs -> go $ unTyEnum bs
+        TyFun _ b ->
             AST.FunctionType (toTyLLVM b) (map toTyLLVM $ unTupleTy b) False
-        TyCont _     -> impossible "toTyLLVM"
+        TyCont _ -> impossible "toTyLLVM"
 

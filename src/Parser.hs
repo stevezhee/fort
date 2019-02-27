@@ -2,26 +2,27 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 
-module Parser (grammar) where
+module Parser ( grammar ) where
 
 import           Control.Applicative
 import           Control.Monad.State
 
+import           Data.Char
 import           Data.List
 import           Data.Loc
 import           Data.String
-import Data.Char
 
-import SyntaxTypes
+import           Lexer
 
-import           Prelude                    hiding ( lex )
+import           Prelude             hiding ( lex )
 
-import           Text.Earley                hiding ( satisfy )
+import           SyntaxTypes
 
-import qualified Text.Earley                as E
+import           Text.Earley         hiding ( satisfy )
+
+import qualified Text.Earley         as E
 
 import           Utils
-import Lexer
 
 type P r a = Prod r String Token a
 
@@ -131,13 +132,11 @@ grammar = mdo
         (mkWhere <$> pLamE <*> (reserved "/where" *> blockList pExprDecl)
          <?> "where clause") <|> pLamE
     pLamE <- rule $ (Lam <$> pLam pPat <*> pLamE <?> "lambda expression")
-        <|> (Let <$> (reserved "/let" *> pExprDecl) <?> "let binding") <|> pOpAppE
-    pOpAppE <- rule $
-        (App <$> (App <$> pAppE <*> pOpE) <*> pAppE) <|>
-        (App <$> pAppE <*> pOpE) <|>
-        (App <$> pOpE <*> pAppE) <|>
-        pOpE <|>
-        pAppE
+        <|> (Let <$> (reserved "/let" *> pExprDecl) <?> "let binding")
+        <|> pOpAppE
+    pOpAppE <- rule $ (App <$> (App <$> pAppE <*> pOpE) <*> pAppE)
+        <|> (App <$> pAppE <*> pOpE) <|> (App <$> pOpE <*> pAppE) <|> pOpE
+        <|> pAppE
     pAppE <- rule $ (mkApp <$> pAppE <*> pKeywordE <?> "application")
         <|> pKeywordE
     pKeywordE <- rule $
@@ -145,8 +144,7 @@ grammar = mdo
         <|> (Case <$> (reserved "/case" *> pExpr <* reserved "/of")
              <*> blockList pAlt <?> "case expression")
         <|> (mkIf <$> (reserved "/if" *> blockList pIfAlt) <?> "if expression")
-        <|> (pure Extern <* reserved "/extern" <?> "/extern")
-        <|> pAscriptionE
+        <|> (pure Extern <* reserved "/extern" <?> "/extern") <|> pAscriptionE
     pAscriptionE <- rule $ (Ascription <$> pE0 <*> pAscription) <|> pE0
     pE0 <- rule $ (Record <$> blockList pFieldDecl <?> "record")
         <|> (pSomeTuple Tuple (optional pExpr) <?> "tuple") <|>
@@ -213,7 +211,8 @@ pOpE :: P r Expr
 pOpE = Prim . Op <$> pOp <?> "operator"
 
 pPrimNotOp :: P r Prim
-pPrimNotOp = (Var <$> pVar <?> "variable") <|> (StringL <$> pStringLit) <|> (CharL <$> pCharLit) <|> (IntL <$> pIntLit)
+pPrimNotOp = (Var <$> pVar <?> "variable") <|> (StringL <$> pStringLit)
+    <|> (CharL <$> pCharLit) <|> (IntL <$> pIntLit)
 
 hasCharLitPrefix :: String -> Bool
 hasCharLitPrefix = isPrefixOf "#\""
@@ -232,9 +231,10 @@ pIntLit :: P r (L Int)
 pIntLit = (\a -> useLoc (f (unLoc a)) a) <$> satisfy isInt <?> msg
   where
     msg = "integer literal"
+
     f s = case s of
-      '0' : 'b' : bs -> readBin bs
-      _              -> readError msg s
+        '0' : 'b' : bs -> readBin bs
+        _ -> readError msg s
 
 readBin :: String -> Int
 readBin = foldl' (\acc x -> acc * 2 + digitToInt x) 0
