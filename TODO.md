@@ -16,6 +16,8 @@
 - create `volatile` type builtin
 - unary operators
 - generate c header file for fort ffi defined functions
+- underscores in numeric literals
+- module system and qualified names
 
 done:
 - make bool an enum type

@@ -29,7 +29,7 @@ output: a -> ()
   ;; b mystr2 := 24242424
   ;; output mystr2
 
-foo: MyStruct -> Char = \mystr => y mystr
+get-y: MyStruct -> Char = \mystr => y mystr
 
 bar: MyStruct -> MyStruct = \mystr => set-x (24, set-y (#"a", mystr))
 
@@ -39,9 +39,9 @@ qux: MyStruct = {
   ; z = 0xff
   }
 
-foo_: () -> () = \_ => /do
+foo: () -> () = \_ => /do
   output qux
-  output (foo (bar qux))
+  output (get-y (bar qux))
 
 ;; baz: MyStruct -> MyStruct = /set
 ;;   x = 24

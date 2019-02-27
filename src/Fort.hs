@@ -132,8 +132,7 @@ typeSizes x = case x of
     TyLam _ b -> typeSizes b
     TyFun a b -> typeSizes a ++ typeSizes b
     TyRecord bs -> concatMap (typeSizes . snd) bs
-    TyVariant bs -> neededBitsList bs
-        : concatMap typeSizes (mapMaybe snd bs)
+    TyVariant bs -> concatMap typeSizes (mapMaybe snd bs)
     TyTuple bs -> concatMap typeSizes bs
     TyVar{} -> []
     TyCon{} -> []
@@ -267,7 +266,7 @@ ppTopDecl x = case x of
                                           | (n, mt) <- bs
                                           ]
                          ]
-            ] ++ map (ppInject (length bs) a) alts ++ map (ppUnsafeCon a) bs
+            ] ++ map (ppInject (neededBitsList bs) a) alts ++ map (ppUnsafeCon a) bs
       where
         alts = zip bs [ 0 :: Int .. ]
 
@@ -285,29 +284,20 @@ ppUnsafeCon _ (c, Nothing) =
          , pretty (unsafeUnConName c) <+> "= T.const"
          ]
 ppUnsafeCon a (c, Just t) =
-    vcat [ pretty (unsafeUnConName c) <+> ":: (T.E (T.Addr " <> ppType t
-               <> ") -> T.E a) -> (T.E (T.Addr " <> ppCon a <> ") -> T.E a)"
+    vcat [ pretty (unsafeUnConName c) <+> ":: (T.E" <+> ppType t
+               <+> "-> T.E a) -> (T.E" <+> ppCon a <+> "-> T.E a)"
          , pretty (unsafeUnConName c) <+> "= T.unsafeCon"
          ]
 
-ascribeTag :: (Pretty a, Integral n) => n -> a -> Doc ann
-ascribeTag n i = parens $
-    ppAscription (parens ("T.int" <+> pretty i))
-                 (Just (TyApp TyUnsigned $ TySize (L NoLoc $ neededBits n)))
-
-ppInject :: Pretty a => Int -> Con -> ((Con, Maybe Type), a) -> Doc ann
-ppInject n a ((c, Nothing), i) =
-    vcat [ pretty (conToVarName c) <+> ":: T.E"
-               <+> parens (ppType (TyFun (tyAddress $ TyCon a) tyUnit))
-         , pretty (conToVarName c) <+> "= T.injectTag" <+> stringifyName c
-               <+> ascribeTag n i
+ppInject :: Int -> Con -> ((Con, Maybe Type), Int) -> Doc ann
+ppInject tagsz a ((c, Nothing), i) =
+    vcat [ pretty (conToVarName c) <+> ":: T.E" <+> ppType (TyCon a)
+         , pretty (conToVarName c) <+> "= T.injectTag" <+> stringifyName c <+> pretty tagsz <+> pretty i
          ]
-ppInject n a ((c, Just t), i) =
+ppInject tagsz a ((c, Just t), i) =
     vcat [ pretty (conToVarName c) <+> ":: T.E"
-               <+> parens (ppType (TyFun (tyTuple [ tyAddress $ TyCon a, t ])
-                                         tyUnit))
-         , pretty (conToVarName c) <+> "= T.inject" <+> stringifyName c
-               <+> ascribeTag n i
+               <+> parens (ppType (TyFun t (TyCon a)))
+         , pretty (conToVarName c) <+> "= T.inject" <+> stringifyName c <+> pretty tagsz <+> pretty i
          ]
 
 ppAscription :: Doc ann -> Maybe Type -> Doc ann
@@ -328,9 +318,6 @@ ppAscriptionF f d mx = case mx of
 
 isSizeTyVar :: String -> Bool
 isSizeTyVar v = take 2 v == "sz" -- BAL: hacky way to determine that it's a Size TyVar
-
-tyAddress :: Type -> Type
-tyAddress t = TyTuple [ TyApp TyAddress t ]
 
 tyVars :: Type -> [String]
 tyVars = sort . nub . go

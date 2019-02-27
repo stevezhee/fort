@@ -145,14 +145,20 @@ data Type = TyChar
 tyUnit :: Type
 tyUnit = tyTuple []
 
-tyChar :: Type
-tyChar = TyUnsigned 8
+unTyChar :: Type
+unTyChar = TyUnsigned 8
 
 tyHandle :: Type
 tyHandle = tyFort (Proxy :: Proxy Handle)
 
 ptrSize :: Integer
 ptrSize = 64 -- BAL: architecture dependent
+
+unTyEnum :: [a] -> Type
+unTyEnum = TyUnsigned . neededBitsList
+
+unTyString :: Type
+unTyString = TyAddress TyChar
 
 -- tuple types should only be created with this
 tyTuple :: [Type] -> Type
@@ -257,20 +263,20 @@ instance Hashable Nm where
 
 tyExpr :: Expr -> Type
 tyExpr x = case x of
-    AtomE a -> tyAtom a
-    TupleE bs -> tyTuple $ map tyExpr bs
-    SwitchE _ b _ -> tyExpr b
-    LetE _ _ e -> tyExpr e
-    LetRecE _ e -> tyExpr e
+    AtomE a        -> tyAtom a
+    TupleE bs      -> tyTuple $ map tyExpr bs
+    SwitchE _ b _  -> tyExpr b
+    LetE _ _ e     -> tyExpr e
+    LetRecE _ e    -> tyExpr e
     UnreachableE t -> t
     CallE (n, _) _ -> case nTy n of
         TyFun _ t -> t
-        _ -> impossible $ "tyExpr:" ++ show x
+        _         -> impossible $ "tyExpr:" ++ show x
 
 tyAtom :: Atom -> Type
 tyAtom x = case x of
     Int sz _ -> TyUnsigned sz
-    Char{}   -> tyChar
+    Char{}   -> TyChar
     Var a    -> vTy a
     Global a -> vTy a
     String{} -> TyString
@@ -377,25 +383,23 @@ tyRecordToTyTuple bs = tyTuple $ map snd bs
 
 tyVariantToTyTuple :: [(String, Type)] -> Type
 tyVariantToTyTuple bs =
-    tyTuple [ tyEnumToTyUnsigned bs
+    tyTuple [ unTyEnum bs
             , TyUnsigned 64 -- BAL: just make it 64 bits for now -- maximumBy (\a b -> compare (sizeFort a) (sizeFort b)) $ map snd bs
             ]
 
--- BAL: write sizeOf :: AST.Type -> Integer in Build.hs and use that
+-- BAL: write sizeOf :: AST.Type -> Integer
 sizeFort :: Type -> Integer
 sizeFort x = case x of
-    TyChar -> 8
-    TySigned sz -> sz
+    TyChar        -> 8
+    TySigned sz   -> sz
     TyUnsigned sz -> sz
-    TyString -> ptrSize
-    TyAddress _ -> ptrSize
-    TyArray sz a -> sz * sizeFort a
-    TyTuple bs -> sum $ map sizeFort bs
-    TyRecord bs -> sizeFort $ tyRecordToTyTuple bs
-    TyVariant bs -> sizeFort $ tyVariantToTyTuple bs
-    TyEnum bs -> sizeFort $ tyEnumToTyUnsigned bs
-    TyFun{} -> impossible "sizeFort:TyFun"
-    TyCont{} -> impossible "sizeFort:TyFun"
+    TyString      -> ptrSize
+    TyAddress _   -> ptrSize
+    TyArray sz a  -> sz * sizeFort a
+    TyTuple bs    -> sum $ map sizeFort bs
+    TyRecord bs   -> sizeFort $ tyRecordToTyTuple bs
+    TyVariant bs  -> sizeFort $ tyVariantToTyTuple bs
+    TyEnum bs     -> sizeFort $ unTyEnum bs
+    TyFun{}       -> impossible "sizeFort:TyFun"
+    TyCont{}      -> impossible "sizeFort:TyCont"
 
-tyEnumToTyUnsigned :: [a] -> Type
-tyEnumToTyUnsigned bs = TyUnsigned (neededBitsList bs)

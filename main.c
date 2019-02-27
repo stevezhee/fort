@@ -25,7 +25,8 @@ extern void array_foo_array(int[2]);
 extern void char_char_io_test();
 extern void array_foo_2dim_array(int[2][3]);
 extern void primitives_add315AtLoc(int*);
-extern void struct_foo_(void);
+extern void struct_foo();
+extern void enum_foo();
 extern void enum_enum_foo(int);
 
 void h_put_uint64(uint64_t x, FILE *h)
@@ -116,7 +117,8 @@ int main(int argc, char**argv)
     }
   printf("\n");
 
-  struct_foo_();
+  struct_foo();
+  enum_foo();
 
   /* 228 */
   /* Pfannkuchen(7) = 16 */

@@ -136,17 +136,17 @@ toTyLLVM = go
   where
     go :: Type -> AST.Type
     go x = case x of
-        TyChar        -> go tyChar
+        TyChar        -> go unTyChar
         TySigned sz   -> go $ TyUnsigned sz
         TyUnsigned sz -> AST.IntegerType $ fromInteger sz
-        TyString      -> AST.ptr (go TyChar)
+        TyString      -> go unTyString
         TyAddress a   -> AST.ptr (go a)
         TyArray sz a  -> AST.ArrayType (fromInteger sz) (go a)
         TyTuple []    -> AST.void
         TyTuple bs    -> AST.StructureType False $ map go bs
         TyRecord bs   -> go $ tyRecordToTyTuple bs
         TyVariant bs  -> go $ tyVariantToTyTuple bs
-        TyEnum bs     -> go $ tyEnumToTyUnsigned bs
+        TyEnum bs     -> go $ unTyEnum bs
         TyFun _ b     ->
             AST.FunctionType (toTyLLVM b) (map toTyLLVM $ unTupleTy b) False
         TyCont _     -> impossible "toTyLLVM"

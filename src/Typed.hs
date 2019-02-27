@@ -97,47 +97,32 @@ where_ :: Ty a => E a -> [M Func] -> E a
 where_ e ms = E $ LetRecE <$> sequence ms <*> unE e
 
 case_ :: Ty a => E a -> (E a -> E b) -> [(String, E a -> E b)] -> E b
-case_ (x :: E a) = ucase (tyFort (Proxy :: Proxy a)) x
+case_ (x0 :: E a) = ucase (tyFort (Proxy :: Proxy a)) x0
 
 ucase :: Type -> E a -> (E a -> E b) -> [(String, E a -> E b)] -> E b
 ucase ty (E x) f ys = E $ do
     e <- x
-    let h :: Atom -> M Expr
-        h a = do
-            let ea = AtomE a
-            let tg :: Expr
-                tg = case ty of
-                    TyAddress (TyVariant tags)    -- BAL: this mess can be cleaned up
-                        ->
-                        let tagTy = TyUnsigned $ neededBitsList tags
-                        in
-                            CallE ( Nm (TyFun (TyAddress tagTy) tagTy)
-                                       "loadtag"
-                                  , Defn (\[ p ] -> I.load p)
-                                  )
-                                  [ CallE ( Nm (TyFun (tyTuple [ ty
-                                                               , TyUnsigned 32
-                                                               ])
-                                                      (TyAddress tagTy))
-                                               "tagof"
-                                          , Defn (\[ p, q ] -> I.gep p q)
-                                          )
-                                          [ AtomE a, AtomE $ Int 32 0 ]
-                                  ]
-                    _ -> ea
-
-            let mkAlt :: (E a -> E b) -> M Expr
-                mkAlt g = unE $ g $ E $ pure ea
-            b <- mkAlt f
-            bs <- mapM (mkAlt . snd) ys
-            pure $ SwitchE tg b $
-                safeZip "ucase" (map (readTag ty . fst) ys) bs
-
-    case e of
-        AtomE a -> h a
+    case e of -- need an atom so we don't reevaluate
+        AtomE a -> go a
         _ -> do
             v <- freshVar ty "c"
-            LetE [ v ] e <$> h (Var v)
+            LetE [ v ] e <$> go (Var v)
+    where
+      go :: Atom -> M Expr
+      go xa = do
+        let ea = atomE xa
+        let tgE = case ty of
+              TyVariant tags ->
+                let tagTy = TyUnsigned $ neededBitsList tags
+                in app (uExtractValue ty tagTy 0) ea
+              _              -> ea
+        let mkAlt :: (E a -> E b) -> M Expr
+            mkAlt g = unE $ g ea
+        b <- mkAlt f
+        bs <- mapM (mkAlt . snd) ys
+        tg <- unE tgE
+        pure $ SwitchE tg b $
+            safeZip "ucase" (map (readTag ty . fst) ys) bs
 
 readTag :: Type -> String -> Tag
 readTag x s = (s, go x)
@@ -148,7 +133,7 @@ readTag x s = (s, go x)
         TyUnsigned sz -> I.constInt sz (read s)
         TyEnum tags   -> I.constInt (neededBitsList tags) $
             maybe err fromIntegral (elemIndex s tags)
-        TyAddress (TyVariant bs) -> go (TyEnum $ map fst bs)
+        TyVariant bs  -> go (TyEnum $ map fst bs)
         _             -> err
 
     err = impossible $ "readTag:" ++ show (s, x)
@@ -164,12 +149,12 @@ fromUPat ty upat = case (unTupleTy ty, upat) of
     ([], [ v ]) -> [ V tyUnit v ]
     (tys, _) -> safeZipWith "fromUPat" V tys upat
 
-swapargs :: E ((a, b) -> c) -> E ((b, a) -> c)
-swapargs (E x) = E $ do
+swapArgs :: E ((a, b) -> c) -> E ((b, a) -> c)
+swapArgs (E x) = E $ do
     e <- x
     case e of
         CallE (nm, Defn f) bs -> pure $ CallE (nm, Defn $ \[ p, q ] -> f [ q, p ]) bs
-        _ -> impossible "swapargs"
+        _ -> impossible "swapArgs"
 
 letFunc :: (Ty a, Ty b) => Name -> UPat -> (E a -> E b) -> M Func
 letFunc n upat (f :: E a -> E b) =
@@ -299,9 +284,7 @@ string :: String -> E String_
 string s = app f str
   where
     f :: E (a -> String_)
-    f = uinstr (TyFun (TyAddress t) TyString)
-               "string"
-               (\[ a ] -> I.bitcast a (toTyLLVM TyString))
+    f = ubitcast "string" (TyAddress t) TyString
 
     t = TyAddress (TyArray (genericLength s + 1) TyChar)
 
@@ -342,7 +325,63 @@ volatile :: (Ty a, Ty b) => E (a -> Addr b)
 volatile = inttoptr
 
 field :: (Ty a, Ty b) => String -> Integer -> E (Addr a -> Addr b)
-field fld i = opapp (intE 32 i) (swapargs (gep ("field." ++ fld)))
+field fld i = opapp (intE 32 i) (swapArgs (gep ("field." ++ fld)))
+
+undef :: Ty a => E a
+undef = f Proxy
+  where
+    f :: Ty a => Proxy a -> E a
+    f proxy = atomE $ Undef $ tyFort proxy
+
+index :: (Size sz, Ty a) => E ((Addr (Array sz a), UInt32) -> Addr a)
+index = gep "index"
+
+gep :: (Ty a, Ty b) => String -> E ((Addr a, UInt32) -> Addr b)
+gep s = binop s I.gep
+
+reduce :: Ty a => [E (a -> a)] -> E a -> E a
+reduce [] x = x
+reduce (f : fs) (x :: E a) = let_ ["v"] (app f x) (reduce fs)
+
+getField :: (Ty a, Ty b) => String -> Integer -> E (a -> b)
+getField fld = extractValue ("field." ++ fld)
+
+setField :: (Ty a, Ty b) => String -> Integer -> E ((b, a) -> a)
+setField fld i = swapArgs (insertValue ("set-field." ++ fld) i)
+
+extractValue :: (Ty a, Ty b) => String -> Integer -> E (a -> b)
+extractValue s i = unop s $ \a -> I.extractValue a (fromInteger i)
+
+uExtractValue :: Type -> Type -> Integer -> E (a -> b)
+uExtractValue ta tb i = uinstr (TyFun ta tb) "uExtractValue" $
+  \[a] -> I.extractValue a (fromInteger i)
+
+insertValue :: (Ty a, Ty b) => String -> Integer -> E ((a, b) -> a)
+insertValue s i = f Proxy Proxy
+  where
+    f :: (Ty a, Ty b) => Proxy a -> Proxy b -> E ((a, b) -> a)
+    f pa pb = uInsertValue (tyFort pa) (tyFort pb) s i
+
+uInsertValue :: Type -> Type -> String -> Integer -> E ((a, b) -> a)
+uInsertValue ta tb s i = uinstr (TyFun (tyTuple [ta, tb]) ta) s $
+  \[a,b] -> I.insertValue a b (fromInteger i)
+
+unsafeCon :: (Ty a, Ty b) => (E b -> E c) -> (E a -> E c)
+unsafeCon f x = f (app cast (app (extractValue "data" 1) x :: E UInt64))
+
+injectTag :: Ty a => String -> Integer -> Integer -> E a
+injectTag tag tagsz i = f Proxy
+  where
+    f :: Ty a => Proxy a -> E a
+    f proxy = app
+      (uInsertValue (tyFort proxy) (TyUnsigned tagsz) ("injtag." ++ tag) 0)
+      (tuple2 (undef, intE tagsz i))
+
+inject :: (Ty a, Ty b) => String -> Integer -> Integer -> E (b -> a)
+inject tag tagsz i = func ("inject" ++ tag) ["b"] $ \b ->
+  app
+    (insertValue ("injdata." ++ tag) 1)
+    (tuple2 (injectTag tag tagsz i, app cast b :: E UInt64))
 
 record :: Ty a => [(String, E (a -> a))] -> E a
 record (xs :: [(String, E (a -> a))]) = case filter ((1 /=) . length) groups of
@@ -355,35 +394,6 @@ record (xs :: [(String, E (a -> a))]) = case filter ((1 /=) . length) groups of
   where
     labels = map fst xs
     groups = group $ sort labels
-  -- | otherwise = case tyFort (Proxy :: Proxy a) of
-
-undef :: Ty a => E a
-undef = f Proxy
-  where
-    f :: Ty a => Proxy a -> E a
-    f proxy = atomE $ Undef $ tyFort proxy
-
-reduce :: Ty a => [E (a -> a)] -> E a -> E a
-reduce [] x = x
-reduce (f : fs) (x :: E a) = let_ ["v"] (app f x) (reduce fs)
-
-getField :: (Ty a, Ty b) => String -> Integer -> E (a -> b)
-getField fld = extractValue ("field." ++ fld)
-
-setField :: (Ty a, Ty b) => String -> Integer -> E ((b, a) -> a)
-setField fld = insertValue ("set-field." ++ fld)
-
-index :: (Size sz, Ty a) => E ((Addr (Array sz a), UInt32) -> Addr a)
-index = gep "index"
-
-gep :: (Ty a, Ty b) => String -> E ((Addr a, UInt32) -> Addr b)
-gep s = binop s I.gep
-
-extractValue :: (Ty a, Ty b) => String -> Integer -> E (a -> b)
-extractValue s i = unop s $ \a -> I.extractValue a (fromInteger i)
-
-insertValue :: (Ty a, Ty b) => String -> Integer -> E ((b, a) -> a)
-insertValue s i = binop s $ \b a -> I.insertValue a b (fromInteger i)
 
 exprToPat :: Ty a => E a -> Pat
 exprToPat (_ :: E a) = go $ tyFort (Proxy :: Proxy a)
@@ -393,29 +403,6 @@ exprToPat (_ :: E a) = go $ tyFort (Proxy :: Proxy a)
             [ V b $ "v" ++ show i | (b, i) <- zip bs [ 0 :: Int .. ] ]
         TyRecord bs -> go $ tyTuple $ map snd bs
         _ -> [ V x "x" ]
-
-injectTagF :: (Ty a, Ty c) => String -> E c -> E (Addr a) -> E ()
-injectTagF con i e = app (opapp i (swapargs store)) (tagField con e)
-
-tagField :: (Ty a, Ty b) => String -> E (Addr a) -> E (Addr b)
-tagField con = app (field ("tag:" ++ con) 0)
-
-valueField :: (Ty a) => String -> E (Addr a) -> E (Addr UInt64)
-valueField con = app (field ("value:" ++ con) 1)
-
-injectValueF :: (Ty a, Ty b) => String -> E b -> E (Addr a) -> E ()
-injectValueF con x e =
-    app (opapp x (swapargs store)) (app bitcast (valueField con e))
-
-injectTag :: (Ty a, Ty c) => String -> E c -> E (Addr a -> ())
-injectTag con i = func ("injectTag" ++ con) [ "e" ] (injectTagF con i)
-
-unsafeCon :: (Ty a, Ty b) => (E (Addr b) -> E c) -> (E (Addr a) -> E c)
-unsafeCon f x = f $ app bitcast x
-
-inject :: (Ty a, Ty b, Ty c) => String -> E c -> E ((Addr a, b) -> ())
-inject con i = func ("inject" ++ con) [ "x", "y" ] $ \e ->
-    let (p, b) = argTuple2 e in seq (injectTagF con i p) (injectValueF con b p)
 
 noDefault :: Ty b => E a -> E b
 noDefault _ = go Proxy
@@ -445,7 +432,7 @@ signedArithop s f g = h Proxy
   where
     h :: Ty a => Proxy a -> E ((a, a) -> a)
     h proxy = case tyFort proxy of
-        TySigned{} -> binop s f
+        TySigned{}   -> binop s f
         TyUnsigned{} -> binop s g
         t -> error $ "unable to perform arithmetic on values of type:" ++ show t
 
@@ -461,10 +448,10 @@ signedCmpop s p q = f Proxy
   where
     f :: Ty a => Proxy a -> E ((a, a) -> Bool_)
     f proxy = case tyFort proxy of
-        TyChar -> binop s (I.icmp p)
+        TyChar       -> binop s (I.icmp p)
         TyUnsigned{} -> binop s (I.icmp p)
-        TySigned{} -> binop s (I.icmp q)
-        t -> error $ "unable to compare values of type:" ++ show t
+        TySigned{}   -> binop s (I.icmp q)
+        t            -> error $ "unable to compare values of type:" ++ show t
 
 uinstr :: Type -> Name -> ([Operand] -> Instruction) -> E a
 uinstr t s f = callE (Nm t s) (Defn f)
@@ -564,11 +551,55 @@ logical_shift_right = arithop "lshr" I.lshr
 shift_left :: Ty a => E ((a, a) -> a)
 shift_left = arithop "shl" I.shl
 
+cast :: (Ty a, Ty b) => E (a -> b)
+cast = f Proxy Proxy
+  where
+    f :: (Ty a, Ty b) => Proxy a -> Proxy b -> E (a -> b)
+    f pa pb = ucast (tyFort pa) (tyFort pb)
+
+ucast :: Type -> Type -> E (a -> b)
+ucast tyA tyB = case (tyA, tyB) of
+  (TyChar, _)    -> ucast unTyChar tyB
+  (TyEnum bs, _) -> ucast (unTyEnum bs) tyB
+  (TyString, _)  -> ucast unTyString tyB
+
+  (_, TyChar)    -> ucast tyA unTyChar
+  (_, TyEnum bs) -> ucast tyA (unTyEnum bs)
+  (_, TyString)  -> ucast tyA unTyString
+
+  (TyUnsigned szA, TyUnsigned szB) -> f uzext szA szB
+  (TyUnsigned szA, TySigned szB)   -> f uzext szA szB
+
+  (TySigned szA, TyUnsigned szB) -> f usext szA szB
+  (TySigned szA, TySigned szB)   -> f usext szA szB
+
+  (TyUnsigned _, TyAddress _) -> uinttoptr tyA tyB
+  (TySigned _, TyAddress _)   -> uinttoptr tyA tyB
+
+  (TyAddress _, TyUnsigned _) -> uptrtoint tyA tyB
+  (TyAddress _, TySigned _)   -> uptrtoint tyA tyB
+
+  (TyAddress _, TyAddress _)  -> ubitcast "ucast" tyA tyB
+
+  _ -> impossible $ "ucast:" ++ show (tyA, tyB)
+
+  where
+    f g szA szB
+      | szA < szB = g tyA tyB
+      | szA > szB = utrunc tyA tyB
+      | otherwise = ubitcast "ucast" tyA tyB
+
 bitcast :: (Ty a, Ty b) => E (a -> b)
 bitcast = bitop "bitcast" I.bitcast
 
 truncate :: (Ty a, Ty b) => E (a -> b)
 truncate = bitop "trunc" I.trunc
+
+ubitcast :: String -> Type -> Type -> E (a -> b)
+ubitcast s ta tb = uinstr (TyFun ta tb) s $ \[ a ] -> I.bitcast a (toTyLLVM tb)
+
+utrunc :: Type -> Type -> E (a -> b)
+utrunc ta tb = uinstr (TyFun ta tb) "utrunc" $ \[a] -> I.trunc a (toTyLLVM tb)
 
 sign_extend :: (Ty a, Ty b) => E (a -> b)
 sign_extend = bitop "sext" I.sext
@@ -576,13 +607,17 @@ sign_extend = bitop "sext" I.sext
 zero_extend :: (Ty a, Ty b) => E (a -> b)
 zero_extend = bitop "zext" I.zext
 
-ptrtoint :: (Ty a, Ty b) => E (a -> b) -- BAL: make part of bitcast?
-
+ptrtoint :: (Ty a, Ty b) => E (a -> b) -- BAL: make part of cast?
 ptrtoint = bitop "ptrtoint" I.ptrtoint
 
-inttoptr :: (Ty a, Ty b) => E (a -> b) -- BAL: make part of bitcast?
-
+inttoptr :: (Ty a, Ty b) => E (a -> b) -- BAL: make part of cast?
 inttoptr = bitop "inttoptr" I.inttoptr
+
+uinttoptr :: Type -> Type -> E (a -> b)
+uinttoptr ta tb = uinstr (TyFun ta tb) "uinttoptr" $ \[a] -> I.inttoptr a (toTyLLVM tb)
+
+uptrtoint :: Type -> Type -> E (a -> b)
+uptrtoint ta tb = uinstr (TyFun ta tb) "uptrtoint" $ \[a] -> I.ptrtoint a (toTyLLVM tb)
 
 stdout :: E Handle
 stdout = global "g_stdout"
@@ -669,30 +704,6 @@ uh_output t0 = case t0 of
                       uoutput (TyAddress t) h (app (ugepi t0 t i) a)
                   | (i, t) <- zip [ 0 .. ] ts
                   ]
-        TyRecord bs -> ok $ \(a, h) -> delim h "{" "}" $
-            seqs_ [ sepS h ", " $
-                      seqs_ [ putS h fld
-                            , putS h " = "
-                            , uoutput (TyAddress t) h (app (ugepi t0 t i) a)
-                            ]
-                  | (i, (fld, t)) <- zip [ 0 .. ] bs
-                  ]
-        TyVariant bs -> ok $ \(a, h) ->
-            let f (s, t) _ = case () of
-                    ()
-                        | t == tyUnit -> putS h s
-                        | otherwise ->
-                            seqs_ [ putS h s
-                                  , putS h " "
-                                  , uoutput (TyAddress t) h $
-                                        app (ubitcast (TyAddress (TyUnsigned 64))
-                                                      (TyAddress t))
-                                            (app (ugepi t0 (TyUnsigned 64) 1) a)
-                                  ]
-            in
-                let c : cs = zip (map fst bs) (map f bs)
-                in
-                    ucase t0 a (snd c) cs
         t -> ok $ \(a, h) -> uoutput t h (app (uload t) a)
     TyRecord bs -> ok $ \(a, h) -> delim h "{" "}" $
         seqs_ [ sepS h ", " $
@@ -702,6 +713,20 @@ uh_output t0 = case t0 of
                         ]
               | (i, (fld, t)) <- zip [ 0 .. ] bs
               ]
+    TyVariant bs -> ok $ \(a, h) ->
+        let f (s, t) _ = case () of
+                ()
+                    | t == tyUnit -> putS h s
+                    | otherwise ->
+                        seqs_ [ putS h s
+                              , putS h " "
+                              , uoutput t h $
+                                    app (ucast (TyUnsigned 64) t)
+                                        (app (uExtractValue t0 (TyUnsigned 64) 1) a)
+                              ]
+        in
+            let c : cs = zip (map fst bs) (map f bs)
+            in ucase t0 a (snd c) cs
     _ -> impossible $ "uh_output:" ++ show t0
   where
     ok :: ((E a, E Handle) -> E ()) -> E ((a, Handle) -> ())
@@ -713,10 +738,6 @@ ugep :: Type -> Type -> E ((a, UInt32) -> b)
 ugep t0 t = uinstr (TyFun t0 (TyAddress t)) "ugep" $
     \[ addr, a ] -> I.gep addr a
 
-uExtractValue :: Type -> Type -> Integer -> E (a -> b)
-uExtractValue ta tb i = uinstr (TyFun ta tb) "uExtractValue" $
-  \[a] -> I.extractValue a (fromInteger i)
-
 hashName :: (Show a) => a -> String
 hashName = show . hash . show
 
@@ -724,7 +745,7 @@ delim :: E Handle -> String -> String -> E () -> E ()
 delim h l r a = seqs_ [ putS h l, a, putS h r ]
 
 ugepi :: Type -> Type -> Integer -> E (a -> b)
-ugepi t0 t i = opapp (int i) (swapargs (ugep t0 t))
+ugepi t0 t i = opapp (int i) (swapArgs (ugep t0 t))
 
 uload :: Type -> E (a -> b)
 uload t = uinstr (TyFun (TyAddress t) t) "uload" $ \[ a ] -> I.load a
@@ -734,10 +755,6 @@ usext ta tb = uinstr (TyFun ta tb) "sext" $ \[ a ] -> I.sext a (toTyLLVM tb)
 
 uzext :: Type -> Type -> E (a -> b)
 uzext ta tb = uinstr (TyFun ta tb) "zext" $ \[ a ] -> I.zext a (toTyLLVM tb)
-
-ubitcast :: Type -> Type -> E (a -> b)
-ubitcast ta tb = uinstr (TyFun ta tb) "bitcast" $ \[ a ] ->
-    I.bitcast a (toTyLLVM tb)
 
 h_put_char :: E ((Char_, Handle) -> ())
 h_put_char = externFunc "fputc"
