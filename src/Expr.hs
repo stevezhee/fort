@@ -33,6 +33,33 @@ callLocal = unop . U.callLocal
 extern :: Ty a => Name -> E a
 extern = value . U.extern
 
+let_ :: (Ty a, Ty b) => U.UPat -> E a -> (E a -> E b) -> E b
+let_ upat (x :: E a) f = go Proxy
+  where
+    go :: Ty a => Proxy a -> E b
+    go proxy = let pat :: Pat = U.fromUPat (tyFort proxy) upat
+               in
+                   E $ LetE pat <$> unE x <*> unE (f $ U.patToExpr pat)
+
+func :: (Ty a, Ty b) => Name -> U.UPat -> (E a -> E b) -> E (a -> b)
+func n pat = unop . U.func n pat
+
+load :: Ty a => E (Addr a -> a)
+load = unop U.load
+
+store :: Ty a => E ((Addr a, a) -> ())
+store = binop U.store
+
+array :: (Size sz, Ty a) => E (UInt32 -> a) -> E (Addr (Array sz a))
+-- array = let arr = undef in seq (foreach(arr, \i -> store (arr idx i) (f i))) arr
+array f =
+  let_ ["arr"] undef $ \arr ->
+    seqs [foreach (\i -> app store (tuple2 (app index $ tuple2 (arr, i), app f i))) arr]
+    arr
+
+foreach :: (Size sz, Ty a) => (E UInt32 -> E ()) -> E (Addr (Array sz a)) -> E ()
+foreach = undefined
+
 int :: Ty a => Integer -> E a
 int i = f Proxy
   where
@@ -56,7 +83,7 @@ output = f Proxy
   where
     f :: Ty a => Proxy a -> E (a -> ())
     f proxy = func ("outputln_" ++ hashName ty) [ "a" ] $ \a ->
-        U.sepS stdout "\n" (U.output ty stdout a)
+        seqs [U.output ty stdout a] (U.putS stdout "\n")
       where
         ty = tyFort proxy
 
@@ -143,18 +170,9 @@ bitwise_xor = binop U.bitwiseXor
 
 gep :: (Ty a, Ty b) => E ((Addr a, UInt32) -> Addr b)
 gep = binop U.gep
-
-load :: Ty a => E (Addr a -> a)
-load = unop U.load
-
-store :: Ty a => E ((Addr a, a) -> ())
-store = binop U.store
-
+  
 cast :: (Ty a, Ty b) => E (a -> b)
 cast = unop U.cast
-
-func :: (Ty a, Ty b) => Name -> U.UPat -> (E a -> E b) -> E (a -> b)
-func n pat = unop . U.func n pat
 
 value :: Ty a => (Type -> E a) -> E a
 value (f :: Type -> E a) = go Proxy
@@ -237,11 +255,3 @@ tuple3 = U.tuple3
 
 opapp :: (Ty a, Ty b, Ty c) => E a -> E ((a, b) -> c) -> E (b -> c)
 opapp = U.opapp
-
-let_ :: (Ty a, Ty b) => U.UPat -> E a -> (E a -> E b) -> E b
-let_ upat (x :: E a) f = go Proxy
-  where
-    go :: Ty a => Proxy a -> E b
-    go proxy = let pat :: Pat = U.fromUPat (tyFort proxy) upat
-               in
-                   E $ LetE pat <$> unE x <*> unE (f $ U.patToExpr pat)

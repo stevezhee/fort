@@ -1,6 +1,6 @@
 ;; types
 Int = /unsigned 32
-Perm = /address (/array 5 Int) ;; BAL: make this configurable
+Perm = /address (/array 12 Int) ;; BAL: make this configurable
 Bool = /bool
 
 ;; primitives
@@ -8,6 +8,9 @@ add: (a, a) -> a
 + = add
 equals: (a, a) -> Bool
 == = equals
+less-than: (a, a) -> Bool
+< = less-than
+output: a -> ()
 
 subtract: (a, a) -> a
 - = subtract
@@ -55,5 +58,29 @@ swap: (/address Int, /address Int) -> () = \(p,q) => /do
   p := load q
   q := temp
 
-;; asdf = foreach p in permutations() /do
-;;   fankuch p
+inc: /address Int -> () = \p => p := (load p + 1)
+
+;; array: (Int -> a) -> /address (/array sz a)
+
+linear: Int -> Int = \i => i + 1 ;; BAL: inline
+zeros: Int -> Int = \_ => 0 ;; BAL: inline
+
+;; permutations: Int -> () = \size => /do
+;;   /let perm: Perm = array linear ;; [ 1 .. ]
+;;   /let c: Perm = array zeros ;; repeat 0
+;;   output perm
+  ;; go 0 ;; BAL: go backwards?
+  ;;   /where
+  ;;     go: Int -> () = \i => /if
+  ;;       i < size = /if
+  ;;         load (c # i) < i = /do
+  ;;           /if
+  ;;             is-odd i = swap (perm # load (c # i), perm # i)
+  ;;             /else = swap (perm # 0, perm # i)
+  ;;           output perm
+  ;;           inc (c # i)
+  ;;           go 0
+  ;;         _ = /do
+  ;;         (c # i) := 0
+  ;;         go (i + 1)
+  ;;       _ = ()

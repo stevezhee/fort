@@ -84,8 +84,9 @@ externFunc ty n = E $ do
 
 fromUPat :: Type -> UPat -> Pat
 fromUPat ty upat = case (unTupleTy ty, upat) of
-    ([], [ v ]) -> [ V tyUnit v ]
-    (tys, _) -> safeZipWith "fromUPat" V tys upat
+    ([], [v]) -> [ V tyUnit v ]
+    (_, [v])  -> [ V ty v]
+    (tys, _)  -> safeZipWith "fromUPat" V tys upat
 
 qualifyName :: String -> FilePath -> String
 qualifyName a b = modNameOf b ++ "_" ++ a
@@ -100,8 +101,8 @@ funTys n ty = (Nm ty n, f)
 
     f = I.call v . map (, [])
 
-sepS :: E Handle -> String -> E () -> E ()
-sepS h s a = seq a (putS h s)
+prefixS :: E Handle -> String -> E () -> E ()
+prefixS h s a = seq (putS h s) a
 
 seqs_ :: [E ()] -> E ()
 seqs_ [] = unit
@@ -378,15 +379,15 @@ hOutput t0 = case t0 of
         let c : cs = [ (s, \_ -> putS h s) | s <- ss ] in case_ t0 a (snd c) cs
     TyAddress ta -> case ta of
         TyArray sz t1 -> ok $ \(a, h) -> delim h "[" "]" $
-            app (foreach sz t1 (sepS h ", " . output (TyAddress t1) h))
+            app (foreach sz t1 (prefixS h "; " . output (TyAddress t1) h))
                 (tuple2 (a, h))
         TyTuple ts -> ok $ \(a, h) -> delim h "(" ")" $
-            seqs_ [ sepS h ", " $ output (TyAddress t) h (app (ugepi t0 t i) a)
+            seqs_ [ prefixS h "; " $ output (TyAddress t) h (app (ugepi t0 t i) a)
                   | (i, t) <- zip [ 0 .. ] ts
                   ]
         t -> ok $ \(a, h) -> output t h (app (load t0 t) $ unsafeCast a)
     TyRecord bs -> ok $ \(a, h) -> delim h "{" "}" $
-        seqs_ [ sepS h ", " $ seqs_ [ putS h fld
+        seqs_ [ prefixS h "; " $ seqs_ [ putS h fld
                                     , putS h " = "
                                     , output t h (app (extractValue i t0 t) a)
                                     ]

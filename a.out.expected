@@ -5,13 +5,13 @@
 0
 1
 3
-[21, 42, ]
+[; 21; 42]
 arr[0] 21
 arr[1] 42
 sizeof int 4
 sizeof FILE* 8
 stdin 0x7fff95858110
-[[0, 1, 1, ], [2, 3, 5, ], ]
+[; [; 0; 1; 1]; [; 2; 3; 5]]
 arr2[0][0] = 0
 arr2[0][1] = 1
 arr2[0][2] = 1
@@ -21,14 +21,14 @@ arr2[1][2] = 5
 myInt = 319
 "hello, world"
 "hi, again"
-flips: 5
 Green
 Red
 Green
 Blue
-1,3,2,4,5,
-{x = 42, y = #"z", z = 255, }
+{; x = 42; y = #"z"; z = 255}
 #"a"
 Left #"a"
 Some #"z"
 Some #"z"
+flips: 5
+1,3,2,4,5,
