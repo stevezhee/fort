@@ -81,7 +81,7 @@ toLLVMStringDefn (s, v) = AST.GlobalDefinition $
     AST.globalVariableDefaults { AST.linkage = AST.LinkOnce
                                , AST.name = AST.mkName $ vName v
                                , LLVM.AST.Global.type' = case vTy v of
-                                     TyAddress t -> toTyLLVM t
+                                     TyAddress t _ _ -> toTyLLVM t
                                      _ -> impossible "toLLVMStringDefn"
                                , AST.initializer = Just $
                                      AST.Array AST.i8
@@ -136,17 +136,13 @@ toTyLLVM = go
   where
     go :: Type -> AST.Type
     go x = case x of
-        TyChar -> go unTyChar
-        TySigned sz -> go $ TyUnsigned sz
-        TyUnsigned sz -> AST.IntegerType $ fromInteger sz
-        TyString -> go unTyString
-        TyAddress a -> AST.ptr (go a)
+        TyInteger sz _ _ -> AST.IntegerType $ fromInteger sz
+        TyAddress a _ _ -> AST.ptr (go a)
         TyArray sz a -> AST.ArrayType (fromInteger sz) (go a)
         TyTuple [] -> AST.void
         TyTuple bs -> AST.StructureType False $ map go bs
         TyRecord bs -> go $ tyRecordToTyTuple bs
         TyVariant bs -> go $ tyVariantToTyTuple bs
-        TyEnum bs -> go $ unTyEnum bs
         TyFun _ b ->
             AST.FunctionType (toTyLLVM b) (map toTyLLVM $ unTupleTy b) False
         TyCont _ -> impossible "toTyLLVM"

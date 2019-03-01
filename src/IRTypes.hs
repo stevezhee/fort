@@ -128,16 +128,24 @@ data SSATerm =
     SwitchS Atom Nm [(Tag, Nm)] | BrS Nm | RetS [Atom] | UnreachableS Type
     deriving Show
 
-data Type = TyChar
-          | TyString
-          | TySigned Integer
-          | TyUnsigned Integer
-          | TyAddress Type
+data IsVolatile = Volatile | NonVolatile
+    deriving ( Show, Eq )
+
+data IsSigned = Signed | Unsigned
+    deriving ( Show, Eq )
+
+data IntType = TyInt | TyChar | TyEnum [String]
+    deriving ( Show, Eq )
+
+data AddrType = TyAddr | TyString
+    deriving ( Show, Eq )
+
+data Type = TyInteger Integer IsSigned IntType
+          | TyAddress Type IsVolatile AddrType
           | TyArray Integer Type
           | TyTuple [Type]
           | TyRecord [(String, Type)]
           | TyVariant [(String, Type)]
-          | TyEnum [String]
           | TyFun Type Type
           | TyCont Name
     deriving ( Show, Eq )
@@ -146,25 +154,14 @@ tyBool :: Type
 tyBool = tyEnum [ "False", "True" ]
 
 tyEnum :: [String] -> Type
-tyEnum = TyEnum -- BAL: do something different with 0 or 1 strings?
+tyEnum xs = TyInteger (neededBitsList xs) Unsigned (TyEnum xs)
+-- ^ BAL: do something different with a total of 0 or 1 tags?
 
 tyUnit :: Type
 tyUnit = tyTuple []
 
-unTyChar :: Type
-unTyChar = TyUnsigned 8
-
-tyHandle :: Type
-tyHandle = tyFort (Proxy :: Proxy Handle)
-
 ptrSize :: Integer
 ptrSize = 64 -- BAL: architecture dependent
-
-unTyEnum :: [a] -> Type
-unTyEnum = TyUnsigned . neededBitsList
-
-unTyString :: Type
-unTyString = TyAddress TyChar
 
 -- tuple types should only be created with this
 tyTuple :: [Type] -> Type
@@ -281,14 +278,14 @@ tyExpr x = case x of
 
 tyAtom :: Atom -> Type
 tyAtom x = case x of
-    Int sz _ -> TyUnsigned sz
-    Char{} -> TyChar
+    Int sz _ -> tyUnsigned sz
+    Char{} -> tyChar
     Var a -> vTy a
     Global a -> vTy a
-    String{} -> TyString
+    String{} -> tyString
     Undef t -> t
     Enum (_, (t, _)) -> t
-    Cont _ (_, a, _) -> TyUnsigned a
+    Cont _ (_, a, _) -> tyUnsigned a
 
 freshPat :: Pat -> M Pat
 freshPat xs = sequence [ freshVar t s | V t s <- xs ]
@@ -330,6 +327,8 @@ data Unsigned a
 
 data Addr a
 
+data Volatile a
+
 data Array sz a
 
 type Handle = Addr UInt64
@@ -352,22 +351,52 @@ instance Ty () where
     tyFort _ = tyUnit
 
 instance Ty Bool_ where
-    tyFort _ = TyEnum [ "False", "True" ]
+    tyFort _ = tyBool
 
 instance Ty Char_ where
-    tyFort _ = TyChar
+    tyFort _ = tyChar
 
 instance Ty String_ where
-    tyFort _ = TyString
+    tyFort _ = tyString
 
 instance Size sz => Ty (Signed sz) where
-    tyFort _ = TySigned (size (Proxy :: Proxy sz))
+    tyFort _ = tySigned (size (Proxy :: Proxy sz))
 
 instance Size sz => Ty (Unsigned sz) where
-    tyFort _ = TyUnsigned (size (Proxy :: Proxy sz))
+    tyFort _ = tyUnsigned (size (Proxy :: Proxy sz))
+
+tyChar :: Type
+tyChar = TyInteger 8 Unsigned TyChar
+
+tyString :: Type
+tyString = TyAddress tyChar NonVolatile TyString
+
+tyAddress :: Type -> Type
+tyAddress t = TyAddress t NonVolatile TyAddr
+
+tySigned :: Integer -> Type
+tySigned sz = TyInteger sz Signed TyInt
+
+tyUnsigned :: Integer -> Type
+tyUnsigned sz = TyInteger sz Unsigned TyInt
+
+tyUInt64 :: Type
+tyUInt64 = tyUnsigned 64
+
+tySInt64 :: Type
+tySInt64 = tySigned 64
+
+tyUInt32 :: Type
+tyUInt32 = tyUnsigned 32
+
+tyHandle :: Type
+tyHandle = tyFort (Proxy :: Proxy Handle)
 
 instance Ty a => Ty (Addr a) where
-    tyFort _ = TyAddress (tyFort (Proxy :: Proxy a))
+    tyFort _ = TyAddress (tyFort (Proxy :: Proxy a)) NonVolatile TyAddr
+
+instance Ty a => Ty (Volatile a) where
+    tyFort _ = TyAddress (tyFort (Proxy :: Proxy a)) Volatile TyAddr
 
 instance (Ty a, Ty b) => Ty (a -> b) where
     tyFort _ = TyFun (tyFort (Proxy :: Proxy a)) (tyFort (Proxy :: Proxy b))
@@ -389,23 +418,19 @@ tyRecordToTyTuple bs = tyTuple $ map snd bs
 
 tyVariantToTyTuple :: [(String, Type)] -> Type
 tyVariantToTyTuple bs =
-    tyTuple [ unTyEnum bs
-            , TyUnsigned 64 -- BAL: just make it 64 bits for now -- maximumBy (\a b -> compare (sizeFort a) (sizeFort b)) $ map snd bs
+    tyTuple [ tyEnum $ map fst bs
+            , tyUnsigned 64 -- BAL: just make it 64 bits for now -- maximumBy (\a b -> compare (sizeFort a) (sizeFort b)) $ map snd bs
             ]
 
 -- BAL: write sizeOf :: AST.Type -> Integer
 sizeFort :: Type -> Integer
 sizeFort x = case x of
-    TyChar -> 8
-    TySigned sz -> sz
-    TyUnsigned sz -> sz
-    TyString -> ptrSize
-    TyAddress _ -> ptrSize
+    TyInteger sz _ _ -> sz
+    TyAddress{} -> ptrSize
     TyArray sz a -> sz * sizeFort a
     TyTuple bs -> sum $ map sizeFort bs
     TyRecord bs -> sizeFort $ tyRecordToTyTuple bs
     TyVariant bs -> sizeFort $ tyVariantToTyTuple bs
-    TyEnum bs -> sizeFort $ unTyEnum bs
     TyFun{} -> impossible "sizeFort:TyFun"
     TyCont{} -> impossible "sizeFort:TyCont"
 

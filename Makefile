@@ -5,6 +5,7 @@ TEST_DIR=test
 HS_FILES=$(shell find src -name \*.hs) $(shell find app -name \*.hs)
 
 FORT_FILES=$(wildcard $(TEST_DIR)/*.fort)
+
 # FORT_FILES=test/address.fort
 # FORT_FILES=test/array.fort
 # FORT_FILES=test/char.fort
@@ -58,6 +59,7 @@ coverage: $(HS_FILES) test/Spec.hs
 clean:
 	stack clean
 	rm -f a.out
+	rm -f *.actual
 	rm -f test/*.ll
 	rm -f test/*.s
 	rm -f test/*.o

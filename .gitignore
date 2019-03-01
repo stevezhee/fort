@@ -13,3 +13,4 @@ fort.cabal
 .DS_Store
 settings
 config.log
+*.actual

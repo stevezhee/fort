@@ -248,7 +248,7 @@ ppTopDecl x = case x of
             [ "data" <+> ppCon a
             , ppInstance "T.Ty"
                          [ ppCon a ]
-                         [ "tyFort _ = T.TyEnum" <+> constrs ]
+                         [ "tyFort _ = T.tyEnum" <+> constrs ]
             ] ++ [ vcat [ pretty (conToVarName c) <+> ":: T.E" <+> ppCon a
                         , pretty (conToVarName c) <+> "= T.enum"
                               <+> ppTuple [ stringifyName c, pretty i ]

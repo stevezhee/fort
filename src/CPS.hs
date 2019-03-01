@@ -203,7 +203,7 @@ toCPSFuncPost contTbl (CPSFunc nm vs ys t) = CPSFunc nm' vs' ys t'
 
     contSz n = neededBits $ HMS.size $ fromMaybe mempty $ HMS.lookup n contTbl
 
-    tyCont = TyUnsigned . contSz
+    tyCont = tyUnsigned . contSz
 
 phis :: CPSFunc -> [(Name, [(Atom, Name)])]
 phis (CPSFunc nm _ _ t) = [ (n, map (, nName nm) bs) | (n, bs) <- xs ]

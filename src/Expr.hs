@@ -51,13 +51,19 @@ store :: Ty a => E ((Addr a, a) -> ())
 store = binop U.store
 
 array :: (Size sz, Ty a) => E (UInt32 -> a) -> E (Addr (Array sz a))
--- array = let arr = undef in seq (foreach(arr, \i -> store (arr idx i) (f i))) arr
-array f =
-  let_ ["arr"] undef $ \arr ->
-    seqs [foreach (\i -> app store (tuple2 (app index $ tuple2 (arr, i), app f i))) arr]
-    arr
 
-foreach :: (Size sz, Ty a) => (E UInt32 -> E ()) -> E (Addr (Array sz a)) -> E ()
+-- array = let arr = undef in seq (foreach(arr, \i -> store (arr idx i) (f i))) arr
+array f = let_ [ "arr" ] undef $ \arr ->
+    seqs [ foreach (\i ->
+                    app store (tuple2 (app index $ tuple2 (arr, i), app f i)))
+                   arr
+         ]
+         arr
+
+foreach :: (Size sz, Ty a)
+        => (E UInt32 -> E ())
+        -> E (Addr (Array sz a))
+        -> E ()
 foreach = undefined
 
 int :: Ty a => Integer -> E a
@@ -83,7 +89,7 @@ output = f Proxy
   where
     f :: Ty a => Proxy a -> E (a -> ())
     f proxy = func ("outputln_" ++ hashName ty) [ "a" ] $ \a ->
-        seqs [U.output ty stdout a] (U.putS stdout "\n")
+        seqs [ U.output ty stdout a ] (U.putS stdout "\n")
       where
         ty = tyFort proxy
 
@@ -170,7 +176,7 @@ bitwise_xor = binop U.bitwiseXor
 
 gep :: (Ty a, Ty b) => E ((Addr a, UInt32) -> Addr b)
 gep = binop U.gep
-  
+
 cast :: (Ty a, Ty b) => E (a -> b)
 cast = unop U.cast
 
@@ -209,7 +215,7 @@ insertValue i = binop (U.insertValue i)
 
 injectTag :: Ty a => String -> Integer -> Integer -> E a
 injectTag _ tagsz i = value $ \ty ->
-    U.app (U.insertValue 0 (ty, TyUnsigned tagsz) ty)
+    U.app (U.insertValue 0 (ty, tyUnsigned tagsz) ty)
           (U.tuple2 (undef, U.intE tagsz i))
 
 reduce :: Ty a => [E (a -> a)] -> E a -> E a

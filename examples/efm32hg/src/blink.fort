@@ -99,11 +99,10 @@ volatile = cast
 
 get_register: UInt32 -> UInt32 = \a => /do
   /let pointer = volatile a
-  load pointer
+  load (volatile a)
 
 set_register: (UInt32, UInt32) -> () = \(a,b) => /do
-  /let pointer = volatile a
-  store (pointer, b)
+  store (volatile a, b)
 
 _reg_bit: (UInt32, UInt32) -> UInt32 = \(base, bit) => /do
   (base << 5) + bit

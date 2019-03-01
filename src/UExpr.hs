@@ -67,10 +67,12 @@ h_put_sint64 =
 
 global :: Type -> String -> E a
 global t s =
-    app (load (TyAddress t) t)
+    app (load ty t)
         (E $ do
              modify' $ \st -> st { externs = HMS.insert s t $ externs st }
-             pure $ AtomE $ Global $ V (TyAddress t) s)
+             pure $ AtomE $ Global $ V ty s)
+  where
+    ty = tyAddress t
 
 load :: Type -> Type -> E (Addr a -> a)
 load = unaryInstr "load" I.load
@@ -84,9 +86,9 @@ externFunc ty n = E $ do
 
 fromUPat :: Type -> UPat -> Pat
 fromUPat ty upat = case (unTupleTy ty, upat) of
-    ([], [v]) -> [ V tyUnit v ]
-    (_, [v])  -> [ V ty v]
-    (tys, _)  -> safeZipWith "fromUPat" V tys upat
+    ([], [ v ]) -> [ V tyUnit v ]
+    (_, [ v ]) -> [ V ty v ]
+    (tys, _) -> safeZipWith "fromUPat" V tys upat
 
 qualifyName :: String -> FilePath -> String
 qualifyName a b = modNameOf b ++ "_" ++ a
@@ -102,7 +104,7 @@ funTys n ty = (Nm ty n, f)
     f = I.call v . map (, [])
 
 prefixS :: E Handle -> String -> E () -> E ()
-prefixS h s a = seq (putS h s) a
+prefixS h s = seq (putS h s)
 
 seqs_ :: [E ()] -> E ()
 seqs_ [] = unit
@@ -136,9 +138,9 @@ string :: String -> E String_
 string s = app f str
   where
     f :: E (a -> String_)
-    f = bitcast "string" (TyAddress t) TyString
+    f = bitcast "string" (tyAddress t) tyString
 
-    t = TyAddress (TyArray (genericLength s + 1) TyChar)
+    t = tyAddress (TyArray (genericLength s + 1) tyChar)
 
     str = E $ do
         let v = V t $ "s." ++ hashName s
@@ -217,7 +219,7 @@ case_ ty (E x) f ys = E $ do
     go xa = do
         let ea = atomE xa
         let tgE = case ty of
-                TyVariant tags -> let tagTy = TyUnsigned $ neededBitsList tags
+                TyVariant tags -> let tagTy = tyEnum $ map fst tags
                                   in
                                       app (extractValue 0 ty tagTy) ea
                 _ -> ea
@@ -231,13 +233,13 @@ case_ ty (E x) f ys = E $ do
 readTag :: Type -> String -> Tag
 readTag x s = (s, go x)
   where
+    go :: Type -> AST.Constant
     go t = case t of
-        TyChar -> I.constInt 8 $ toInteger $ fromEnum (read s :: Char)
-        TySigned sz -> I.constInt sz (read s)
-        TyUnsigned sz -> I.constInt sz (read s)
-        TyEnum tags -> I.constInt (neededBitsList tags) $
-            maybe err fromIntegral (elemIndex s tags)
-        TyVariant bs -> go (TyEnum $ map fst bs)
+        TyVariant bs -> go (tyEnum $ map fst bs)
+        TyInteger sz _ intTy -> I.constInt sz $ case intTy of
+            TyInt -> read s
+            TyChar -> toInteger $ fromEnum (read s :: Char)
+            TyEnum tags -> maybe err fromIntegral (elemIndex s tags)
         _ -> err
 
     err = impossible $ "readTag:" ++ show (s, x)
@@ -272,28 +274,11 @@ instr t s f = callE (Nm t s) (Defn f)
 
 cast :: Type -> Type -> E (a -> b)
 cast tyA tyB = case (tyA, tyB) of
-    (TyChar, _) -> cast unTyChar tyB
-    (TyEnum bs, _) -> cast (unTyEnum bs) tyB
-    (TyString, _) -> cast unTyString tyB
-
-    (_, TyChar) -> cast tyA unTyChar
-    (_, TyEnum bs) -> cast tyA (unTyEnum bs)
-    (_, TyString) -> cast tyA unTyString
-
-    (TyUnsigned szA, TyUnsigned szB) -> f zext szA szB
-    (TyUnsigned szA, TySigned szB) -> f zext szA szB
-
-    (TySigned szA, TyUnsigned szB) -> f sext szA szB
-    (TySigned szA, TySigned szB) -> f sext szA szB
-
-    (TyUnsigned _, TyAddress _) -> inttoptr tyA tyB
-    (TySigned _, TyAddress _) -> inttoptr tyA tyB
-
-    (TyAddress _, TyUnsigned _) -> ptrtoint tyA tyB
-    (TyAddress _, TySigned _) -> ptrtoint tyA tyB
-
-    (TyAddress _, TyAddress _) -> bitcast "cast" tyA tyB
-
+    (TyInteger szA Unsigned _, TyInteger szB _ _) -> f zext szA szB
+    (TyInteger szA Signed _, TyInteger szB _ _) -> f sext szA szB
+    (TyInteger{}, TyAddress{}) -> inttoptr tyA tyB
+    (TyAddress{}, TyInteger{}) -> ptrtoint tyA tyB
+    (TyAddress{}, TyAddress{}) -> bitcast "cast" tyA tyB
     _ -> impossible $ "cast:" ++ show (tyA, tyB)
   where
     f g szA szB
@@ -320,9 +305,6 @@ output t h a = app (opapp a (hOutput t)) h
 
 where_ :: E a -> [M Func] -> E a
 where_ e ms = E $ LetRecE <$> sequence ms <*> unE e
-
-tyUInt32 :: Type
-tyUInt32 = TyUnsigned 32
 
 foreach :: Integer -> Type -> (E (Addr a) -> E ()) -> E ((b, Handle) -> ())
 foreach sz t f =
@@ -353,44 +335,52 @@ foreach sz t f =
          (tyTuple [ tyArr, tyHandle ])
          tyUnit
   where
-    tyArr = TyAddress (TyArray sz t)
-
-tyUInt64 :: Type
-tyUInt64 = TyUnsigned 64
-
-tySInt64 :: Type
-tySInt64 = TySigned 64
+    tyArr = tyAddress (TyArray sz t)
 
 hOutput :: Type -> E ((a, Handle) -> ())
 hOutput t0 = case t0 of
-    TyChar -> ok $ \(a, h) -> delim h "#\"" "\"" $
-        app (opapp a (unsafeCast h_put_char)) h
-    TyString -> ok $ \(a, h) -> delim h "\"" "\"" $
-        app (opapp a (unsafeCast h_put_string)) h
-    TySigned 64 -> unsafeCast h_put_sint64
-    TySigned _ -> ok $ \(a, h) -> output tySInt64 h (app (sext t0 tySInt64) a)
-    TyUnsigned 64 -> unsafeCast h_put_uint64
-    TyUnsigned _ -> ok $ \(a, h) ->
-        output tyUInt64 h (app (zext t0 tyUInt64) a)
+    TyInteger sz isSigned intTy -> case intTy of
+        TyChar -> ok $ \(a, h) -> delim h "#\"" "\"" $
+            app (opapp a (unsafeCast h_put_char)) h
+        TyEnum ss -> ok $ \(a, h) ->
+            let c : cs = [ (s, \_ -> putS h s) | s <- ss ]
+            in
+                case_ t0 a (snd c) cs
+        TyInt -> case isSigned of
+            Signed -> case sz of
+                64 -> unsafeCast h_put_sint64
+                _ -> ok $ \(a, h) ->
+                    output tySInt64 h (app (sext t0 tySInt64) a)
+            Unsigned -> case sz of
+                64 -> unsafeCast h_put_uint64
+                _ -> ok $ \(a, h) ->
+                    output tyUInt64 h (app (zext t0 tyUInt64) a)
     TyFun{} -> ok $ \(_, h) -> putS h "<function>"
     TyCont{} -> ok $ \(_, h) -> putS h "<continuation>"
     TyTuple [] -> ok $ \(_, h) -> putS h "()"
-    TyEnum ss -> ok $ \(a, h) ->
-        let c : cs = [ (s, \_ -> putS h s) | s <- ss ] in case_ t0 a (snd c) cs
-    TyAddress ta -> case ta of
-        TyArray sz t1 -> ok $ \(a, h) -> delim h "[" "]" $
-            app (foreach sz t1 (prefixS h "; " . output (TyAddress t1) h))
-                (tuple2 (a, h))
-        TyTuple ts -> ok $ \(a, h) -> delim h "(" ")" $
-            seqs_ [ prefixS h "; " $ output (TyAddress t) h (app (ugepi t0 t i) a)
-                  | (i, t) <- zip [ 0 .. ] ts
-                  ]
-        t -> ok $ \(a, h) -> output t h (app (load t0 t) $ unsafeCast a)
+    TyAddress ta isV addrTy -> case addrTy of
+        TyString -> ok $ \(a, h) -> delim h "\"" "\"" $
+            app (opapp a (unsafeCast h_put_string)) h
+        TyAddr -> case ta of
+            TyArray sz t1 -> ok $ \(a, h) -> delim h "[" "]" $
+                app (foreach sz
+                             t1
+                             (prefixS h "; "
+                              . output (TyAddress t1 isV addrTy) h))
+                    (tuple2 (a, h))
+            TyTuple ts -> ok $ \(a, h) -> delim h "(" ")" $
+                seqs_ [ prefixS h "; " $ output (TyAddress t isV addrTy)
+                                                h
+                                                (app (ugepi t0 t i) a)
+                      | (i, t) <- zip [ 0 .. ] ts
+                      ]
+            t -> ok $ \(a, h) -> output t h (app (load t0 t) $ unsafeCast a)
     TyRecord bs -> ok $ \(a, h) -> delim h "{" "}" $
-        seqs_ [ prefixS h "; " $ seqs_ [ putS h fld
-                                    , putS h " = "
-                                    , output t h (app (extractValue i t0 t) a)
-                                    ]
+        seqs_ [ prefixS h "; " $
+                  seqs_ [ putS h fld
+                        , putS h " = "
+                        , output t h (app (extractValue i t0 t) a)
+                        ]
               | (i, (fld, t)) <- zip [ 0 .. ] bs
               ]
     TyVariant bs -> ok $ \(a, h) ->
@@ -411,7 +401,7 @@ hOutput t0 = case t0 of
     ok :: ((E a, E Handle) -> E ()) -> E ((a, Handle) -> ())
     ok f = func ("output_" ++ hashName t0)
                 [ "a", "h" ]
-                (\v -> f (argTuple2 v))
+                (f . argTuple2)
                 (tyTuple [ t0, tyHandle ])
                 tyUnit
 
@@ -454,8 +444,8 @@ arithop :: String
         -> Type
         -> E ((a, a) -> a)
 arithop s f g tab tc = case tc of
-    TyUnsigned{} -> binaryInstr s f tab tc
-    TySigned{} -> binaryInstr s g tab tc
+    TyInteger _ Unsigned _ -> binaryInstr s f tab tc
+    TyInteger _ Signed _ -> binaryInstr s g tab tc
     _ -> error $ "unable to perform arithmetic on values of type:" ++ show tc
 
 add :: (Type, Type) -> Type -> E ((a, a) -> a)
@@ -480,10 +470,8 @@ cmpop :: String
       -> Type
       -> E ((a, a) -> Bool_)
 cmpop s p q tab@(ta, _) tc = case ta of
-    TyEnum{} -> binaryInstr s (I.icmp p) tab tc
-    TyChar -> binaryInstr s (I.icmp p) tab tc
-    TyUnsigned{} -> binaryInstr s (I.icmp p) tab tc
-    TySigned{} -> binaryInstr s (I.icmp q) tab tc
+    TyInteger _ Unsigned _ -> binaryInstr s (I.icmp p) tab tc
+    TyInteger _ Signed _ -> binaryInstr s (I.icmp q) tab tc
     _ -> error $ "unable to compare values of type:" ++ show ta
 
 eq :: (Type, Type) -> Type -> E ((a, a) -> Bool_)
@@ -524,7 +512,7 @@ bitwiseXor = arithop "xor" I.xor I.xor
 
 -- BAL: remove
 ugep :: Type -> Type -> E ((a, UInt32) -> b)
-ugep t0 t = instr (TyFun t0 (TyAddress t)) "gep" $ \[ addr, a ] -> I.gep addr a
+ugep t0 t = instr (TyFun t0 (tyAddress t)) "gep" $ \[ addr, a ] -> I.gep addr a
 
 -- BAL: rename
 ugepi :: Type -> Type -> Integer -> E (a -> b)
