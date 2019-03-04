@@ -9,9 +9,10 @@
 module IRTypes where
 
 import           Control.Monad.State.Strict
-import Data.List
+
 import qualified Data.HashMap.Strict        as HMS
 import           Data.Hashable
+import           Data.List
 
 import           Data.Proxy
 import           Data.Text.Prettyprint.Doc
@@ -151,25 +152,29 @@ data Type = TyInteger Integer IsSigned IntType
     deriving ( Show, Eq )
 
 instance Pretty IsVolatile where
-  pretty x = case x of
-    NonVolatile -> mempty
-    Volatile -> "volatile"
+    pretty x = case x of
+        NonVolatile -> mempty
+        Volatile -> "volatile"
 
 instance Pretty Type where
-  pretty x = case x of
-    TyInteger a b c -> case c of
-      TyChar -> "char"
-      _ -> case b of
-        Signed -> "s" <> pretty a
-        Unsigned -> "u" <> pretty a
-    TyAddress _ b TyString -> "String" <+> pretty b
-    TyAddress a b TyAddr -> "Addr" <+> pretty a <+> pretty b
-    TyArray sz t -> "Array" <+> pretty sz <+> pretty t
-    TyTuple bs -> ppTuple $ map pretty bs
-    TyRecord bs -> braces $ commaSep [ pretty s <> ":" <+> pretty t | (s,t) <- bs ]
-    TyVariant bs -> "<" <> hcat (intersperse " | " [ pretty s <> ":" <+> pretty t | (s,t) <- bs ]) <> ">"
-    TyFun a b -> pretty a <+> "->" <+> pretty b
-    TyCont a -> pretty a
+    pretty x = case x of
+        TyInteger a b c -> case c of
+            TyChar -> "char"
+            _ -> case b of
+                Signed -> "s" <> pretty a
+                Unsigned -> "u" <> pretty a
+        TyAddress _ b TyString -> "String" <+> pretty b
+        TyAddress a b TyAddr -> "Addr" <+> pretty a <+> pretty b
+        TyArray sz t -> "Array" <+> pretty sz <+> pretty t
+        TyTuple bs -> ppTuple $ map pretty bs
+        TyRecord bs ->
+            braces $ commaSep [ pretty s <> ":" <+> pretty t | (s, t) <- bs ]
+        TyVariant bs -> "<" <> hcat (intersperse " | "
+                                                 [ pretty s <> ":" <+> pretty t
+                                                 | (s, t) <- bs
+                                                 ]) <> ">"
+        TyFun a b -> pretty a <+> "->" <+> pretty b
+        TyCont a -> pretty a
 
 tyBool :: Type
 tyBool = tyEnum [ "False", "True" ]
@@ -276,8 +281,11 @@ instance Hashable Var where
 data Nm = Nm { nTy :: Type, nName :: Name }
     deriving Show
 
-instance Pretty Nm where
-    pretty x = pretty (nName x) <> ":" <+> pretty (nTy x)
+instance Pretty Nm
+    -- ^ enable to print types
+ where
+    -- pretty x = pretty (nName x) <> ":" <+> pretty (nTy x)
+    pretty x = pretty (nName x)
 
 instance Eq Nm where
     x == y = nName x == nName y
@@ -442,8 +450,8 @@ tyRecordToTyTuple bs = tyTuple $ map snd bs
 tyVariantToTyRecord :: [(String, Type)] -> Type
 tyVariantToTyRecord bs =
     TyRecord [ ("tag", tyEnum $ map fst bs)
-              , ("val", tyUnsigned 64) -- BAL: just make it 64 bits for now -- maximumBy (\a b -> compare (sizeFort a) (sizeFort b)) $ map snd bs
-              ]
+             , ("val", tyUnsigned 64) -- BAL: just make it 64 bits for now -- maximumBy (\a b -> compare (sizeFort a) (sizeFort b)) $ map snd bs
+             ]
 
 sizeFort :: Type -> Integer
 sizeFort x = case x of

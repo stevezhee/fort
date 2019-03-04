@@ -33,7 +33,7 @@ import           SSA
 import           Utils
 
 verbose :: Bool
-verbose = False
+verbose = True
 
 codegen :: FilePath -> [M Expr] -> IO ()
 codegen file ds = do

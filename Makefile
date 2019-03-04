@@ -6,7 +6,7 @@ HS_FILES=$(shell find src -name \*.hs) $(shell find app -name \*.hs)
 
 FORT_FILES=$(wildcard $(TEST_DIR)/*.fort)
 
-# FORT_FILES=test/address.fort
+FORT_FILES=test/address.fort
 # FORT_FILES=test/array.fort
 # FORT_FILES=test/char.fort
 # FORT_FILES=test/primitives.fort

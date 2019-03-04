@@ -12,10 +12,12 @@ import           Data.Bifunctor
 import           Data.Proxy
 
 import           IRTypes
-import Utils
+
 import qualified Macros         as T
 
 import qualified UExpr          as U
+
+import           Utils
 
 argUnit :: E () -> ()
 argUnit = U.argUnit
@@ -178,7 +180,8 @@ output :: Ty a => E (a -> ())
 output = f Proxy
   where
     f :: Ty a => Proxy a -> E (a -> ())
-    f proxy = unTFun ("eoutput." ++ hashName (tyFort proxy)) (Prelude.const T.output)
+    f proxy = unTFun ("eoutput." ++ hashName (tyFort proxy))
+                     (Prelude.const T.output)
 
 hOutput :: Ty a => E ((a, Handle) -> ())
 hOutput = f Proxy
@@ -193,18 +196,25 @@ func n pat = unop . U.func n pat
 
 -- BAL: unTLam?
 unTFun :: (Ty a, Ty b) => Name -> (Type -> T.T a -> T.T b) -> E (a -> b)
-unTFun n (f :: Type -> T.T a -> T.T b) = func n ["v"] (\a -> T.unT $ f tb $ T.T ta a)
+unTFun n (f :: Type -> T.T a -> T.T b) =
+    func n [ "v" ] (\a -> T.unT $ f tb $ T.T ta a)
   where
     ta = tyFort (Proxy :: Proxy a)
+
     tb = tyFort (Proxy :: Proxy b)
 
 -- BAL: unTLam2?
-unTFun2 :: (Ty a, Ty b, Ty c) => Name -> (Type -> T.T a -> T.T b -> T.T c) -> E ((a, b) -> c)
-unTFun2 n (f :: Type -> T.T a -> T.T b -> T.T c) =
-  func n ["a", "b"] $ \v -> let (a, b) = argTuple2 v in T.unT $ f tc (T.T ta a) (T.T tb b)
+unTFun2 :: (Ty a, Ty b, Ty c)
+        => Name
+        -> (Type -> T.T a -> T.T b -> T.T c)
+        -> E ((a, b) -> c)
+unTFun2 n (f :: Type -> T.T a -> T.T b -> T.T c) = func n [ "a", "b" ] $ \v ->
+    let (a, b) = argTuple2 v in T.unT $ f tc (T.T ta a) (T.T tb b)
   where
     ta = tyFort (Proxy :: Proxy a)
+
     tb = tyFort (Proxy :: Proxy b)
+
     tc = tyFort (Proxy :: Proxy c)
 
 getField :: (Ty a, Ty b) => String -> Integer -> E (a -> b)
@@ -214,7 +224,8 @@ setField :: (Ty a, Ty b) => String -> Integer -> E ((b, a) -> a)
 setField s i = unTFun2 ("setField." ++ s) (\_ -> T.setField s i) -- BAL: doesn't have to be a function
 
 inject :: (Ty a, Ty b) => String -> Integer -> Integer -> Integer -> E (b -> a)
-inject s valsz tagsz i = unTFun ("inject." ++ s) (\_ -> T.inject s valsz tagsz i)
+inject s valsz tagsz i =
+    unTFun ("inject." ++ s) (\_ -> T.inject s valsz tagsz i)
 
 record :: Ty a => [(String, E (a -> a))] -> E a
 record xs = value $ \ta -> T.unT (T.record ta (map (second mkTFun) xs))
@@ -225,7 +236,8 @@ unsafeCon (f :: E b -> E c) a = T.unT (T.unsafeCon (tyFort (Proxy :: Proxy b))
                                                    (mkT a))
 
 injectTag :: Ty a => String -> Integer -> Integer -> Integer -> E a
-injectTag s valsz tagsz i = T.unT (T.injectTag ("injectTag." ++ s) valsz tagsz i)
+injectTag s valsz tagsz i =
+    T.unT (T.injectTag ("injectTag." ++ s) valsz tagsz i)
 
 app :: (Ty a, Ty b) => E (a -> b) -> E a -> E b
 app = U.app
