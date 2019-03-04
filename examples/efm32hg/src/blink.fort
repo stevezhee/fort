@@ -95,7 +95,7 @@ led_red_pin: UInt32 = gpio7
 ;; ├┤ │ │││││   │ ││ ││││└─┐
 ;; └  └─┘┘└┘└─┘ ┴ ┴└─┘┘└┘└─┘
 
-volatile = cast
+volatile: UInt32 -> /address UInt32 = cast
 
 get_register: UInt32 -> UInt32 = \a => /do
   /let pointer = volatile a

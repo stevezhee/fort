@@ -10,7 +10,6 @@ arr[0] 21
 arr[1] 42
 sizeof int 4
 sizeof FILE* 8
-stdin 0x7fff95858110
 [; [; 0; 1; 1]; [; 2; 3; 5]]
 arr2[0][0] = 0
 arr2[0][1] = 1
@@ -26,6 +25,8 @@ Red
 Green
 Blue
 {; x = 42; y = #"z"; z = 255}
+{; a = 11; b = 3735928559}
+{; x = 24; y = #"a"; z = 255}
 #"a"
 Left #"a"
 Some #"z"

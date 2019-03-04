@@ -58,8 +58,6 @@ int main(int argc, char**argv)
   printf("sizeof int %lu\n", sizeof(int));
   printf("sizeof FILE* %lu\n", sizeof(FILE*));
 
-  printf("stdin %p\n",stdin);
-
   if(argc > 1)
     {
       char_char_io_test();

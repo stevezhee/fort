@@ -27,7 +27,7 @@ all: diff
 
 .PHONY: diff
 diff: a.out.actual
-	diff a.out.expected $<
+	diff $< a.out.expected
 
 .PHONY: pretty
 pretty: $(HS_FILES)

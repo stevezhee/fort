@@ -289,22 +289,25 @@ ppUnsafeCon a (c, Nothing) =
          , pretty (unsafeUnConName c) <+> "= T.const"
          ]
 ppUnsafeCon a (c, Just t) =
-    vcat [ pretty (unsafeUnConName c) <+> ":: (T.E" <+> ppType t
+    vcat [ pretty (unsafeUnConName c) <+> ":: T.Ty a => (T.E" <+> ppType t
                <+> "-> T.E a) -> (T.E" <+> ppCon a <+> "-> T.E a)"
          , pretty (unsafeUnConName c) <+> "= T.unsafeCon"
          ]
+
+valSize :: Integer
+valSize = 64 -- BAL: compute this for each variant type
 
 ppInject :: Int -> Con -> ((Con, Maybe Type), Int) -> Doc ann
 ppInject tagsz a ((c, Nothing), i) =
     vcat [ pretty (conToVarName c) <+> ":: T.E" <+> ppType (TyCon a)
          , pretty (conToVarName c) <+> "= T.injectTag" <+> stringifyName c
-               <+> pretty tagsz <+> pretty i
+               <+> pretty tagsz <+> pretty valSize <+> pretty i
          ]
 ppInject tagsz a ((c, Just t), i) =
     vcat [ pretty (conToVarName c) <+> ":: T.E"
                <+> parens (ppType (TyFun t (TyCon a)))
          , pretty (conToVarName c) <+> "= T.inject" <+> stringifyName c
-               <+> pretty tagsz <+> pretty i
+               <+> pretty tagsz <+> pretty valSize <+> pretty i
          ]
 
 ppAscription :: Doc ann -> Maybe Type -> Doc ann

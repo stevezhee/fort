@@ -6,6 +6,8 @@ Char = /char
 ;; primitives
 load: /address a -> a
 output: a -> ()
+greater-than-or-equals: (Int, Int) -> Bool
+>= = greater-than-or-equals
 
 ;; case expressions
 ;; integer

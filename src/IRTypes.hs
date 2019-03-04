@@ -9,7 +9,7 @@
 module IRTypes where
 
 import           Control.Monad.State.Strict
-
+import Data.List
 import qualified Data.HashMap.Strict        as HMS
 import           Data.Hashable
 
@@ -150,6 +150,27 @@ data Type = TyInteger Integer IsSigned IntType
           | TyCont Name
     deriving ( Show, Eq )
 
+instance Pretty IsVolatile where
+  pretty x = case x of
+    NonVolatile -> mempty
+    Volatile -> "volatile"
+
+instance Pretty Type where
+  pretty x = case x of
+    TyInteger a b c -> case c of
+      TyChar -> "char"
+      _ -> case b of
+        Signed -> "s" <> pretty a
+        Unsigned -> "u" <> pretty a
+    TyAddress _ b TyString -> "String" <+> pretty b
+    TyAddress a b TyAddr -> "Addr" <+> pretty a <+> pretty b
+    TyArray sz t -> "Array" <+> pretty sz <+> pretty t
+    TyTuple bs -> ppTuple $ map pretty bs
+    TyRecord bs -> braces $ commaSep [ pretty s <> ":" <+> pretty t | (s,t) <- bs ]
+    TyVariant bs -> "<" <> hcat (intersperse " | " [ pretty s <> ":" <+> pretty t | (s,t) <- bs ]) <> ">"
+    TyFun a b -> pretty a <+> "->" <+> pretty b
+    TyCont a -> pretty a
+
 tyBool :: Type
 tyBool = tyEnum [ "False", "True" ]
 
@@ -256,7 +277,7 @@ data Nm = Nm { nTy :: Type, nName :: Name }
     deriving Show
 
 instance Pretty Nm where
-    pretty = pretty . nName
+    pretty x = pretty (nName x) <> ":" <+> pretty (nTy x)
 
 instance Eq Nm where
     x == y = nName x == nName y
@@ -337,6 +358,8 @@ type UInt32 = Unsigned Size32
 
 type UInt64 = Unsigned Size64
 
+type SInt64 = Signed Size64
+
 data Size32
 
 data Size64
@@ -416,13 +439,12 @@ instance (Ty a, Ty b, Ty c) => Ty (a, b, c) where
 tyRecordToTyTuple :: [(String, Type)] -> Type
 tyRecordToTyTuple bs = tyTuple $ map snd bs
 
-tyVariantToTyTuple :: [(String, Type)] -> Type
-tyVariantToTyTuple bs =
-    tyTuple [ tyEnum $ map fst bs
-            , tyUnsigned 64 -- BAL: just make it 64 bits for now -- maximumBy (\a b -> compare (sizeFort a) (sizeFort b)) $ map snd bs
-            ]
+tyVariantToTyRecord :: [(String, Type)] -> Type
+tyVariantToTyRecord bs =
+    TyRecord [ ("tag", tyEnum $ map fst bs)
+              , ("val", tyUnsigned 64) -- BAL: just make it 64 bits for now -- maximumBy (\a b -> compare (sizeFort a) (sizeFort b)) $ map snd bs
+              ]
 
--- BAL: write sizeOf :: AST.Type -> Integer
 sizeFort :: Type -> Integer
 sizeFort x = case x of
     TyInteger sz _ _ -> sz
@@ -430,7 +452,7 @@ sizeFort x = case x of
     TyArray sz a -> sz * sizeFort a
     TyTuple bs -> sum $ map sizeFort bs
     TyRecord bs -> sizeFort $ tyRecordToTyTuple bs
-    TyVariant bs -> sizeFort $ tyVariantToTyTuple bs
+    TyVariant bs -> sizeFort $ tyVariantToTyRecord bs
     TyFun{} -> impossible "sizeFort:TyFun"
     TyCont{} -> impossible "sizeFort:TyCont"
 

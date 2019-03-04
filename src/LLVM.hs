@@ -98,10 +98,10 @@ toLLVMBasicBlock (SSABlock n xs t) = AST.BasicBlock (AST.mkName $ nName n)
                                                     (toLLVMTerminator t)
 
 toLLVMInstruction :: Instr -> AST.Named AST.Instruction
-toLLVMInstruction (pat, DefnCall _ xs f) = case pat of
+toLLVMInstruction x@(pat, DefnCall _ xs f) = case pat of
     [] -> AST.Do $ f $ map toOperand xs
     [ V _ v ] -> AST.mkName v AST.:= f (map toOperand xs)
-    _ -> impossible "toLLVMInstruction"
+    _ -> impossible $ "toLLVMInstruction:" ++ show x
 
 toLLVMTerminator :: SSATerm -> AST.Named AST.Terminator
 toLLVMTerminator x = AST.Do $ case x of
@@ -142,7 +142,7 @@ toTyLLVM = go
         TyTuple [] -> AST.void
         TyTuple bs -> AST.StructureType False $ map go bs
         TyRecord bs -> go $ tyRecordToTyTuple bs
-        TyVariant bs -> go $ tyVariantToTyTuple bs
+        TyVariant bs -> go $ tyVariantToTyRecord bs
         TyFun _ b ->
             AST.FunctionType (toTyLLVM b) (map toTyLLVM $ unTupleTy b) False
         TyCont _ -> impossible "toTyLLVM"

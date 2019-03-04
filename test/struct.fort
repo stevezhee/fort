@@ -31,8 +31,15 @@ qux: MyStruct = {
   ; z = 0xff
   }
 
+qux2: MyStruct2 = {
+  ; a = 11
+  ; b = 0xdeadbeef
+  }
+
 foo: () -> () = \_ => /do
   output qux
+  output qux2
+  output (bar qux)
   output (get-y (bar qux))
 
 ;; BAL: proposed syntax
