@@ -8,7 +8,7 @@
 
 module Macros where
 
-import           Control.Arrow
+import           Control.Arrow hiding (arr)
 
 import           Data.List
 
@@ -172,14 +172,30 @@ hOutput ty = case ty of
     ok f = classFunc tyUnit "hOutput" [ "a", "h" ] $ \v ->
         let (a, h) = argTuple2 v in f a h
 
-upTo :: Type -> (T UInt32 -> T ()) -> (T UInt32 -> T ())
-upTo ty f = func tyUnit ("upTo." ++ hashName ty) [ "n" ] $ \n ->
-    let go = callLocal "go" tyUnit
-    in
-        where_ (go (uint 32 0))
-               [ letFunc tyUInt32 tyUnit "go" [ "i" ] $ \i ->
-                     if_ (i >= n) unit (seq (f i) (go (i + uint 32 1)))
-               ]
+-- upTo :: Type -> (T UInt32 -> T ()) -> (T UInt32 -> T ())
+-- upTo ty f = func tyUnit ("upTo." ++ hashName ty) [ "n" ] $ \n ->
+--     let go = callLocal "go" tyUnit
+--     in
+--         where_ (go (uint 32 0))
+--                [ letFunc tyUInt32 tyUnit "go" [ "i" ] $ \i ->
+--                      if_ (i >= n) unit (seq (f i) (go (i + uint 32 1)))
+--                ]
+
+func :: Type -> Name -> U.UPat -> (T a -> T b) -> (T a -> T b)
+func tb n upat f a@(T ta _) = T tb $
+    U.app (U.func n upat (unTLam ta f) ta tb) (unT a)
+
+initArray :: Integer -> Type -> (T UInt32 -> T a) -> T (Addr (Array sz a)) -> T ()
+initArray sz ta f = func tyUnit "initArray" ["arr"] $ \arr ->
+  let go = callLocal "go" tyUnit
+  in
+      where_ (go (uint 32 0))
+              [ letFunc tyUInt32 tyUnit "go" [ "i" ] $ \i ->
+                    let g = store (gep (tyAddress ta) i arr) (f i)
+                    in
+                        if_ (i >= uint 32 sz) unit $
+                        seq g (go (i + uint 32 1))
+              ]
 
 classFunc :: Type -> Name -> U.UPat -> (T a -> T b) -> (T a -> T b)
 classFunc tb n upat t a@(T ta _) =
@@ -229,15 +245,14 @@ hPutUInt64 = externFunc2 "h_put_uint64" tyUnit
 load :: Type -> T a -> T b
 load tb a = T tb (U.app (U.load (tyT a) tb) $ unT a)
 
+store :: T a -> T b -> T ()
+store (T ta a) (T tb b) = T tyUnit $ U.app (U.store (ta,tb) tyUnit) $ U.tuple2 (a, b)
+
 unsafeCast :: Type -> T a -> T b
 unsafeCast tb (T _ a) = T tb (U.unsafeCast a)
 
 string :: String -> T String_
 string = T tyString . U.string
-
-func :: Type -> Name -> U.UPat -> (T a -> T b) -> (T a -> T b)
-func tb n upat f a@(T ta _) = T tb $
-    U.app (U.func n upat (unTLam ta f) ta tb) (unT a)
 
 callLocal :: Name -> Type -> T a -> T b
 callLocal n tb a = T tb $ U.app (U.callLocal n (tyT a) tb) (unT a)

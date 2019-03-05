@@ -60,15 +60,16 @@ swap: (/address Int, /address Int) -> () = \(p,q) => /do
 
 inc: /address Int -> () = \p => p := (load p + 1)
 
-;; array: (Int -> a) -> /address (/array sz a)
+array: (Int -> a) -> /address (/array sz a)
 
 linear: Int -> Int = \i => i + 1 ;; BAL: inline
 zeros: Int -> Int = \_ => 0 ;; BAL: inline
 
-;; permutations: Int -> () = \size => /do
-;;   /let perm: Perm = array linear ;; [ 1 .. ]
-;;   /let c: Perm = array zeros ;; repeat 0
-;;   output perm
+permutations: Int -> () = \size => /do
+  /let perm: Perm = array linear ;; [ 1 .. ]
+  /let c: Perm = array zeros ;; repeat 0
+  output perm
+  output c
   ;; go 0 ;; BAL: go backwards?
   ;;   /where
   ;;     go: Int -> () = \i => /if
