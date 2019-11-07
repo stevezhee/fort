@@ -4,18 +4,21 @@
 TEST_DIR=test
 HS_FILES=$(shell find src -name \*.hs) $(shell find app -name \*.hs)
 
-FORT_FILES=$(wildcard $(TEST_DIR)/*.fort)
+ALL_FORT_FILES=$(wildcard $(TEST_DIR)/*.fort)
 
-# FORT_FILES=test/address.fort
-# FORT_FILES=test/array.fort
-# FORT_FILES=test/char.fort
-# FORT_FILES=test/primitives.fort
-# FORT_FILES=test/powi.fort
-# FORT_FILES=test/todd.fort
-# FORT_FILES=test/fannkuch-redux.fort
-# FORT_FILES=test/nestedif.fort
-# FORT_FILES=test/struct.fort
-# FORT_FILES=test/enum.fort
+# EXCLUDE_FILES += $(TEST_DIR)/address.fort
+# EXCLUDE_FILES += $(TEST_DIR)/array.fort
+# EXCLUDE_FILES += $(TEST_DIR)/char.fort
+# EXCLUDE_FILES += $(TEST_DIR)/primitives.fort
+# EXCLUDE_FILES += $(TEST_DIR)/powi.fort
+# EXCLUDE_FILES += $(TEST_DIR)/todd.fort
+# EXCLUDE_FILES += $(TEST_DIR)/fannkuch-redux.fort
+# EXCLUDE_FILES += $(TEST_DIR)/nestedif.fort
+# EXCLUDE_FILES += $(TEST_DIR)/struct.fort
+# EXCLUDE_FILES += $(TEST_DIR)/enum.fort
+# EXCLUDE_FILES += $(TEST_DIR)/helloworld.fort
+
+FORT_FILES=$(filter-out $(EXCLUDE_FILES), $(ALL_FORT_FILES))
 
 GEN_HS_FILES=$(addsuffix .hs, $(FORT_FILES))
 LL_FILES=$(addsuffix .ll, $(FORT_FILES))
