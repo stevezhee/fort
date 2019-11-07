@@ -32,10 +32,10 @@ parseAndCodeGen fn = do
     putStrFlush "Lex->"
     let (ts0, me) = tokenize fn s
     case me of
-      Nothing -> return ()
-      Just e -> do
-        putStrLn "" >> hPutStrLn stderr ("Lexical error at:" ++ show e)
-        exitFailure
+        Nothing -> return ()
+        Just e -> do
+            putStrLn "" >> hPutStrLn stderr ("Lexical error at:" ++ show e)
+            exitFailure
     -- BAL: special case this: let (hdr, ts1) = span isComment ts0
     let ts1 = ts0
     let ts = filter (not . isComment . unLoc) ts1
@@ -43,41 +43,41 @@ parseAndCodeGen fn = do
     let toks = indentation ts
     seq toks $ putStrFlush "Parse->"
     case parse toks of
-      Left rpt -> do
-        reportErrors fn s toks rpt
-        exitFailure
-      Right ds -> declsToHsFile fn ds
+        Left rpt -> do
+            reportErrors fn s toks rpt
+            exitFailure
+        Right ds -> declsToHsFile fn ds
 
 parse :: [Token] -> Either (Report String [Token]) [Decl]
 parse toks = case toks of
-  [] -> Right []
-  _  -> case (asts, unconsumed rpt) of
-    ([ ast ], []) -> Right ast
-    _ -> Left rpt
+    [] -> Right []
+    _ -> case (asts, unconsumed rpt) of
+        ([ ast ], []) -> Right ast
+        _ -> Left rpt
   where
     (asts, rpt) = fullParses (parser grammar) toks
 
 reportErrors :: FilePath -> String -> [Token] -> Report String [Token] -> IO ()
 reportErrors fn s toks rpt = case unconsumed rpt of
-  [] -> do
-    putStrLn ""
-    hPutStrLn stderr (fn ++ ":ambiguous parse")
+    [] -> do
+        putStrLn ""
+        hPutStrLn stderr (fn ++ ":ambiguous parse")
     -- print toks
     -- mapM_ (\z -> hPutStrLn stderr "" >> mapM_ (hPrint stderr . show) z) asts
-  _ -> do
-    putStrLn ""
-    let errtok@(L errloc _) = toks !! position rpt
-    -- putStrLn $ unwords $ map unLoc toks
-    hPutStrLn stderr $ displayLoc errloc ++ ":error:unexpected token:"
-    case errloc of
-        NoLoc -> return ()
-        Loc start _ -> do
-            hPutStrLn stderr (lines s !! (posLine start - 1))
-            hPutStrLn stderr
-                      (replicate (posCol start - 1) ' '
-                      ++ replicate (length $ unLoc errtok) '^')
-    hPutStrLn stderr $ "got: " ++ show (unLoc errtok)
-    hPutStrLn stderr $ "expected: " ++ show (expected rpt)
+    _ -> do
+        putStrLn ""
+        let errtok@(L errloc _) = toks !! position rpt
+        -- putStrLn $ unwords $ map unLoc toks
+        hPutStrLn stderr $ displayLoc errloc ++ ":error:unexpected token:"
+        case errloc of
+            NoLoc -> return ()
+            Loc start _ -> do
+                hPutStrLn stderr (lines s !! (posLine start - 1))
+                hPutStrLn stderr
+                          (replicate (posCol start - 1) ' '
+                           ++ replicate (length $ unLoc errtok) '^')
+        hPutStrLn stderr $ "got: " ++ show (unLoc errtok)
+        hPutStrLn stderr $ "expected: " ++ show (expected rpt)
 
 declsToHsFile :: FilePath -> [Decl] -> IO ()
 declsToHsFile fn ast = do

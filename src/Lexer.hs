@@ -23,21 +23,24 @@ tokenize :: FilePath -> String -> ([Token], Maybe Pos)
 tokenize fn s = streamToMaybeError $ lexerF fn s -- BAL: Data.Text instead of String
 
 lexerF :: FilePath -> String -> TokenStream Token
-lexerF = runLexer (mconcat [ L.token (longest tok), whitespace (longest tokWS) ])
+lexerF =
+    runLexer (mconcat [ L.token (longest tok), whitespace (longest tokWS) ])
 
 streamToMaybeError :: TokenStream Token -> ([Token], Maybe Pos)
 streamToMaybeError = go []
   where
     go ts x = case x of
-      TsToken a b -> go (a : ts) b
-      TsEof -> (g ts, Nothing)
-      TsError (LexicalError e) -> (g ts, Just $ zeroBaseRow e)
+        TsToken a b -> go (a : ts) b
+        TsEof -> (g ts, Nothing)
+        TsError (LexicalError e) -> (g ts, Just $ zeroBaseRow e)
+
     g = map (mapLPos (mapPos zeroBaseRow)) . reverse
 
 lineTokenize :: FilePath -> (Int, String) -> ([Token], Maybe Token)
 lineTokenize fn (i, s) = (map (mapLPos (mapPos (setLine i))) ts, fmap g mp)
   where
     (ts, mp) = streamToMaybeError $ lexerF fn s
+
     g e = L (locOf $ setLine i e) $ drop (posCoff e) s
 
 mapLPos :: (Loc -> Loc) -> L a -> L a
@@ -45,8 +48,8 @@ mapLPos f (L x s) = L (f x) s
 
 mapPos :: (Pos -> Pos) -> Loc -> Loc
 mapPos f x = case x of
-  NoLoc -> NoLoc
-  Loc a b -> Loc (f a) (f b)
+    NoLoc -> NoLoc
+    Loc a b -> Loc (f a) (f b)
 
 zeroBaseRow :: Pos -> Pos
 zeroBaseRow (Pos fn rw col off) = Pos fn rw (col - 1) off
@@ -64,9 +67,8 @@ isComment :: String -> Bool
 isComment = isPrefixOf ";;"
 
 tok :: Tok
-tok = reservedWord <|>
-    identifier <|> numLit <|> charLit
-    <|> operator <|> stringLit <|> specialOp <|> comment
+tok = reservedWord <|> identifier <|> numLit <|> charLit <|> operator
+    <|> stringLit <|> specialOp <|> comment
 
 isLiteral :: Char -> Bool
 isLiteral c = digit c || c `elem` ("\"#-" :: String)

@@ -31,8 +31,8 @@ row = snd . coordinates
 
 coordinates :: Located a => a -> (Int, Int)
 coordinates x = case locOf x of
-  NoLoc -> error "NoLoc"
-  Loc p _ -> (posCol p, posLine p)
+    NoLoc -> error "NoLoc"
+    Loc p _ -> (posCol p, posLine p)
 
 ppLoc :: Pretty a => L a -> Doc x
 ppLoc = pretty . unLoc
