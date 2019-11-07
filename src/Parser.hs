@@ -143,7 +143,7 @@ grammar = mdo
         (Sequence <$> (reserved "/do" *> blockList pExpr) <?> "do block")
         <|> (Case <$> (reserved "/case" *> pExpr <* reserved "/of")
              <*> blockList pAlt <?> "case expression")
-        <|> (mkIf <$> (reserved "/if" *> blockList pIfAlt) <?> "if expression")
+        <|> (If <$> (reserved "/if" *> blockList pIfAlt) <?> "if expression")
         <|> (pure Extern <* reserved "/extern" <?> "/extern") <|> pAscriptionE
     pAscriptionE <- rule $ (Ascription <$> pE0 <*> pAscription) <|> pE0
     pE0 <- rule $ (Record <$> blockList pFieldDecl <?> "record")
@@ -191,12 +191,6 @@ mkWhere :: Expr -> [ExprDecl] -> Expr
 mkWhere x ys = case x of
     Lam a b -> Lam a $ Where b ys
     _ -> Where x ys
-
-mkIf :: [(Expr, Expr)] -> Expr
-mkIf [] = error "empty if expression"
-mkIf [ (Prim (Var (L _ "_")), b) ] = b
-mkIf [ (_, x) ] = x -- BAL: error "expected last element of if/case to be the default case"
-mkIf ((a, b) : xs) = If a b $ mkIf xs
 
 pLam :: P r a -> P r a
 pLam p = reserved "\\" *> p <* reserved "=>"

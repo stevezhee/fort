@@ -171,7 +171,7 @@ exprTypes x = case x of
     Lam a b -> patTypes a ++ exprTypes b
     App a b -> exprTypes a ++ exprTypes b
     Where a b -> exprTypes a ++ concatMap exprDeclTypes b
-    If a b c -> exprTypes a ++ exprTypes b ++ exprTypes c
+    If ds -> concatMap (exprTypes . fst) ds ++ concatMap (exprTypes . snd) ds
     Sequence bs -> concatMap exprTypes bs
     Record bs -> concat [ maybeToList mt ++ exprTypes e | ((_, mt), e) <- bs ]
     Tuple bs -> concatMap exprTypes $ catMaybes bs
@@ -432,9 +432,13 @@ ppExpr x = case x of
     Lam a b -> ppLetBindLam a b
     Ascription a b -> parens (ppAscription (ppExpr a) $ Just b)
     Sequence a -> ppSequence a
-    If a b c ->
-        parens ("T.if_" <+> ppExpr a <> line
-                <> indent 2 (vcat [ parens (ppExpr b), parens (ppExpr c) ]))
+    If ds -> case ds of
+      [] -> error "empty if expression"
+      [ (Prim (Var (L _ "_")), b) ] -> ppExpr b
+      [ (_, b) ] -> ppExpr b -- BAL: error "expected last element of if/case to be the default case"
+      ((a, b) : xs) ->
+         parens ("T.if_" <+> ppExpr a <> line
+                <> indent 2 (vcat [ parens (ppExpr b), parens (ppExpr $ If xs) ]))
     Case a bs -> parens ("T.case_" <+> ppExpr a <+> parens (ppExpr dflt)
                          <> ppListV [ ppTuple [ ppAltPat c, ppAltCon c e ]
                                     | ((c, _t), e) <- alts

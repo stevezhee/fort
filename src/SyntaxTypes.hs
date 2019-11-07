@@ -58,7 +58,7 @@ data Expr -- BAL: pass locations through to all constructs
     | App Expr Expr
     | Where Expr [ExprDecl]
     | Let ExprDecl
-    | If Expr Expr Expr
+    | If [(Expr, Expr)]
     | Case Expr [Alt]
     | Sequence [Expr]
     | Record [((Var, Maybe Type), Expr)]
