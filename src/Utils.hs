@@ -24,9 +24,15 @@ hashName :: (Show a) => a -> String
 hashName = show . hash . show
 
 column :: Located a => a -> Int
-column x = case locOf x of
-    NoLoc -> error "NoLoc"
-    Loc p _ -> posCol p
+column = fst . coordinates
+
+row :: Located a => a -> Int
+row = snd . coordinates
+
+coordinates :: Located a => a -> (Int, Int)
+coordinates x = case locOf x of
+  NoLoc -> error "NoLoc"
+  Loc p _ -> (posCol p, posLine p)
 
 ppLoc :: Pretty a => L a -> Doc x
 ppLoc = pretty . unLoc
