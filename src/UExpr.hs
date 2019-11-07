@@ -83,12 +83,12 @@ global t s =
 
 load :: Type -> Type -> E (a -> b)
 load = unaryInstr "load" I.load
--- BAL: call B.load_volatile if needed by the type
 
+-- BAL: call B.load_volatile if needed by the type
 store :: (Type, Type) -> Type -> E ((a, b) -> ())
 store = binaryInstr "store" I.store
--- BAL: call B.store_volatile if needed by the type
 
+-- BAL: call B.store_volatile if needed by the type
 externFunc :: Name -> Type -> E (a -> b)
 externFunc n ty = E $ do
     let (nm, g) = funTys n ty
@@ -220,6 +220,7 @@ letFunc :: Type -> Type -> Name -> UPat -> (E a -> E b) -> M Func
 letFunc tyA tyB n upat f = Func nm pat <$> unE (f $ patToExpr pat)
   where
     nm = Nm (TyFun tyA tyB) n
+
     pat = fromUPat tyA upat
 
 let_ :: UPat -> E a -> (E a -> E b) -> Type -> E b
@@ -290,12 +291,12 @@ unaryInstr :: String
 unaryInstr s f ta tb = instr (TyFun ta tb) s $ \[ a ] -> f a
 
 extractValue :: String -> Integer -> Type -> Type -> E (a -> b)
-extractValue s i =
-    unaryInstr ("extractValue." ++ show i ++ "." ++ s) (flip I.extractValue $ fromInteger i)
+extractValue s i = unaryInstr ("extractValue." ++ show i ++ "." ++ s)
+                              (flip I.extractValue $ fromInteger i)
 
 insertValue :: String -> Integer -> (Type, Type) -> Type -> E ((a, b) -> a)
-insertValue s i =
-    binaryInstr ("insertValue." ++ show i ++ "." ++ s) (\a b -> I.insertValue a b (fromInteger i))
+insertValue s i = binaryInstr ("insertValue." ++ show i ++ "." ++ s)
+                              (\a b -> I.insertValue a b (fromInteger i))
 
 binaryInstr :: String
             -> (AST.Operand -> AST.Operand -> AST.Instruction)
