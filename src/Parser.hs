@@ -2,7 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 
-module Parser ( grammar ) where
+module Parser ( grammar, readIntLit ) where
 
 import           Control.Applicative
 import           Control.Monad.State
@@ -221,14 +221,17 @@ pCharLit = f <$> satisfy hasCharLitPrefix <?> "character literal"
 pStringLit :: P r Token
 pStringLit = satisfy (startsWith ('"' ==)) <?> "string literal"
 
-pIntLit :: P r (L Int)
-pIntLit = (\a -> useLoc (f (unLoc a)) a) <$> satisfy isInt <?> msg
-  where
-    msg = "integer literal"
+pIntLit :: P r Token
+pIntLit = (\a -> seq (useLoc (readIntLit (unLoc a)) a) a)
+    <$> satisfy isInt <?> readIntLitErrMsg
 
-    f s = case s of
-        '0' : 'b' : bs -> readBin bs
-        _ -> readError msg s
+readIntLit :: String -> Int
+readIntLit s = case s of
+    '0' : 'b' : bs -> readBin bs
+    _ -> readError readIntLitErrMsg s
+
+readIntLitErrMsg :: String
+readIntLitErrMsg = "integer literal"
 
 readBin :: String -> Int
 readBin = foldl' (\acc x -> acc * 2 + digitToInt x) 0

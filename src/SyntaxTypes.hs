@@ -9,13 +9,13 @@ import           Text.Regex.Applicative
 
 type Tok = RE Char String
 
+type Token = L String
+
 type Con = Token
 
 type Op = Token
 
 type Var = Token
-
-type Token = L String
 
 data Decl =
     TyDecl Con Type | OpDecl Op Var | PrimDecl Var Type | ExprDecl ExprDecl
@@ -86,10 +86,9 @@ instance Located Pat where
             [] -> noLoc -- BAL: add pass location info to here
             b : _ -> locOf b
 
-data Prim =
-    Var Var | StringL (L String) | IntL (L Int) | CharL (L Char) | Op Op
+data Prim = Var Var | StringL (L String) | IntL Token | CharL (L Char) | Op Op
     deriving Show
 
 data AltPat =
-    DefaultP | ConP Con | IntP (L Int) | CharP (L Char) | StringP (L String)
+    DefaultP | ConP Con | IntP Token | CharP (L Char) | StringP (L String)
     deriving Show

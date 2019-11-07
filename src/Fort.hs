@@ -433,12 +433,14 @@ ppExpr x = case x of
     Ascription a b -> parens (ppAscription (ppExpr a) $ Just b)
     Sequence a -> ppSequence a
     If ds -> case ds of
-      [] -> error "empty if expression"
-      [ (Prim (Var (L _ "_")), b) ] -> ppExpr b
-      [ (_, b) ] -> ppExpr b -- BAL: error "expected last element of if/case to be the default case"
-      ((a, b) : xs) ->
-         parens ("T.if_" <+> ppExpr a <> line
-                <> indent 2 (vcat [ parens (ppExpr b), parens (ppExpr $ If xs) ]))
+        [] -> error "empty if expression"
+        [ (Prim (Var (L _ "_")), b) ] -> ppExpr b
+        [ (_, b) ] -> ppExpr b -- BAL: error "expected last element of if/case to be the default case"
+        ((a, b) : xs) -> parens ("T.if_" <+> ppExpr a <> line
+                                 <> indent 2
+                                           (vcat [ parens (ppExpr b)
+                                                 , parens (ppExpr $ If xs)
+                                                 ]))
     Case a bs -> parens ("T.case_" <+> ppExpr a <+> parens (ppExpr dflt)
                          <> ppListV [ ppTuple [ ppAltPat c, ppAltCon c e ]
                                     | ((c, _t), e) <- alts
@@ -505,7 +507,7 @@ ppAltPat :: AltPat -> Doc ann
 ppAltPat x = case x of
     DefaultP -> error "DefaultP"
     ConP c -> pretty (show c)
-    IntP i -> pretty (show (show i))
+    IntP i -> pretty (show i)
     CharP c -> pretty (show (show c))
     StringP s -> pretty (unLoc s)
 
@@ -521,6 +523,6 @@ ppPrim x = case x of
     Var a -> ppVar a
     Op a -> parens (ppOp a)
     StringL a -> parens ("T.string" <+> pretty (unLoc a))
-    IntL a -> parens ("T.int" <+> pretty (show (unLoc a)))
+    IntL a -> parens ("T.int" <+> pretty (readIntLit (unLoc a)))
     CharL a -> parens ("T.char" <+> pretty (show (unLoc a)))
 
