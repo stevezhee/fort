@@ -35,7 +35,7 @@ void shuffle(int n)
 }
 void shuffleHoldem(int n)
 {
-  shuffle(5 + 2*n);
+  shuffle(5 + 2 * n);
 }
 
 int hist[13];
@@ -71,10 +71,8 @@ uint64_t evalHand(int a, int b, int c, int d, int e)
   h |= histo(12);
 
   uint64_t isTwoPairOrTrips = popCount(h) == 3;
-  h |= isTwoPairOrTrips << 52;
 
   uint64_t isWheel = h == 0b1000000001111UL;
-  h |= isWheel << 53;
 
   uint64_t isStraight =
     h == 0b1111100000000UL |
@@ -87,22 +85,80 @@ uint64_t evalHand(int a, int b, int c, int d, int e)
     h == 0b0000000111110UL |
     h == 0b0000000011111UL;
 
-  h |= isStraight << 54;
-
   uint64_t isFlush = suit(a) == suit(b) & suit(a) == suit(c) & suit(a) == suit(d) & suit(a) == suit(e);
-  h |= isFlush << 55;
 
   uint64_t isFullHouseOrQuads = popCount(h) == 2;
-  h |= isFullHouseOrQuads << 56;
 
   uint64_t isWheelFlush = isWheel & isFlush;
-  h |= isWheelFlush << 57;
 
   uint64_t isStraightFlush = isStraight & isFlush;
 
+  h |= isTwoPairOrTrips << 52;
+  h |= isWheel << 53;
+  h |= isStraight << 54;
+  h |= isFlush << 55;
+  h |= isFullHouseOrQuads << 56;
+  h |= isWheelFlush << 57;
   h |= isStraightFlush << 58;
 
   return h;
+}
+
+#define max(x, y) ((x) > (y) ? (x) : (y))
+#define min(x, y) ((x) < (y) ? (x) : (y))
+
+uint64_t evalHoldem(int x)
+{
+  int i = 5 + x * 2;
+  int j = i + 1;
+  uint64_t h = evalHand(deck[0], deck[1], deck[2], deck[3], deck[4]);
+
+  h = max(h, evalHand(deck[0], deck[1], deck[2], deck[3], deck[i]));
+  h = max(h, evalHand(deck[0], deck[1], deck[2], deck[i], deck[4]));
+  h = max(h, evalHand(deck[0], deck[1], deck[i], deck[3], deck[4]));
+  h = max(h, evalHand(deck[0], deck[i], deck[2], deck[3], deck[4]));
+  h = max(h, evalHand(deck[i], deck[1], deck[2], deck[3], deck[4]));
+
+  h = max(h, evalHand(deck[0], deck[1], deck[2], deck[3], deck[j]));
+  h = max(h, evalHand(deck[0], deck[1], deck[2], deck[j], deck[4]));
+  h = max(h, evalHand(deck[0], deck[1], deck[j], deck[3], deck[4]));
+  h = max(h, evalHand(deck[0], deck[j], deck[2], deck[3], deck[4]));
+  h = max(h, evalHand(deck[j], deck[1], deck[2], deck[3], deck[4]));
+
+  h = max(h, evalHand(deck[0], deck[1], deck[2], deck[i], deck[j]));
+  h = max(h, evalHand(deck[0], deck[1], deck[i], deck[3], deck[j]));
+  h = max(h, evalHand(deck[0], deck[1], deck[i], deck[j], deck[4]));
+  h = max(h, evalHand(deck[0], deck[i], deck[2], deck[3], deck[j]));
+  h = max(h, evalHand(deck[0], deck[i], deck[2], deck[j], deck[4]));
+  h = max(h, evalHand(deck[0], deck[i], deck[j], deck[3], deck[4]));
+  h = max(h, evalHand(deck[i], deck[1], deck[2], deck[3], deck[j]));
+  h = max(h, evalHand(deck[i], deck[1], deck[2], deck[j], deck[4]));
+  h = max(h, evalHand(deck[i], deck[1], deck[j], deck[3], deck[4]));
+  h = max(h, evalHand(deck[i], deck[j], deck[2], deck[3], deck[4]));
+
+  return h;
+}
+char ranks[] = "23456789TJQKA";
+char *suits = "shcd";
+
+void printCard(int c)
+{
+  printf("%c%c", ranks[rank(c)], suits[suit(c)]);
+}
+
+void printBoard()
+{
+  printCard(deck[0]);
+  printCard(deck[1]);
+  printCard(deck[2]);
+  printCard(deck[3]);
+  printCard(deck[4]);
+}
+
+void printPocket(int x)
+{
+  printCard(deck[5 + x * 2]);
+  printCard(deck[5 + x * 2 + 1]);
 }
 
 void printHandEval(uint64_t h)
@@ -153,23 +209,23 @@ void printHandEval(uint64_t h)
 
 void debug(uint64_t h)
 {
-  for(int i = 58; i >= 0; --i)
-    {
-      if ((0x1UL << i) & h)
-        {
-          printf("1");
-        }
-      else
-        {
-          printf("0");
-        }
-      if (i % 13 == 0)
-        {
-          printf(" ");
-        }
-    }
+  /* for(int i = 58; i >= 0; --i) */
+  /*   { */
+  /*     if ((0x1UL << i) & h) */
+  /*       { */
+  /*         printf("1"); */
+  /*       } */
+  /*     else */
+  /*       { */
+  /*         printf("0"); */
+  /*       } */
+  /*     if (i % 13 == 0) */
+  /*       { */
+  /*         printf(" "); */
+  /*       } */
+  /*   } */
 
-  printf(" ");
+  /* printf(" "); */
 
   printHandEval(h);
 
@@ -177,6 +233,94 @@ void debug(uint64_t h)
 
 }
 
+int nHoldem[256];
+int valueHoldem[256];
+
+void initStats()
+{
+  memset(nHoldem, 0, sizeof(nHoldem));
+  memset(valueHoldem, 0, sizeof(valueHoldem));
+}
+
+int canonicalHand(int x)
+{
+  int i = deck[5 + x * 2];
+  int j = deck[5 + x * 2 + 1];
+
+  int ri = rank(i);
+  int rj = rank(j);
+
+  int mx = max(ri, rj);
+  int mn = min(ri, rj);
+
+  if (suit(i) == suit(j))
+    {
+      return (mx << 4 | mn);
+    }
+  return (mn << 4 | mx);
+}
+
+void fullEval(int n)
+{
+  shuffleHoldem(n);
+  /* printBoard(); printf("\n"); */
+  uint64_t win = 0;
+  int winners[10];
+  int nWinners;
+  nWinners = 0;
+  for(int i = 0; i < n; ++i)
+    {
+      uint64_t h = evalHoldem(i);
+      int ch = canonicalHand(i);
+      nHoldem[ch]++;
+      if (h > win)
+        {
+          win = h;
+          nWinners = 1;
+          winners[0] = ch;
+        } else if (h == win)
+        {
+          winners[nWinners] = ch;
+          nWinners++;
+        }
+      /* printPocket(i); printf(" "); */
+      /* debug(h); */
+    }
+
+  double value = 1.0 / (double)nWinners;
+
+  for(int i = 0; i < nWinners; ++i)
+    {
+      valueHoldem[winners[i]] += value;
+    }
+  /* if (nWinners == 1) */
+  /*   { */
+  /*     printf("player #%d won\n", winners[0]); */
+  /*     printPocket(winners[0]); printf(" "); */
+  /*     debug(win); */
+  /*   } */
+  /* else */
+  /*   { */
+  /*     printf("%d way chop\n", nWinners); */
+  /*     for(int i = 0; i < nWinners; ++i) */
+  /*       { */
+  /*         printPocket(winners[i]); printf(" "); */
+  /*       } */
+  /*     debug(win); */
+  /*   } */
+}
+void printCanonical(ch)
+{
+  int a = (0xf0 & ch) >> 4;
+  int b = 0xf & ch;
+  if (a > b)
+    {
+      printf("%c%cs", ranks[a], ranks[b]);
+      return;
+    }
+  printf("%c%c ", ranks[b], ranks[a]);
+  return;
+}
 int main()
 {
   /* int tst[2] = { 0, 0 }; */
@@ -188,24 +332,28 @@ int main()
   /* printf("%d %d\n", tst[0], tst[1]); */
 
   assert(popCount(0xffffffffffffffffUL) == 64);
-  /* debug(evalHand(0,1,2,3+13,4)); */
-  /* debug(evalHand(12,1,2+13,3,0)); */
-  /* debug(evalHand(12,0,0+13,5,5)); */
-  /* debug(evalHand(12,12+13,12,12,11)); */
-  /* debug(evalHand(12,0,0,0+13,0)); */
-  /* debug(evalHand(0,1,2,3,4)); */
-  /* debug(evalHand(0,1,2,3,12)); */
-  /* debug(evalHand(6,7,8,12,9)); */
-  /* debug(evalHand(0,0,0,12,12+13)); */
-  /* debug(evalHand(0,2,5,12,12+13)); */
-  /* debug(evalHand(0,2,5,12,8+13)); */
-  /* debug(evalHand(5,5,5,12,8+13)); */
   srandom(42);
+  initStats();
 
-  for(int i = 0; i < 100000; ++i)
+  int n = 1000000;
+  for(int i = 0; i < n; ++i)
     {
-      shuffleHoldem(0);
-      debug(evalHand(deck[0], deck[1], deck[2], deck[3], deck[4]));
+      fullEval(10);
     }
+
+  double all = 0.0;
+
+  for(int ch = 255; ch >= 0; --ch)
+    {
+      if (nHoldem[ch] == 0) continue;
+      printf("%f ", valueHoldem[ch]/(double)nHoldem[ch]);
+      printCanonical(ch);
+      double pct = (double)nHoldem[ch]/(double)n;
+      printf(" %f\n", pct);
+      // all += pct;
+    }
+
+  printf("100 = %f\n", all);
+
   return 0;
 }
