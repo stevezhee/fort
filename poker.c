@@ -4,7 +4,20 @@
 #include <string.h>
 #include <assert.h>
 
+const char ranks[] = "23456789TJQKA";
+const char *suits = "shcd";
+
+int nHoldem[256];
+int valueHoldem[256];
 int deck[52];
+
+#define rank(x) ((x) >> 2)
+#define suit(x) ((x) & 0b11)
+
+#define popCount(x) __builtin_popcountll(x)
+#define max(x, y) ((x) > (y) ? (x) : (y))
+#define min(x, y) ((x) < (y) ? (x) : (y))
+#define histo(x) (((0b1UL << hist[x]*13) >> 13) << x)
 
 int pick(int n)
 {
@@ -33,23 +46,17 @@ void shuffle(int n)
       deck[j] = c;
     }
 }
+
 void shuffleHoldem(int n)
 {
   shuffle(5 + 2 * n);
 }
 
-int hist[13];
-
-#define rank(x) ((x) % 13)
-#define suit(x) ((x) / 13)
-#define popCount(x) __builtin_popcountll(x)
-
-#define histo(x) (((0b1UL << hist[x]*13) >> 13) << x)
-
 uint64_t evalHand(int a, int b, int c, int d, int e)
 {
   uint64_t h;
 
+  int hist[13];
   memset(hist, 0, sizeof(hist));
   hist[rank(a)]++;
   hist[rank(b)]++;
@@ -104,9 +111,6 @@ uint64_t evalHand(int a, int b, int c, int d, int e)
   return h;
 }
 
-#define max(x, y) ((x) > (y) ? (x) : (y))
-#define min(x, y) ((x) < (y) ? (x) : (y))
-
 uint64_t evalHoldem(int x)
 {
   int i = 5 + x * 2;
@@ -138,8 +142,6 @@ uint64_t evalHoldem(int x)
 
   return h;
 }
-char ranks[] = "23456789TJQKA";
-char *suits = "shcd";
 
 void printCard(int c)
 {
@@ -232,9 +234,6 @@ void debug(uint64_t h)
   printf("\n");
 
 }
-
-int nHoldem[256];
-int valueHoldem[256];
 
 void initStats()
 {
@@ -335,7 +334,7 @@ int main()
   srandom(42);
   initStats();
 
-  int n = 1000000;
+  int n = 10000000;
   for(int i = 0; i < n; ++i)
     {
       fullEval(10);
@@ -346,10 +345,10 @@ int main()
   for(int ch = 255; ch >= 0; --ch)
     {
       if (nHoldem[ch] == 0) continue;
-      printf("%f ", valueHoldem[ch]/(double)nHoldem[ch]);
+      printf("%5.3f ", valueHoldem[ch]/(double)nHoldem[ch]);
       printCanonical(ch);
       double pct = (double)nHoldem[ch]/(double)n;
-      printf(" %f\n", pct);
+      printf(" %5.3f\n", pct);
       // all += pct;
     }
 
