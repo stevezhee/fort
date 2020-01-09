@@ -50,13 +50,14 @@ max: (Int, Int) -> Int = \(x, y) => /if
   x >= y = x
   _ = y
 
-foo: (Int, Int, Perm) -> () = \(m0, csum0, perm) => /do
+fannkuch: (Int, Int, Perm) -> Int = \(m0, csum0, perm) => /do
   /let n = num-flips perm
   /let m = max (m0, n)
   /let csum = checksum(csum0, n)
   output n
   ;; output m
  ;; output csum
+  m
 
 reverse-n: (Int, Perm) -> () = \(n, p) => go (0, n - 1)
   /where
@@ -110,7 +111,7 @@ permutations: Int -> () = \size => /do
   init-linear perm
   init-zeros c
   output perm
-  go (0, foo(0, 0, perm)) ;; BAL: go backwards?
+  go (0, fannkuch(0, 0, perm)) ;; BAL: go backwards?
     /where
       go: (Int, Int) -> () = \(i, mx) => /if
         i < size = /if
@@ -120,9 +121,9 @@ permutations: Int -> () = \size => /do
               /else = swap (perm # 0, perm # i)
             inc (c # i)
             output perm
-            go (0, foo(mx, 0, perm))
+            go (0, fannkuch(mx, 0, perm))
           _ = /do
           (c # i) := 0
           go (i + 1, mx)
-        _ = ()
+        _ = output mx
 
