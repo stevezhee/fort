@@ -38,6 +38,7 @@ num-flips: Perm -> Int = \p => go 0
       1 = n
       \i => /do
         reverse-n (i, p)
+        output p
         go (n + 1)
 
 ;; BAL: try multiply version when benchmarking
@@ -49,14 +50,15 @@ max: (Int, Int) -> Int = \(x, y) => /if
   x >= y = x
   _ = y
 
-foo: (Int, Int, Perm) -> () = \(m0, csum0, p) => /do
-  /let n = num-flips p
+foo: (Int, Int, Perm) -> () = \(m0, csum0, perm) => /do
+  /let n = num-flips perm
   /let m = max (m0, n)
   /let csum = checksum(csum0, n)
-  output m
-  output csum
+  output n
+  ;; output m
+ ;; output csum
 
-reverse-n: (Int, Perm) -> () = \(n,p) => go (0, n - 1)
+reverse-n: (Int, Perm) -> () = \(n, p) => go (0, n - 1)
   /where
     go: (Int, Int) -> () = \(l,r) => /if
       l >= r = ()
