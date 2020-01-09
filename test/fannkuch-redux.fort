@@ -110,10 +110,9 @@ permutations: Int -> () = \size => /do
   init-linear perm
   init-zeros c
   output perm
-  foo(0, 0, perm)
-  go 0 ;; BAL: go backwards?
+  go (0, foo(0, 0, perm)) ;; BAL: go backwards?
     /where
-      go: Int -> () = \i => /if
+      go: (Int, Int) -> () = \(i, mx) => /if
         i < size = /if
           load (c # i) < i = /do
             /if
@@ -121,10 +120,9 @@ permutations: Int -> () = \size => /do
               /else = swap (perm # 0, perm # i)
             inc (c # i)
             output perm
-            foo(0, 0, perm)
-            go 0
+            go (0, foo(mx, 0, perm))
           _ = /do
           (c # i) := 0
-          go (i + 1)
+          go (i + 1, mx)
         _ = ()
 
