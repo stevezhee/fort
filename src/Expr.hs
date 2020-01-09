@@ -88,6 +88,9 @@ argTuple2 = U.argTuple2
 argTuple3 :: (Ty a, Ty b, Ty c) => E (a, b, c) -> (E a, E b, E c)
 argTuple3 = U.argTuple3
 
+argTuple4 :: (Ty a, Ty b, Ty c, Ty d) => E (a, b, c, d) -> (E a, E b, E c, E d)
+argTuple4 = U.argTuple4
+
 char :: Char -> E Char_
 char = U.char
 
@@ -264,6 +267,9 @@ tuple2 = U.tuple2
 
 tuple3 :: (Ty a, Ty b, Ty c) => (E a, E b, E c) -> E (a, b, c)
 tuple3 = U.tuple3
+
+tuple4 :: (Ty a, Ty b, Ty c, Ty d) => (E a, E b, E c, E d) -> E (a, b, c, d)
+tuple4 = U.tuple4
 
 opapp :: (Ty a, Ty b, Ty c) => E a -> E ((a, b) -> c) -> E (b -> c)
 opapp = U.opapp

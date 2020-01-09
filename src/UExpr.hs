@@ -172,6 +172,9 @@ tuple2 (E a, E b) = tupleE [ a, b ]
 tuple3 :: (E a, E b, E c) -> E (a, b, c)
 tuple3 (E a, E b, E c) = tupleE [ a, b, c ]
 
+tuple4 :: (E a, E b, E c, E d) -> E (a, b, c, d)
+tuple4 (E a, E b, E c, E d) = tupleE [ a, b, c, d ]
+
 argTupleN :: Int -> E a -> E b
 argTupleN i (E x) = E $ do
     a <- x
@@ -184,6 +187,9 @@ argTuple2 x = (argTupleN 0 x, argTupleN 1 x)
 
 argTuple3 :: E (a, b, c) -> (E a, E b, E c)
 argTuple3 x = (argTupleN 0 x, argTupleN 1 x, argTupleN 2 x)
+
+argTuple4 :: E (a, b, c, d) -> (E a, E b, E c, E d)
+argTuple4 x = (argTupleN 0 x, argTupleN 1 x, argTupleN 2 x, argTupleN 3 x)
 
 opapp :: E a -> E ((a, b) -> c) -> E (b -> c)
 opapp x f = app (unsafeCast f) x

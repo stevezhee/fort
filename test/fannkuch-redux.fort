@@ -32,32 +32,41 @@ cast: a -> b
 ;; code
 is-odd: Int -> Bool = cast
 
-num-flips: Perm -> Int = \p => go 0
-  /where
-    go: Int -> Int = \n => /case load (p # 0) /of
-      1 = n
-      \i => /do
-        reverse-n (i, p)
-        output p
-        go (n + 1)
+num-flips: Perm -> Int = \perm => /do
+  /let p = unsafe-array
+  init-copy (p, perm)
+  go 0
+    /where
+      go: Int -> Int = \n => /case load (p # 0) /of
+        1 = n
+        \i => /do
+          reverse-n (i, p)
+          ;; output p
+          go (n + 1)
 
 ;; BAL: try multiply version when benchmarking
-checksum: (Int, Int) -> Int = \(csum, n-flips) => /if
-  is-odd n-flips = csum - n-flips
+calc-checksum: (Int, Int, Int) -> Int = \(csum, n-flips, i) => /if
+  is-odd i = csum - n-flips
   _ = csum + n-flips
   
 max: (Int, Int) -> Int = \(x, y) => /if
   x >= y = x
   _ = y
 
-fannkuch: (Int, Int, Perm) -> Int = \(m0, csum0, perm) => /do
+St = /record
+  max-flips: Int
+  checksum: Int
+  perm-count: Int
+
+fannkuch: (Int, Int, Int, Perm) -> St = \(m0, csum0, i, perm) => /do
   /let n = num-flips perm
   /let m = max (m0, n)
-  /let csum = checksum(csum0, n)
-  output n
-  ;; output m
- ;; output csum
-  m
+  /let csum = calc-checksum(csum0, n, i)
+  { ;; BAL: fix parser
+    ; max-flips = m
+    ; checksum = csum
+    ; perm-count = i + 1
+    }
 
 reverse-n: (Int, Perm) -> () = \(n, p) => go (0, n - 1)
   /where
@@ -95,6 +104,14 @@ init-linear: Perm -> () = \arr => go 0
         go (i + 1)
       _ = ()
 
+init-copy: (Perm, Perm) -> () = \(a, b) => go 0
+  /where
+    go: Int -> () = \i => /if ;; BAL: go backwards?  use an input size?
+      i < array-size a = /do
+        (a # i) := load (b # i)
+        go (i + 1)
+      _ = ()
+
 init-zeros: Perm -> () = \arr => go 0
   /where
     go: Int -> () = \i => /if ;; BAL: go backwards?  use an input size?
@@ -111,9 +128,9 @@ permutations: Int -> () = \size => /do
   init-linear perm
   init-zeros c
   output perm
-  go (0, fannkuch(0, 0, perm)) ;; BAL: go backwards?
+  go (0, fannkuch(0, 0, 0, perm)) ;; BAL: go backwards?
     /where
-      go: (Int, Int) -> () = \(i, mx) => /if
+      go: (Int, St) -> () = \(i, st) => /if
         i < size = /if
           load (c # i) < i = /do
             /if
@@ -121,9 +138,9 @@ permutations: Int -> () = \size => /do
               /else = swap (perm # 0, perm # i)
             inc (c # i)
             output perm
-            go (0, fannkuch(mx, 0, perm))
+            go (0, fannkuch(max-flips st, checksum st, perm-count st, perm))
           _ = /do
           (c # i) := 0
-          go (i + 1, mx)
-        _ = output mx
+          go (i + 1, st)
+        _ = output st
 

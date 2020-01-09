@@ -27,7 +27,8 @@ O_FILES=$(addsuffix .o, $(FORT_FILES))
 OUT_FILE=a.out
 
 .PHONY: all
-all: diff
+# all: diff
+all: a.out.actual
 
 .PHONY: diff
 diff: a.out.actual
@@ -38,7 +39,8 @@ pretty: $(HS_FILES)
 	floskell -s cramer $^
 
 a.out.actual: $(OUT_FILE)
-	./$< | tee ./a.out.actual
+#	./$< | tee ./a.out.actual
+	./$< > a.out.actual
 
 %.fort.hs: %.fort $(HS_FILES)
 	stack runghc -- -Wall -isrc app/Main.hs $<

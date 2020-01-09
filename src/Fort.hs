@@ -136,7 +136,11 @@ letBind v x z = case x of
         ppLetIn (ppTuple [ ppVar a, ppVar b, ppVar c ])
                 ("T.argTuple3" <+> ppAscription (ppVar v) mt)
                 z
-    _ -> error $ show x
+    TupleP [ VarP a _mt0, VarP b _mt1, VarP c _mt2, VarP d _mt3 ] mt ->
+        ppLetIn (ppTuple [ ppVar a, ppVar b, ppVar c, ppVar d ])
+                ("T.argTuple4" <+> ppAscription (ppVar v) mt)
+                z
+    _ -> error $ "unexpected letBind (unsupported tuple length?): " ++ show x
 
 typeSizes :: Type -> [Int]
 typeSizes x = case x of

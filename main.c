@@ -98,9 +98,10 @@ int main(int argc, char**argv)
 
   //int arra[] = {1,2,3,4,5};
   //int arrc[] = {0,0,0,0,0};
-  fannkuch_redux_permutations(4);
+  fannkuch_redux_permutations(7);
   /* fannkuch_redux_permutations(arra, arrc); */
   /* 228 */
   /* Pfannkuchen(7) = 16 */
+  printf("%d\n", (int)4294967278);
   return 0;
 }

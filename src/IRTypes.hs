@@ -441,6 +441,13 @@ instance (Ty a, Ty b, Ty c) => Ty (a, b, c) where
                        , tyFort (Proxy :: Proxy c)
                        ]
 
+instance (Ty a, Ty b, Ty c, Ty d) => Ty (a, b, c, d) where
+    tyFort _ = tyTuple [ tyFort (Proxy :: Proxy a)
+                       , tyFort (Proxy :: Proxy b)
+                       , tyFort (Proxy :: Proxy c)
+                       , tyFort (Proxy :: Proxy d)
+                       ]
+
 tyRecordToTyTuple :: [(String, Type)] -> Type
 tyRecordToTyTuple bs = tyTuple $ map snd bs
 
