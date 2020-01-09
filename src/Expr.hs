@@ -53,6 +53,23 @@ enum (x, i) = value $ \ty -> U.atomE $ Enum (x, (ty, i))
 index :: (Size sz, Ty a) => E ((Addr (Array sz a), UInt32) -> Addr a)
 index = gep
 
+unsafe_array :: (Size sz, Ty a) => E (Addr (Array sz a))
+unsafe_array = value U.alloca
+
+-- array_linear :: (Size sz, Ty a) => E (Addr (Array sz a))
+-- array_linear = value U.alloca
+
+-- array_zeros :: (Size sz, Ty a) => E (Addr (Array sz a))
+-- array_zeros = value U.alloca
+
+array :: (Size sz, Ty a) => E ((UInt32 -> a) -> Addr (Array sz a))
+array = undefined
+
+array_size :: (Size sz, Ty a) => E (Addr (Array sz a) -> UInt32)
+array_size = unop $ \t _ -> case t of
+  TyAddress (TyArray n _) _ _ -> value $ \_ -> U.intE 32 n
+  _ -> impossible "array_size"
+
 noDefault :: Ty b => E a -> E b
 noDefault _ = value U.unreachable
 

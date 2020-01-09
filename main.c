@@ -3,8 +3,9 @@
 #include <stdint.h>
 
 extern void reverse_n(int,int []);
-extern int fannkuch_redux_fannkuch(int []);
-extern int fannkuch_redux_permutations(int [], int []);
+// extern int fannkuch_redux_fannkuch(int []);
+// extern int fannkuch_redux_permutations(int [], int []);
+extern int fannkuch_redux_permutations(int);
 extern void char_hello_world();
 extern int powi_powi(int, int);
 extern int powi_squared(int);
@@ -86,17 +87,18 @@ int main(int argc, char**argv)
   struct_foo();
   enum_foo();
 
-  int perm[] = {4,2,1,5,3};
-  printf("flips: %d\n", fannkuch_redux_fannkuch(perm));
+  // int perm[] = {4,2,1,5,3};
+  // printf("flips: %d\n", fannkuch_redux_fannkuch(perm));
 
-  for(i=0; i < 5; ++i)
-    {
-      printf("%d,",perm[i]);
-    }
-  printf("\n");
+  // for(i=0; i < 5; ++i)
+  // {
+  // printf("%d,",perm[i]);
+  //}
+  //printf("\n");
 
-  int arra[] = {1,2,3,4,5};
-  int arrc[] = {0,0,0,0,0};
+  //int arra[] = {1,2,3,4,5};
+  //int arrc[] = {0,0,0,0,0};
+  fannkuch_redux_permutations(3);
   /* fannkuch_redux_permutations(arra, arrc); */
   /* 228 */
   /* Pfannkuchen(7) = 16 */

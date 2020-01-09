@@ -197,6 +197,7 @@ app (E x) (E y) = E $ do
             _ -> [ b ]
     case a of
         CallE n es -> pure $ CallE n (es ++ ps)
+        AtomE e -> pure $ AtomE e -- BAL: hack to implement array_size
         _ -> impossible $ "app:" ++ show a
 
 readTag :: Type -> String -> Tag
@@ -282,6 +283,12 @@ zext ta tb = instr (TyFun ta tb) "zext" $ \[ a ] -> I.zext a (toTyLLVM tb)
 
 undef :: Type -> E a
 undef = atomE . Undef
+
+alloca :: Type -> E (Addr (Array sz a))
+alloca t = case t of
+  TyAddress ta _ _ ->
+    instr t "alloca" $ \[] -> I.alloca (toTyLLVM ta) Nothing 0
+  _ -> impossible "unexpected alloca type"
 
 unaryInstr :: String
            -> (AST.Operand -> AST.Instruction)

@@ -458,6 +458,6 @@ sizeFort x = case x of
     TyTuple bs -> sum $ map sizeFort bs
     TyRecord bs -> sizeFort $ tyRecordToTyTuple bs
     TyVariant bs -> sizeFort $ tyVariantToTyRecord bs
-    TyFun{} -> impossible "sizeFort:TyFun"
-    TyCont{} -> impossible "sizeFort:TyCont"
+    TyFun{} -> impossible $ "sizeFort:" ++ show x
+    TyCont{} -> impossible $ "sizeFort:" ++ show x
 

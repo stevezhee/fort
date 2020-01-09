@@ -5,14 +5,15 @@ TEST_DIR=test
 HS_FILES=$(shell find src -name \*.hs) $(shell find app -name \*.hs)
 
 ALL_FORT_FILES=$(wildcard $(TEST_DIR)/*.fort)
+# ALL_FORT_FILES=$(TEST_DIR)/fannkuch-redux.fort
 
+# EXCLUDE_FILES += $(TEST_DIR)/fannkuch-redux.fort
 # EXCLUDE_FILES += $(TEST_DIR)/address.fort
 # EXCLUDE_FILES += $(TEST_DIR)/array.fort
 # EXCLUDE_FILES += $(TEST_DIR)/char.fort
 # EXCLUDE_FILES += $(TEST_DIR)/primitives.fort
 # EXCLUDE_FILES += $(TEST_DIR)/powi.fort
 # EXCLUDE_FILES += $(TEST_DIR)/todd.fort
-# EXCLUDE_FILES += $(TEST_DIR)/fannkuch-redux.fort
 # EXCLUDE_FILES += $(TEST_DIR)/nestedif.fort
 # EXCLUDE_FILES += $(TEST_DIR)/struct.fort
 # EXCLUDE_FILES += $(TEST_DIR)/enum.fort
