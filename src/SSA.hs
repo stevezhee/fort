@@ -70,7 +70,7 @@ toSSABlock tbl (CPSFunc nm vs ys t) =
 
     letPhi :: (Var, [(Atom, Name)]) -> ([Var], DefnCall)
     letPhi (v, bs) =
-        ([ v ], DefnCall (Nm phiTy "phi") (map fst bs) (phiInstr (map snd bs)))
+        ([ v ], DefnCall (Nm phiTy "phi") (phiInstr (map snd bs)) (map fst bs))
       where
         phiTy = TyFun (tyTuple (map (tyAtom . fst) bs)) (vTy v)
 

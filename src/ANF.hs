@@ -24,6 +24,32 @@ import           Utils
 ppAFunc :: AFunc -> Doc ann
 ppAFunc = ppFunc . fromAFunc
 
+tyAExpr :: AExpr -> Type
+tyAExpr = tyExpr . fromAExpr
+
+toCExpr :: Expr -> M CExpr
+toCExpr x = case x of
+  -- AtomE Atom
+  --        | TupleE [Expr]
+  SwitchE a b cs ->
+    SwitchA <$> toAtom a <*> toAExpr b <*>
+    sequence [ (tg,) <$> toAExpr c | (tg, c) <- cs ]
+  CallE (nm, LocalDefn) bs -> CallLocalA . LocalCall nm <$> mapM toAtom bs
+  CallE (nm, Defn f) bs -> CallDefnA . DefnCall nm f <$> mapM toAtom bs
+--          | LetRecE [Func] Expr
+--          | LetE Pat Expr Expr
+  UnreachableE t -> pure $ UnreachableA t
+
+toAExpr :: Expr -> M AExpr
+toAExpr = undefined
+
+toAtom :: Expr -> M Atom
+toAtom = undefined
+
+toAFuncs :: Func -> M [AFunc]
+toAFuncs = undefined
+
+{-
 toAFuncs :: Func -> M [AFunc]
 toAFuncs x = do
     af <- toAFunc x
@@ -33,9 +59,6 @@ toAFuncs x = do
 
 toAFunc :: Func -> M AFunc
 toAFunc (Func n pat e) = AFunc n pat <$> toAExpr e
-
-tyAExpr :: AExpr -> Type
-tyAExpr = tyExpr . fromAExpr
 
 withAtom :: Expr -> (Atom -> M AExpr) -> M AExpr
 withAtom x f = case x of
@@ -112,28 +135,8 @@ lambdaLift tbl = go
         SwitchA a b cs -> SwitchA a (go b) $ map (second go) cs
         UnreachableA{} -> x
 
-fromAExpr :: AExpr -> Expr
-fromAExpr x = case x of
-    TupleA bs -> TupleE $ map AtomE bs
-    LetA pat a b -> LetE pat (fromCExpr a) (fromAExpr b)
-    CExprA a -> fromCExpr a
-
-fromAFunc :: AFunc -> Func
-fromAFunc (AFunc n pat e) = Func n pat $ fromAExpr e
-
-fromCExpr :: CExpr -> Expr
-fromCExpr x = case x of
-    CallDefnA (DefnCall nm bs f) -> CallE (nm, Defn f) $ map AtomE bs
-    CallLocalA (LocalCall nm bs) -> CallE (nm, LocalDefn) $ map AtomE bs
-    SwitchA a b cs -> SwitchE (AtomE a) (fromAExpr b) $
-        map (second fromAExpr) cs
-    UnreachableA t -> UnreachableE t
-
 mapAFunc :: (AExpr -> AExpr) -> AFunc -> AFunc
 mapAFunc f (AFunc n vs e) = AFunc n vs $ f e
-
-mkSubst :: [Var] -> [Atom] -> HMS.HashMap Var Atom
-mkSubst xs ys = HMS.fromList $ safeZip "mkSubst" xs ys
 
 subst :: HMS.HashMap Var Atom -> AExpr -> AExpr
 subst tbl = go
@@ -178,4 +181,23 @@ freeVars bvs = go
         CallDefnA a -> concatMap goAtom $ dcArgs a
         SwitchA a b cs -> goAtom a ++ go b ++ concatMap (go . snd) cs
         UnreachableA _ -> []
+
+-}
+
+fromAExpr :: AExpr -> Expr
+fromAExpr x = case x of
+    TupleA bs -> TupleE $ map AtomE bs
+    LetA pat a b -> LetE pat (fromCExpr a) (fromAExpr b)
+    CExprA a -> fromCExpr a
+
+fromAFunc :: AFunc -> Func
+fromAFunc (AFunc n pat e) = Func n pat $ fromAExpr e
+
+fromCExpr :: CExpr -> Expr
+fromCExpr x = case x of
+    CallDefnA (DefnCall nm f bs) -> CallE (nm, Defn f) $ map AtomE bs
+    CallLocalA (LocalCall nm bs) -> CallE (nm, LocalDefn) $ map AtomE bs
+    SwitchA a b cs -> SwitchE (AtomE a) (fromAExpr b) $
+        map (second fromAExpr) cs
+    UnreachableA t -> UnreachableE t
 

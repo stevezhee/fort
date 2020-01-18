@@ -31,9 +31,10 @@ import           Prelude                    hiding ( const, seq )
 import           SSA
 
 import           Utils
+import Renamer
 
 verbose :: Bool
-verbose = False
+verbose = True -- BAL: False
 
 codegen :: FilePath -> [M Expr] -> IO ()
 codegen file ds = do
@@ -48,10 +49,17 @@ codegen file ds = do
     if verbose
         then do
             print $ ppFuncs ppFunc fs
+            putStrLn "--- renamer (RNM) --------------"
+        else putStrFlush "RNM->"
+
+    let (fsR, stR) = runState (rename fs) $ st
+    if verbose
+        then do
+            print $ ppFuncs ppFunc fsR
             putStrLn "--- a-normalization (ANF) --------------"
         else putStrFlush "ANF->"
 
-    let (anfs, st1) = runState (mapM toAFuncs fs) st
+    let (anfs, st1) = runState (mapM toAFuncs fsR) stR
     if verbose
         then do
             print $ ppFuncs (vcat . ("---" :) . map ppAFunc) anfs

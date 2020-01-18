@@ -98,6 +98,18 @@ data CExpr = UnreachableA Type
            | SwitchA Atom AExpr [(Tag, AExpr)]
     deriving Show
 
+data DefnCall =
+    DefnCall { dcNm :: Nm, dcF :: [Operand] -> Instruction, dcArgs :: [Atom] }
+
+instance Show DefnCall where
+    show (DefnCall a _ bs) = unwords [ "DefnCall", show a, show bs ]
+
+data LocalCall = LocalCall { lcNm :: Nm, lcArgs :: [Atom] }
+    deriving Show
+
+lcName :: LocalCall -> Name
+lcName = nName . lcNm
+
 data CPSFunc = CPSFunc { cpsNm     :: Nm
                        , cpsParams :: [Var]
                        , cpsInstrs :: [Instr]
@@ -229,8 +241,8 @@ ppExpr x = case x of
                            -- [ "let" <+> ppPat a <+> "=" <+> ppExpr b
                            [ if null a
                              then ppExpr b
-                             else "let" <+> ppPat a <+> "=" <+> ppExpr b
-                           , ppExpr c
+                             else "let" <+> ppPat a <+> "=" <+> ppExpr b <+> "in"
+                           , parens (ppExpr c)
                            ]
     LetRecE bs c -> vcat $ [ "fun" <+> ppFunc b | b <- bs ] ++ [ ppExpr c ]
     UnreachableE _ -> "unreachable"
@@ -251,18 +263,6 @@ ppAtom x = case x of
     String s _ -> pretty (show s)
     Cont a _ -> "%" <> pretty a
     Undef _ -> "<undef>"
-
-data DefnCall =
-    DefnCall { dcNm :: Nm, dcArgs :: [Atom], dcF :: [Operand] -> Instruction }
-
-instance Show DefnCall where
-    show (DefnCall a bs _) = unwords [ "DefnCall", show a, show bs ]
-
-data LocalCall = LocalCall { lcNm :: Nm, lcArgs :: [Atom] }
-    deriving Show
-
-lcName :: LocalCall -> Name
-lcName = nName . lcNm
 
 type Instr = ([Var], DefnCall)
 
@@ -331,6 +331,9 @@ freshName :: Name -> M Name
 freshName v = do
     i <- nextUnique
     pure $ v ++ "." ++ show i
+
+mkSubst :: (Show a, Show b, Eq a, Hashable a) => [a] -> [b] -> HMS.HashMap a b
+mkSubst xs ys = HMS.fromList $ safeZip "mkSubst" xs ys
 
 nextUnique :: M Integer
 nextUnique = do

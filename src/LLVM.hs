@@ -98,7 +98,7 @@ toLLVMBasicBlock (SSABlock n xs t) = AST.BasicBlock (AST.mkName $ nName n)
                                                     (toLLVMTerminator t)
 
 toLLVMInstruction :: Instr -> AST.Named AST.Instruction
-toLLVMInstruction x@(pat, DefnCall _ xs f) = case pat of
+toLLVMInstruction x@(pat, DefnCall _ f xs) = case pat of
     [] -> AST.Do $ f $ map toOperand xs
     [ V _ v ] -> AST.mkName v AST.:= f (map toOperand xs)
     _ -> impossible $ "toLLVMInstruction:" ++ show x

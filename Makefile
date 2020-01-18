@@ -5,7 +5,7 @@ TEST_DIR=test
 HS_FILES=$(shell find src -name \*.hs) $(shell find app -name \*.hs)
 
 ALL_FORT_FILES=$(wildcard $(TEST_DIR)/*.fort)
-# ALL_FORT_FILES=$(TEST_DIR)/fannkuch-redux.fort
+ALL_FORT_FILES=$(TEST_DIR)/fannkuch-redux.fort
 
 # EXCLUDE_FILES += $(TEST_DIR)/fannkuch-redux.fort
 # EXCLUDE_FILES += $(TEST_DIR)/address.fort

@@ -278,7 +278,7 @@ ptrtoint :: Type -> Type -> E (a -> b)
 ptrtoint ta tb = instr (TyFun ta tb) "ptrtoint" $ \[ a ] ->
     I.ptrtoint a (toTyLLVM tb)
 
-where_ :: E a -> [M Func] -> E a
+where_ :: E a -> [M Func] -> E a -- BAL: shouldn't where clauses only be evaluated when needed?  This would require purity.  Or maybe we require that where clauses are functions?
 where_ e ms = E $ LetRecE <$> sequence ms <*> unE e
 
 sext :: Type -> Type -> E (a -> b)

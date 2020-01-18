@@ -32,10 +32,10 @@ int fannkuchredux(int n)
     while (1) {
         while (r != 1) {
             count[r-1] = r;
-            r -= 1;
+            r--;
         }
 
-        for (i=0; i<n; i+=1)
+        for (i=0; i<n; i++)
             perm[i] = perm1[i];
         int flipsCount = 0;
         int k;
@@ -50,6 +50,13 @@ int fannkuchredux(int n)
 
         maxFlipsCount = max(maxFlipsCount, flipsCount);
         checksum += permCount % 2 == 0 ? flipsCount : -flipsCount;
+
+        for (i=0; i<n; i+=1)
+          printf("%d ", 1 + perm1[i]); // BAL:
+        printf("\n"); // BAL:
+        /* printf("\n %d flips\n", flipsCount); // BAL: */
+        /* printf(" %d perms\n", permCount); // BAL: */
+        /* printf("%d checksum\n", checksum); // BAL: */
 
         /* Use incremental change to generate another permutation */
         while (1) {
