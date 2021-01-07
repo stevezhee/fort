@@ -23,9 +23,9 @@ Some random stuff about fort:
 
 # Dependency/Installation help
 ## llvm/llvm-hs
-We're targeting llvm 7
+We're targeting llvm 9
 ### OSX
 ```
-brew install llvm-hs/llvm/llvm-7.0
+brew install llvm-9
 brew install stack
 ```
