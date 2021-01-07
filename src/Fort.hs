@@ -30,49 +30,57 @@ parseAndCodeGen fn = do
     putStrFlush "->"
     s <- readFile fn
     putStrFlush "Lex->"
-    ts <- tokenize fn s
+    let (ts0, me) = tokenize fn s
+    case me of
+        Nothing -> return ()
+        Just e -> do
+            putStrLn "" >> hPutStrLn stderr ("Lexical error at:" ++ show e)
+            exitFailure
+    -- BAL: special case this: let (hdr, ts1) = span isComment ts0
+    let ts1 = ts0
+    let ts = filter (not . isComment . unLoc) ts1
     putStrFlush "Indent->"
-    case indentation ts of
-        [] -> done fn []
-        toks -> parse fn s toks
-
-parse :: FilePath -> String -> [Token] -> IO ()
-parse fn s toks = do
-    putStrFlush "Parse->"
-    let (asts, rpt) = fullParses (parser grammar) toks
-    case (asts, unconsumed rpt) of
-        ([ ast ], []) -> done fn ast
-        (_, []) -> do
-            putStrLn ""
-            hPutStrLn stderr "ambiguous :O"
-            -- print toks
-            mapM_ (\z -> hPutStrLn stderr "" >> mapM_ (hPrint stderr . show) z)
-                  asts
+    let toks = indentation ts
+    seq toks $ putStrFlush "Parse->"
+    case parse toks of
+        Left rpt -> do
+            reportErrors fn s toks rpt
             exitFailure
-        _ -> do
-            putStrLn ""
-            let errtok@(L errloc _) = toks !! position rpt
-            -- putStrLn $ unwords $ map unLoc toks
-            hPutStrLn stderr $ displayLoc errloc ++ ":error:unexpected token:"
-            case errloc of
-                NoLoc -> return ()
-                Loc start _ -> do
-                    hPutStrLn stderr (lines s !! (posLine start - 1))
-                    hPutStrLn stderr
-                              (replicate (posCol start - 1) ' '
-                               ++ replicate (length $ unLoc errtok) '^')
-            hPutStrLn stderr $ "got: " ++ show (unLoc errtok)
-            hPutStrLn stderr $ "expected: " ++ show (expected rpt)
-            -- print toks
-            -- print asts
-            -- print rpt
-            -- print errtok
-            -- print errloc
-            -- print ()
-            exitFailure
+        Right ds -> declsToHsFile fn ds
 
-done :: FilePath -> [Decl] -> IO ()
-done fn ast = do
+parse :: [Token] -> Either (Report String [Token]) [Decl]
+parse toks = case toks of
+    [] -> Right []
+    _ -> case (asts, unconsumed rpt) of
+        ([ ast ], []) -> Right ast
+        _ -> Left rpt
+  where
+    (asts, rpt) = fullParses (parser grammar) toks
+
+reportErrors :: FilePath -> String -> [Token] -> Report String [Token] -> IO ()
+reportErrors fn s toks rpt = case unconsumed rpt of
+    [] -> do
+        putStrLn ""
+        hPutStrLn stderr (fn ++ ":ambiguous parse")
+    -- print toks
+    -- mapM_ (\z -> hPutStrLn stderr "" >> mapM_ (hPrint stderr . show) z) asts
+    _ -> do
+        putStrLn ""
+        let errtok@(L errloc _) = toks !! position rpt
+        -- putStrLn $ unwords $ map unLoc toks
+        hPutStrLn stderr $ displayLoc errloc ++ ":error:unexpected token:"
+        case errloc of
+            NoLoc -> return ()
+            Loc start _ -> do
+                hPutStrLn stderr (lines s !! (posLine start - 1))
+                hPutStrLn stderr
+                          (replicate (posCol start - 1) ' '
+                           ++ replicate (length $ unLoc errtok) '^')
+        hPutStrLn stderr $ "got: " ++ show (unLoc errtok)
+        hPutStrLn stderr $ "expected: " ++ show (expected rpt)
+
+declsToHsFile :: FilePath -> [Decl] -> IO ()
+declsToHsFile fn ast = do
     -- putStrLn $ unwords $ map unLoc toks
     putStrFlush "Haskell->"
     let oFile = fn ++ ".hs"
@@ -128,7 +136,11 @@ letBind v x z = case x of
         ppLetIn (ppTuple [ ppVar a, ppVar b, ppVar c ])
                 ("T.argTuple3" <+> ppAscription (ppVar v) mt)
                 z
-    _ -> error $ show x
+    TupleP [ VarP a _mt0, VarP b _mt1, VarP c _mt2, VarP d _mt3 ] mt ->
+        ppLetIn (ppTuple [ ppVar a, ppVar b, ppVar c, ppVar d ])
+                ("T.argTuple4" <+> ppAscription (ppVar v) mt)
+                z
+    _ -> error $ "unexpected letBind (unsupported tuple length?): " ++ show x
 
 typeSizes :: Type -> [Int]
 typeSizes x = case x of
@@ -171,7 +183,7 @@ exprTypes x = case x of
     Lam a b -> patTypes a ++ exprTypes b
     App a b -> exprTypes a ++ exprTypes b
     Where a b -> exprTypes a ++ concatMap exprDeclTypes b
-    If a b c -> exprTypes a ++ exprTypes b ++ exprTypes c
+    If ds -> concatMap (exprTypes . fst) ds ++ concatMap (exprTypes . snd) ds
     Sequence bs -> concatMap exprTypes bs
     Record bs -> concat [ maybeToList mt ++ exprTypes e | ((_, mt), e) <- bs ]
     Tuple bs -> concatMap exprTypes $ catMaybes bs
@@ -432,9 +444,15 @@ ppExpr x = case x of
     Lam a b -> ppLetBindLam a b
     Ascription a b -> parens (ppAscription (ppExpr a) $ Just b)
     Sequence a -> ppSequence a
-    If a b c ->
-        parens ("T.if_" <+> ppExpr a <> line
-                <> indent 2 (vcat [ parens (ppExpr b), parens (ppExpr c) ]))
+    If ds -> case ds of
+        [] -> error "empty if expression"
+        [ (Prim (Var (L _ "_")), b) ] -> ppExpr b
+        [ (_, b) ] -> ppExpr b -- BAL: error "expected last element of if/case to be the default case"
+        ((a, b) : xs) -> parens ("T.if_" <+> ppExpr a <> line
+                                 <> indent 2
+                                           (vcat [ parens (ppExpr b)
+                                                 , parens (ppExpr $ If xs)
+                                                 ]))
     Case a bs -> parens ("T.case_" <+> ppExpr a <+> parens (ppExpr dflt)
                          <> ppListV [ ppTuple [ ppAltPat c, ppAltCon c e ]
                                     | ((c, _t), e) <- alts
@@ -501,7 +519,7 @@ ppAltPat :: AltPat -> Doc ann
 ppAltPat x = case x of
     DefaultP -> error "DefaultP"
     ConP c -> pretty (show c)
-    IntP i -> pretty (show (show i))
+    IntP i -> pretty (show i)
     CharP c -> pretty (show (show c))
     StringP s -> pretty (unLoc s)
 
@@ -517,6 +535,6 @@ ppPrim x = case x of
     Var a -> ppVar a
     Op a -> parens (ppOp a)
     StringL a -> parens ("T.string" <+> pretty (unLoc a))
-    IntL a -> parens ("T.int" <+> pretty (show (unLoc a)))
+    IntL a -> parens ("T.int" <+> pretty (readIntLit (unLoc a)))
     CharL a -> parens ("T.char" <+> pretty (show (unLoc a)))
 

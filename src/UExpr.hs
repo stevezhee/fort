@@ -172,6 +172,9 @@ tuple2 (E a, E b) = tupleE [ a, b ]
 tuple3 :: (E a, E b, E c) -> E (a, b, c)
 tuple3 (E a, E b, E c) = tupleE [ a, b, c ]
 
+tuple4 :: (E a, E b, E c, E d) -> E (a, b, c, d)
+tuple4 (E a, E b, E c, E d) = tupleE [ a, b, c, d ]
+
 argTupleN :: Int -> E a -> E b
 argTupleN i (E x) = E $ do
     a <- x
@@ -185,6 +188,9 @@ argTuple2 x = (argTupleN 0 x, argTupleN 1 x)
 argTuple3 :: E (a, b, c) -> (E a, E b, E c)
 argTuple3 x = (argTupleN 0 x, argTupleN 1 x, argTupleN 2 x)
 
+argTuple4 :: E (a, b, c, d) -> (E a, E b, E c, E d)
+argTuple4 x = (argTupleN 0 x, argTupleN 1 x, argTupleN 2 x, argTupleN 3 x)
+
 opapp :: E a -> E ((a, b) -> c) -> E (b -> c)
 opapp x f = app (unsafeCast f) x
 
@@ -197,6 +203,7 @@ app (E x) (E y) = E $ do
             _ -> [ b ]
     case a of
         CallE n es -> pure $ CallE n (es ++ ps)
+        AtomE e -> pure $ AtomE e -- BAL: hack to implement array_size
         _ -> impossible $ "app:" ++ show a
 
 readTag :: Type -> String -> Tag
@@ -271,7 +278,7 @@ ptrtoint :: Type -> Type -> E (a -> b)
 ptrtoint ta tb = instr (TyFun ta tb) "ptrtoint" $ \[ a ] ->
     I.ptrtoint a (toTyLLVM tb)
 
-where_ :: E a -> [M Func] -> E a
+where_ :: E a -> [M Func] -> E a -- BAL: shouldn't where clauses only be evaluated when needed?  This would require purity.  Or maybe we require that where clauses are functions?
 where_ e ms = E $ LetRecE <$> sequence ms <*> unE e
 
 sext :: Type -> Type -> E (a -> b)
@@ -282,6 +289,12 @@ zext ta tb = instr (TyFun ta tb) "zext" $ \[ a ] -> I.zext a (toTyLLVM tb)
 
 undef :: Type -> E a
 undef = atomE . Undef
+
+alloca :: Type -> E (Addr (Array sz a))
+alloca t = case t of
+  TyAddress ta _ _ ->
+    instr t "alloca" $ \[] -> I.alloca (toTyLLVM ta) Nothing 0
+  _ -> impossible "unexpected alloca type"
 
 unaryInstr :: String
            -> (AST.Operand -> AST.Instruction)

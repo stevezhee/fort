@@ -1,0 +1,24 @@
+-- stage 1 .fort ==> .hs
+
+Expr.hs
+Fort.hs
+Lexer.hs
+Macros.hs
+Parser.hs
+SyntaxTypes.hs
+UExpr.hs
+
+-- stage 2 execute .hs ==> .ll
+
+ANF.hs
+CPS.hs
+IRTypes.hs
+Instr.hs
+LLVM.hs 
+Renamer.hs
+SSA.hs
+Typed.hs
+
+-- all
+Utils.hs
+

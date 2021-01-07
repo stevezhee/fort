@@ -15,42 +15,88 @@ import           Prelude                    hiding ( lex )
 
 import           SyntaxTypes
 
-import           System.Exit
-import           System.IO
-
 import           Text.Regex.Applicative
 
 import           Utils
 
-tokenize :: FilePath -> String -> IO [Token]
-tokenize fn s = case eab of
-    Left e -> do
-        putStrLn ""
-        hPrint stderr e
-        exitFailure
-    Right a -> pure a
+tokenize :: FilePath -> String -> ([Token], Maybe Pos)
+tokenize fn s = streamToMaybeError $ lexerF fn s -- BAL: Data.Text instead of String
+
+lexerF :: FilePath -> String -> TokenStream Token
+lexerF =
+    runLexer (mconcat [ L.token (longest tok), whitespace (longest tokWS) ])
+
+streamToMaybeError :: TokenStream Token -> ([Token], Maybe Pos)
+streamToMaybeError = go []
   where
-    eab = streamToEitherList $
-        runLexer (mconcat [ L.token (longest tok), whitespace (longest tokWS) ])
-                 fn
-                 s
+    go ts x = case x of
+        TsToken a b -> go (a : ts) b
+        TsEof -> (g ts, Nothing)
+        TsError (LexicalError e) -> (g ts, Just $ zeroBaseRow e)
+
+    g = map (mapLPos (mapPos zeroBaseRow)) . reverse
+
+lineTokenize :: FilePath -> (Int, String) -> ([Token], Maybe Token)
+lineTokenize fn (i, s) = (map (mapLPos (mapPos (setLine i))) ts, fmap g mp)
+  where
+    (ts, mp) = streamToMaybeError $ lexerF fn s
+
+    g e = L (locOf $ setLine i e) $ drop (posCoff e) s
+
+mapLPos :: (Loc -> Loc) -> L a -> L a
+mapLPos f (L x s) = L (f x) s
+
+mapPos :: (Pos -> Pos) -> Loc -> Loc
+mapPos f x = case x of
+    NoLoc -> NoLoc
+    Loc a b -> Loc (f a) (f b)
+
+zeroBaseRow :: Pos -> Pos
+zeroBaseRow (Pos fn rw col off) = Pos fn rw (col - 1) off
+
+setLine :: Int -> Pos -> Pos
+setLine i (Pos fn _ col off) = Pos fn i col off
 
 tokWS :: Tok
-tokWS = some (sym ' ') <|> some (sym '\n') <|> string ";;"
-    *> many (psym ('\n' /=))
+tokWS = some (sym ' ') <|> some (sym '\n')
+
+comment :: Tok
+comment = (++) <$> string ";;" <*> many (psym ('\n' /=))
+
+isComment :: String -> Bool
+isComment = isPrefixOf ";;"
 
 tok :: Tok
-tok = (:) <$> sym '/' <*> some (psym lower) <|> -- reserved words
-    (:) <$> psym (\c -> lower c || upper c) <*> many (psym ident) <|> hexLit
-    <|> octLit <|> binLit <|> (:) <$> sym '-' <*> digits <|> digits <|> charLit
-    <|> some (psym oper) <|> stringLit <|> (: []) <$> psym special
+tok = reservedWord <|> identifier <|> numLit <|> charLit <|> operator
+    <|> stringLit <|> specialOp <|> comment
+
+isLiteral :: Char -> Bool
+isLiteral c = digit c || c `elem` ("\"#-" :: String)
+
+reservedWord :: Tok
+reservedWord = (:) <$> sym '/' <*> some (psym lower)
+
+specialOp :: Tok
+specialOp = (: []) <$> psym special
+
+numLit :: Tok
+numLit = hexLit <|> octLit <|> binLit <|> decLit
+
+decLit :: Tok
+decLit = (:) <$> sym '-' <*> digits <|> digits
+
+identifier :: Tok
+identifier = (:) <$> psym (\c -> lower c || upper c) <*> many (psym ident)
+
+operator :: Tok
+operator = some (psym oper)
 
 upper, digit, lower, ident, special, hexDigit, octDigit, binDigit
     :: Char
     -> Bool
 upper = inclusive 'A' 'Z'
 
-ident c = lower c || upper c || digit c || c `elem` ("-?^~'" :: String)
+ident c = lower c || upper c || digit c || c `elem` ("-?^~'" :: [Char])
 
 digit = inclusive '0' '9'
 
@@ -62,11 +108,11 @@ binDigit = inclusive '0' '1'
 
 lower c = inclusive 'a' 'z' c || c == '_'
 
-special = flip elem "()[]{},;"
+special = flip elem ("()[]{},;" :: [Char])
 
 oper :: Char -> Bool
 oper c = inclusive '#' '\'' c || inclusive '*' '+' c || inclusive '-' '/' c
-    || inclusive '<' '@' c || c `elem` "!:\\^|~`"
+    || inclusive '<' '@' c || c `elem` ("!:\\^|~`" :: [Char])
 
 inclusive :: Ord a => a -> a -> a -> Bool
 inclusive a b c = c >= a && c <= b
@@ -78,7 +124,7 @@ indentation toks@(t0 : _) = go t0 [] toks
     go _ [] [] = []
     go prev cols [] = replicate (length cols) (useLoc "}" prev)
     go prev cols xs0@(x : xs)
-        | col < indentTop && (col `notElem` (1 : cols)) = error $
+        | col < indentTop && (col `notElem` (0 : cols)) = error $
             "unaligned indentation:" ++ show (locOf x)
         | col == indentTop && unLoc x == "/where" || col < indentTop = close
         | col == indentTop && isOpen = openAndSep
@@ -92,7 +138,7 @@ indentation toks@(t0 : _) = go t0 [] toks
         col = column (locOf x)
 
         indentTop = case cols of
-            [] -> 1
+            [] -> 0
             t : _ -> t
 
         close = useLoc "}" x : go prev (tail cols) xs0

@@ -98,7 +98,7 @@ toLLVMBasicBlock (SSABlock n xs t) = AST.BasicBlock (AST.mkName $ nName n)
                                                     (toLLVMTerminator t)
 
 toLLVMInstruction :: Instr -> AST.Named AST.Instruction
-toLLVMInstruction x@(pat, DefnCall _ xs f) = case pat of
+toLLVMInstruction x@(pat, DefnCall _ f xs) = case pat of
     [] -> AST.Do $ f $ map toOperand xs
     [ V _ v ] -> AST.mkName v AST.:= f (map toOperand xs)
     _ -> impossible $ "toLLVMInstruction:" ++ show x
@@ -110,10 +110,11 @@ toLLVMTerminator x = AST.Do $ case x of
                  (AST.mkName $ nName b)
                  [ (c, AST.mkName $ nName n) | ((_, c), n) <- cs ]
     BrS a -> I.br (AST.mkName $ nName a)
+    IndirectBrS a bs -> I.indirectbr (toOperand $ Var a) (map (AST.mkName . nName) bs)
     RetS bs -> case bs of
-        [] -> I.retVoid
+        []    -> I.retVoid
         [ v ] -> I.ret $ toOperand v
-        _ -> impossible $ "toLLVMTerminator:" ++ show x
+        _     -> impossible $ "toLLVMTerminator:" ++ show x
     UnreachableS{} -> I.unreachable
 
 toOperand :: Atom -> AST.Operand
@@ -127,6 +128,7 @@ toOperand x = case x of
         AST.GlobalReference (toTyLLVM $ vTy a) (AST.mkName $ vName a)
     Enum (_, (t, i)) -> toOperand $ Int (sizeFort t) i
     Cont _ (_, sz, i) -> toOperand $ Int sz i
+    Label a b -> AST.ConstantOperand $ AST.BlockAddress (AST.mkName a) (AST.mkName $ nName b)
 
 tyLLVM :: Ty a => Proxy a -> AST.Type
 tyLLVM = toTyLLVM . tyFort
@@ -146,4 +148,4 @@ toTyLLVM = go
         TyFun _ b ->
             AST.FunctionType (toTyLLVM b) (map toTyLLVM $ unTupleTy b) False
         TyCont _ -> impossible "toTyLLVM"
-
+        TyLabel{} -> AST.ptr (AST.IntegerType 8)

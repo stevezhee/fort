@@ -12,18 +12,102 @@ import           Control.Monad.State.Strict
 
 import           Data.Bifunctor
 import qualified Data.HashMap.Strict        as HMS
-import           Data.List
 import           Data.Maybe
 
 import           Data.Text.Prettyprint.Doc
 
 import           IRTypes
 
-import           Utils
+toAFuncs :: Func -> M [AFunc]
+toAFuncs x = do
+  a <- toAFunc x
+  bs <- gets afuncs
+  modify' $ \st -> st{ afuncs = [] }
+  return (a : bs)
+
+toAFunc :: Func -> M AFunc
+toAFunc (Func nm pat e) = AFunc nm pat <$> toAExpr e
+
+toAExpr :: Expr -> M AExpr
+toAExpr x = case x of
+  LetRecE bs c      -> do
+    ds <- mapM toAFunc bs
+    modify' $ \st -> st{ afuncs = ds ++ afuncs st }
+    toAExpr c
+  AtomE a           -> pure $ TupleA [a]
+  UnreachableE t    -> pure $ CExprA $ UnreachableA t
+  LetE pat a b      -> toLetA pat <$> toAExpr a <*> toAExpr b
+  TupleE bs         -> mapM toAExpr bs >>= withAtoms TupleA
+  CallE (nm, ct) bs -> mapM toAExpr bs >>= withAtoms f
+    where
+      f = case ct of
+        LocalDefn -> CExprA . CallLocalA . LocalCall nm
+        Defn g -> CExprA . CallDefnA . DefnCall nm g
+  SwitchE e b cs    -> do
+    ae <- toAExpr e
+    dflt <- toAExpr b
+    alts <- sequence [ (tg, ) <$> toAExpr c | (tg, c) <- cs ]
+    withAtoms (\[a] -> CExprA $ SwitchA a dflt alts) [ae]
+
+withAtoms :: ([Atom] -> AExpr) -> [AExpr] -> M AExpr
+withAtoms f = go []
+  where
+    go rs [] = pure $ f $ reverse rs
+    go rs (x : xs) = case x of
+      LetA pat a b -> LetA pat a <$> go rs (b : xs)
+      CExprA a -> do
+        pat <- freshBind $ tyCExpr a
+        go rs (LetA pat a (TupleA $ map Var pat) : xs)
+      TupleA bs -> go (bs ++ rs) xs -- BAL: Tuples just get smashed together
+
+toLetA :: Pat -> AExpr -> AExpr -> AExpr
+toLetA pat x y = case x of
+  CExprA a -> LetA pat a y
+  TupleA bs -> subst (mkSubst pat bs) y
+  LetA pat1 a b -> LetA pat1 a $ toLetA pat b y
 
 ppAFunc :: AFunc -> Doc ann
 ppAFunc = ppFunc . fromAFunc
 
+tyAExpr :: AExpr -> Type
+tyAExpr = tyExpr . fromAExpr
+
+tyCExpr :: CExpr -> Type
+tyCExpr = tyExpr . fromCExpr
+
+-- withCExpr :: Expr -> (CExpr -> M a) -> M a
+-- withCExpr x f = case x of
+--   -- AtomE Atom
+--   -- TupleE [Expr]
+-- -- | LetRecE [Func] Expr
+-- -- | LetE Pat Expr Expr
+
+--   SwitchE e b cs -> withAtom e (\a -> (SwitchA a <$> toAExpr b <*> alts) >>= f)
+--     where
+--       alts = sequence [ (tg,) <$> toAExpr c | (tg, c) <- cs ] 
+--   CallE (nm, LocalDefn) bs -> withAtoms bs (f . CallLocalA . LocalCall nm)
+--   CallE (nm, Defn g) bs -> withAtoms bs (f . CallDefnA . DefnCall nm g)
+--   UnreachableE t -> f $ UnreachableA t
+
+
+-- withAtoms :: [Expr] -> ([Atom] -> M a) -> M a
+-- withAtoms xs f = case xs of
+--   [] -> f []
+--   e : es -> withAtom e $ \a -> withAtoms es (f . (a :))
+
+-- withAtom :: Expr -> (Atom -> M a) -> M a
+-- withAtom x f = case x of
+--   AtomE a -> f a
+--   -- TupleE [Expr]
+--   -- SwitchE a b cs ->
+--   -- CallE (nm, LocalDefn) bs -> 
+--   -- CallE (nm, Defn f) bs -> 
+
+-- LetRecE [Func] Expr
+-- LetE Pat Expr Expr
+--   UnreachableE t -> f $ Undef t
+
+{-
 toAFuncs :: Func -> M [AFunc]
 toAFuncs x = do
     af <- toAFunc x
@@ -33,9 +117,6 @@ toAFuncs x = do
 
 toAFunc :: Func -> M AFunc
 toAFunc (Func n pat e) = AFunc n pat <$> toAExpr e
-
-tyAExpr :: AExpr -> Type
-tyAExpr = tyExpr . fromAExpr
 
 withAtom :: Expr -> (Atom -> M AExpr) -> M AExpr
 withAtom x f = case x of
@@ -112,52 +193,8 @@ lambdaLift tbl = go
         SwitchA a b cs -> SwitchA a (go b) $ map (second go) cs
         UnreachableA{} -> x
 
-fromAExpr :: AExpr -> Expr
-fromAExpr x = case x of
-    TupleA bs -> TupleE $ map AtomE bs
-    LetA pat a b -> LetE pat (fromCExpr a) (fromAExpr b)
-    CExprA a -> fromCExpr a
-
-fromAFunc :: AFunc -> Func
-fromAFunc (AFunc n pat e) = Func n pat $ fromAExpr e
-
-fromCExpr :: CExpr -> Expr
-fromCExpr x = case x of
-    CallDefnA (DefnCall nm bs f) -> CallE (nm, Defn f) $ map AtomE bs
-    CallLocalA (LocalCall nm bs) -> CallE (nm, LocalDefn) $ map AtomE bs
-    SwitchA a b cs -> SwitchE (AtomE a) (fromAExpr b) $
-        map (second fromAExpr) cs
-    UnreachableA t -> UnreachableE t
-
 mapAFunc :: (AExpr -> AExpr) -> AFunc -> AFunc
 mapAFunc f (AFunc n vs e) = AFunc n vs $ f e
-
-mkSubst :: [Var] -> [Atom] -> HMS.HashMap Var Atom
-mkSubst xs ys = HMS.fromList $ safeZip "mkSubst" xs ys
-
-subst :: HMS.HashMap Var Atom -> AExpr -> AExpr
-subst tbl = go
-  where
-    go x = case x of
-        TupleA bs -> TupleA $ map goAtom bs
-        CExprA a -> CExprA $ goCExpr a
-        LetA pat a b -> LetA pat (goCExpr a) (subst (remove pat) b)
-
-    goDefnCall (DefnCall n bs f) = DefnCall n (map goAtom bs) f
-
-    goLocalCall (LocalCall n bs) = LocalCall n (map goAtom bs)
-
-    goCExpr x = case x of
-        CallDefnA a -> CallDefnA $ goDefnCall a
-        CallLocalA a -> CallLocalA $ goLocalCall a
-        SwitchA a b cs -> SwitchA (goAtom a) (go b) $ map (second go) cs
-        UnreachableA{} -> x
-
-    goAtom x = case x of
-        Var a -> fromMaybe x (HMS.lookup a tbl)
-        _ -> x
-
-    remove pat = HMS.filterWithKey (\k _ -> k `notElem` pat) tbl
 
 freeVars :: [Var] -> AExpr -> [Var]
 freeVars bvs = go
@@ -178,4 +215,47 @@ freeVars bvs = go
         CallDefnA a -> concatMap goAtom $ dcArgs a
         SwitchA a b cs -> goAtom a ++ go b ++ concatMap (go . snd) cs
         UnreachableA _ -> []
+
+-}
+subst :: HMS.HashMap Var Atom -> AExpr -> AExpr
+subst tbl = go
+  where
+    go x = case x of
+        TupleA bs -> TupleA $ map goAtom bs
+        CExprA a -> CExprA $ goCExpr a
+        LetA pat a b -> LetA pat (goCExpr a) (subst (remove pat) b)
+
+    goDefnCall (DefnCall n f bs) = DefnCall n f (map goAtom bs)
+
+    goLocalCall (LocalCall n bs) = LocalCall n (map goAtom bs)
+
+    goCExpr x = case x of
+        CallDefnA a -> CallDefnA $ goDefnCall a
+        CallLocalA a -> CallLocalA $ goLocalCall a
+        SwitchA a b cs -> SwitchA (goAtom a) (go b) $ map (second go) cs
+        UnreachableA{} -> x
+
+    goAtom x = case x of
+        Var a -> fromMaybe x (HMS.lookup a tbl)
+        _ -> x
+
+    remove pat = HMS.filterWithKey (\k _ -> k `notElem` pat) tbl
+
+
+fromAExpr :: AExpr -> Expr
+fromAExpr x = case x of
+    TupleA bs -> TupleE $ map AtomE bs
+    LetA pat a b -> LetE pat (fromCExpr a) (fromAExpr b)
+    CExprA a -> fromCExpr a
+
+fromAFunc :: AFunc -> Func
+fromAFunc (AFunc n pat e) = Func n pat $ fromAExpr e
+
+fromCExpr :: CExpr -> Expr
+fromCExpr x = case x of
+    CallDefnA (DefnCall nm f bs) -> CallE (nm, Defn f) $ map AtomE bs
+    CallLocalA (LocalCall nm bs) -> CallE (nm, LocalDefn) $ map AtomE bs
+    SwitchA a b cs -> SwitchE (AtomE a) (fromAExpr b) $
+        map (second fromAExpr) cs
+    UnreachableA t -> UnreachableE t
 

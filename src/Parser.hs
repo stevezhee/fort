@@ -2,7 +2,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 
-module Parser ( grammar ) where
+module Parser ( grammar, readIntLit ) where
 
 import           Control.Applicative
 import           Control.Monad.State
@@ -143,7 +143,7 @@ grammar = mdo
         (Sequence <$> (reserved "/do" *> blockList pExpr) <?> "do block")
         <|> (Case <$> (reserved "/case" *> pExpr <* reserved "/of")
              <*> blockList pAlt <?> "case expression")
-        <|> (mkIf <$> (reserved "/if" *> blockList pIfAlt) <?> "if expression")
+        <|> (If <$> (reserved "/if" *> blockList pIfAlt) <?> "if expression")
         <|> (pure Extern <* reserved "/extern" <?> "/extern") <|> pAscriptionE
     pAscriptionE <- rule $ (Ascription <$> pE0 <*> pAscription) <|> pE0
     pE0 <- rule $ (Record <$> blockList pFieldDecl <?> "record")
@@ -192,12 +192,6 @@ mkWhere x ys = case x of
     Lam a b -> Lam a $ Where b ys
     _ -> Where x ys
 
-mkIf :: [(Expr, Expr)] -> Expr
-mkIf [] = error "empty if expression"
-mkIf [ (Prim (Var (L _ "_")), b) ] = b
-mkIf [ (_, x) ] = x -- BAL: error "expected last element of if/case to be the default case"
-mkIf ((a, b) : xs) = If a b $ mkIf xs
-
 pLam :: P r a -> P r a
 pLam p = reserved "\\" *> p <* reserved "=>"
 
@@ -227,14 +221,17 @@ pCharLit = f <$> satisfy hasCharLitPrefix <?> "character literal"
 pStringLit :: P r Token
 pStringLit = satisfy (startsWith ('"' ==)) <?> "string literal"
 
-pIntLit :: P r (L Int)
-pIntLit = (\a -> useLoc (f (unLoc a)) a) <$> satisfy isInt <?> msg
-  where
-    msg = "integer literal"
+pIntLit :: P r Token
+pIntLit = (\a -> seq (useLoc (readIntLit (unLoc a)) a) a)
+    <$> satisfy isInt <?> readIntLitErrMsg
 
-    f s = case s of
-        '0' : 'b' : bs -> readBin bs
-        _ -> readError msg s
+readIntLit :: String -> Int
+readIntLit s = case s of
+    '0' : 'b' : bs -> readBin bs
+    _ -> readError readIntLitErrMsg s
+
+readIntLitErrMsg :: String
+readIntLitErrMsg = "integer literal"
 
 readBin :: String -> Int
 readBin = foldl' (\acc x -> acc * 2 + digitToInt x) 0

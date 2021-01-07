@@ -4,7 +4,7 @@ github:              "githubuser/fort"
 license:             BSD3
 author:              "Author name here"
 maintainer:          "example@example.com"
-copyright:           "2018 Author name here"
+copyright:           "2021 Author name here"
 
 extra-source-files:
 - README.md
@@ -21,6 +21,19 @@ description:         Please see the README on GitHub at <https://github.com/gith
 
 dependencies:
 - base >= 4.7 && < 5
+- llvm-hs
+- llvm-hs-pure
+- srcloc
+- regex-applicative
+- hashable
+- filepath
+- prettyprinter
+- lexer-applicative
+- mtl
+- Earley
+- unordered-containers
+- text
+- llvm-hs-pretty
 
 library:
   source-dirs: src
@@ -39,25 +52,6 @@ library:
     - SyntaxTypes
     - UExpr
     - Expr
-
-  dependencies:
-    - mtl
-    - lexer-applicative
-    - regex-applicative
-    - Earley
-    - srcloc
-    - containers
-    - llvm-hs
-    - llvm-hs-pure
-    - llvm-hs-pretty
-    - unification-fd
-    - bytestring
-    - text
-    - prettyprinter
-    - prettyprinter-ansi-terminal
-    - unordered-containers
-    - hashable
-    - filepath
 
 executables:
   fort-exe:
@@ -80,5 +74,3 @@ tests:
     - -with-rtsopts=-N
     dependencies:
     - fort
-    - filepath
-    - directory

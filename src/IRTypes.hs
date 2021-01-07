@@ -31,7 +31,7 @@ class Ty a where
 
 type M a = State St a
 
-data St = St { unique  :: Integer
+data St = St { unique  :: Integer -- BAL: delete unused fields
              , strings :: HMS.HashMap String Var
              , externs :: HMS.HashMap Name Type
              , funcs   :: HMS.HashMap Name Func
@@ -39,12 +39,18 @@ data St = St { unique  :: Integer
              , sfuncs  :: [CPSFunc]
              , instrs  :: [Instr]
              , conts   :: HMS.HashMap Name (HMS.HashMap Nm Integer)
+             , phiMap  :: HMS.HashMap Nm [[(Atom, Name)]]
+             , indirectPhiMap :: HMS.HashMap Var [[(Atom, Name)]]
+             , paramMap:: HMS.HashMap Nm [Var]
+--             , contMap :: HMS.HashMap Nm [Nm]
+             , afuncs  :: [AFunc]
+             , blocks  :: [SSABlock]
              , path    :: FilePath
              }
     deriving Show
 
 initSt :: FilePath -> St
-initSt = St 0 mempty mempty mempty mempty mempty mempty mempty
+initSt = St 0 mempty mempty mempty mempty mempty mempty mempty mempty mempty mempty mempty mempty
 
 newtype E a = E { unE :: M Expr } -- a typed expression
 
@@ -66,30 +72,14 @@ data Expr = AtomE Atom
           | UnreachableE Type
     deriving Show
 
-data Atom = Int Integer Integer
-          | Enum (String, (Type, Integer))
-          | Char Char
-          | Var Var
-          | Global Var
-          | String String Var
-          | Undef Type
-          | Cont Nm (Name, Integer, Integer)
-    deriving Show
-
 data CallType = LocalDefn | Defn ([Operand] -> Instruction)
 
-instance Show CallType where
-    show x = case x of
-        Defn{} -> "defn"
-        LocalDefn -> "local"
+data AFunc = AFunc { afNm :: Nm, afParams :: [Var], afBody :: AExpr }
+    deriving Show
 
-data AFunc = AFunc { afNm :: Nm, afParams :: Pat, afBody :: AExpr }
-    deriving Show -- BAL: Pat should be reduced to [Var]
-
-afName :: AFunc -> Name
-afName = nName . afNm
-
-data AExpr = LetA Pat CExpr AExpr | CExprA CExpr | TupleA [Atom]
+data AExpr = LetA Pat CExpr AExpr
+           | CExprA CExpr
+           | TupleA [Atom]
     deriving Show
 
 data CExpr = UnreachableA Type
@@ -97,6 +87,54 @@ data CExpr = UnreachableA Type
            | CallLocalA LocalCall
            | SwitchA Atom AExpr [(Tag, AExpr)]
     deriving Show
+
+-- BAL: remove
+-- data SAFunc = SAFunc { saNm :: Nm, saParams :: [Var], saBody :: SAExpr }
+--   deriving Show
+
+-- data SAExpr
+--   = SALet Pat DefnCall SAExpr
+--   | SACont SCExpr Nm
+--   | SCExpr SCExpr
+--   | SATuple [Atom]
+--   | SAUnreachable Type
+--   deriving Show
+
+-- data SCExpr
+--   = SCSwitch Atom LocalCall [(Tag, LocalCall)]
+--   | SCCallLocal LocalCall
+--   deriving Show
+
+data DefnCall =
+    DefnCall { dcNm :: Nm, dcF :: [Operand] -> Instruction, dcArgs :: [Atom] }
+
+data LocalCall = LocalCall { lcNm :: Nm, lcArgs :: [Atom] }
+    deriving Show
+
+data Atom = Int Integer Integer
+          | Enum (String, (Type, Integer))
+          | Char Char
+          | Var Var
+          | Global Var
+          | String String Var
+          | Undef Type
+          | Label Name Nm
+          | Cont Nm (Name, Integer, Integer) -- BAL: remove
+    deriving Show
+
+instance Show CallType where
+    show x = case x of
+        Defn{} -> "defn"
+        LocalDefn -> "local"
+
+afName :: AFunc -> Name
+afName = nName . afNm
+
+instance Show DefnCall where
+    show (DefnCall a _ bs) = unwords [ "DefnCall", show a, show bs ]
+
+lcName :: LocalCall -> Name
+lcName = nName . lcNm
 
 data CPSFunc = CPSFunc { cpsNm     :: Nm
                        , cpsParams :: [Var]
@@ -125,9 +163,15 @@ data SSABlock =
     SSABlock { ssaNm :: Nm, ssaInstrs :: [Instr], ssaTerm :: SSATerm }
     deriving Show
 
-data SSATerm =
-    SwitchS Atom Nm [(Tag, Nm)] | BrS Nm | RetS [Atom] | UnreachableS Type
+data SSATerm
+    = SwitchS Atom Nm [(Tag, Nm)]
+    | BrS Nm
+    | IndirectBrS Var [Nm]
+    | RetS [Atom]
+    | UnreachableS Type
     deriving Show
+
+type Instr = ([Var], DefnCall)
 
 data IsVolatile = Volatile | NonVolatile
     deriving ( Show, Eq )
@@ -148,7 +192,8 @@ data Type = TyInteger Integer IsSigned IntType
           | TyRecord [(String, Type)]
           | TyVariant [(String, Type)]
           | TyFun Type Type
-          | TyCont Name
+          | TyCont Name -- BAL: remove
+          | TyLabel Type
     deriving ( Show, Eq )
 
 instance Pretty IsVolatile where
@@ -175,6 +220,7 @@ instance Pretty Type where
                                                  ]) <> ">"
         TyFun a b -> pretty a <+> "->" <+> pretty b
         TyCont a -> pretty a
+        TyLabel{} -> "Label"
 
 tyBool :: Type
 tyBool = tyEnum [ "False", "True" ]
@@ -221,25 +267,33 @@ ppExpr x = case x of
     AtomE a -> ppAtom a
     TupleE bs -> ppTuple $ map ppExpr bs
     CallE (a, _) bs -> pretty a <+> ppTuple (map ppExpr bs)
-    SwitchE a b cs -> vcat [ "switch" <+> ppExpr a
-                           , indent 2 $ "default" <> ppAltRHS b
-                           , indent 2 $ vcat (map ppAlt cs)
-                           ]
+    SwitchE a b cs -> ppSwitch a b cs
     LetE a b c -> vcat
                            -- [ "let" <+> ppPat a <+> "=" <+> ppExpr b
                            [ if null a
                              then ppExpr b
-                             else "let" <+> ppPat a <+> "=" <+> ppExpr b
-                           , ppExpr c
+                             else "let" <+> ppPat a <+> "=" <+> ppExpr b <+> "in"
+                           , parens (ppExpr c)
                            ]
     LetRecE bs c -> vcat $ [ "fun" <+> ppFunc b | b <- bs ] ++ [ ppExpr c ]
     UnreachableE _ -> "unreachable"
 
-ppAlt :: (Tag, Expr) -> Doc ann
+instance Pretty Expr where pretty = ppExpr
+
+ppSwitch :: (Pretty a, Pretty b) => a -> b -> [(Tag, b)] -> Doc ann
+ppSwitch a b cs = vcat
+  [ "switch" <+> pretty a
+  , indent 2 $ "default" <> ppAltRHS b
+  , indent 2 $ vcat (map ppAlt cs)
+  ]
+
+ppAlt :: Pretty a => (Tag, a) -> Doc ann
 ppAlt ((s, _), e) = pretty s <> ppAltRHS e
 
-ppAltRHS :: Expr -> Doc ann
-ppAltRHS e = ":" <> line <> indent 2 (ppExpr e)
+ppAltRHS :: Pretty a => a -> Doc ann
+ppAltRHS e = ":" <> line <> indent 2 (pretty e)
+
+instance Pretty Atom where pretty = ppAtom
 
 ppAtom :: Atom -> Doc ann
 ppAtom x = case x of
@@ -251,20 +305,6 @@ ppAtom x = case x of
     String s _ -> pretty (show s)
     Cont a _ -> "%" <> pretty a
     Undef _ -> "<undef>"
-
-data DefnCall =
-    DefnCall { dcNm :: Nm, dcArgs :: [Atom], dcF :: [Operand] -> Instruction }
-
-instance Show DefnCall where
-    show (DefnCall a bs _) = unwords [ "DefnCall", show a, show bs ]
-
-data LocalCall = LocalCall { lcNm :: Nm, lcArgs :: [Atom] }
-    deriving Show
-
-lcName :: LocalCall -> Name
-lcName = nName . lcNm
-
-type Instr = ([Var], DefnCall)
 
 data Var = V { vTy :: Type, vName :: Name }
     deriving Show
@@ -315,6 +355,7 @@ tyAtom x = case x of
     Undef t -> t
     Enum (_, (t, _)) -> t
     Cont _ (_, a, _) -> tyUnsigned a
+    Label _ nm -> TyLabel $ nTy nm
 
 freshPat :: Pat -> M Pat
 freshPat xs = sequence [ freshVar t s | V t s <- xs ]
@@ -334,6 +375,9 @@ freshName :: Name -> M Name
 freshName v = do
     i <- nextUnique
     pure $ v ++ "." ++ show i
+
+mkSubst :: (Show a, Show b, Eq a, Hashable a) => [a] -> [b] -> HMS.HashMap a b
+mkSubst xs ys = HMS.fromList $ safeZip "mkSubst" xs ys
 
 nextUnique :: M Integer
 nextUnique = do
@@ -444,6 +488,13 @@ instance (Ty a, Ty b, Ty c) => Ty (a, b, c) where
                        , tyFort (Proxy :: Proxy c)
                        ]
 
+instance (Ty a, Ty b, Ty c, Ty d) => Ty (a, b, c, d) where
+    tyFort _ = tyTuple [ tyFort (Proxy :: Proxy a)
+                       , tyFort (Proxy :: Proxy b)
+                       , tyFort (Proxy :: Proxy c)
+                       , tyFort (Proxy :: Proxy d)
+                       ]
+
 tyRecordToTyTuple :: [(String, Type)] -> Type
 tyRecordToTyTuple bs = tyTuple $ map snd bs
 
@@ -461,6 +512,6 @@ sizeFort x = case x of
     TyTuple bs -> sum $ map sizeFort bs
     TyRecord bs -> sizeFort $ tyRecordToTyTuple bs
     TyVariant bs -> sizeFort $ tyVariantToTyRecord bs
-    TyFun{} -> impossible "sizeFort:TyFun"
-    TyCont{} -> impossible "sizeFort:TyCont"
-
+    TyFun{} -> impossible $ "sizeFort:" ++ show x
+    TyCont{} -> impossible $ "sizeFort:" ++ show x
+    TyLabel{} -> ptrSize

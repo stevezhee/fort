@@ -43,7 +43,7 @@ fromCPSFunc (CPSFunc nm vs ys z) = Func nm vs $
     foldr ((\f b -> f b) . go) (goTerm z) ys
   where
     go :: Instr -> Expr -> Expr
-    go (pat, DefnCall n bs f) = LetE pat (CallE (n, Defn f) $ map AtomE bs)
+    go (pat, DefnCall n f bs) = LetE pat (CallE (n, Defn f) $ map AtomE bs)
 
     goLocalCall (LocalCall a bs) = CallE (a, LocalDefn) $ map AtomE bs
 

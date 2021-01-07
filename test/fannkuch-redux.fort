@@ -1,13 +1,16 @@
 ;; types
-Int = /unsigned 32
+Int = /unsigned 32 ;; BAL: make this signed
+SInt = /signed 32
 Perm = /address (/array 12 Int) ;; BAL: make this configurable
 Bool = /bool
 
-;; primitives
+;; ;; primitives
 add: (a, a) -> a
 + = add
 equals: (a, a) -> Bool
 == = equals
+greater-than: (a, a) -> Bool
+> = greater-than
 less-than: (a, a) -> Bool
 < = less-than
 output: a -> ()
@@ -29,59 +32,185 @@ index: (/address (/array sz a), Int) -> /address a
 
 cast: a -> b
 
-;; code
-is-odd: Int -> Bool = cast
+;; ;; code
+;; is-odd: Int -> Bool = cast
 
-fannkuch: Perm -> Int = \p => go 0
-  /where
-    go: Int -> Int = \num-flips => /case load (p # 0) /of
-      1 = num-flips
-      \i => /do
-        reverse-n (i, p)
-        go (num-flips + 1)
+;; num-flips: Perm -> Int = \perm => /do
+;;   /let p = unsafe-array
+;;   init-copy (p, perm)
+;;   go 0
+;;     /where
+;;       go: Int -> Int = \n => /case load (p # 0) /of
+;;         1 = n
+;;         \i => /do
+;;           reverse-n (i, p)
+;;           ;; output p
+;;           go (n + 1)
 
-;; BAL: try multiply version when benchmarking
-checksum: (Int, Int) -> Int = \(csum, n-flips) => /if
-  is-odd n-flips = csum - n-flips
-  _ = csum + n-flips
+;; ;; BAL: try multiply version when benchmarking
+;; calc-checksum: (SInt, Int, Int) -> SInt = \(csum, n-flips, i) => /if
+;;   is-odd i = csum - cast n-flips
+;;   _ = csum + cast n-flips
   
-reverse-n: (Int, Perm) -> () = \(n,p) => go (0, n - 1)
-  /where
-    go: (Int, Int) -> () = \(l,r) => /if
-      l >= r = ()
-      _ = /do
-        swap (p # l, p # r)
-        go (l + 1, r - 1)
+;; max: (Int, Int) -> Int = \(x, y) => /if
+;;   x >= y = x
+;;   _ = y
 
-swap: (/address Int, /address Int) -> () = \(p,q) => /do
-  /let temp = load p
-  p := load q
-  q := temp
+;; St = /record
+;;   max-flips: Int
+;;   checksum: SInt
+;;   perm-count: Int
 
-inc: /address Int -> () = \p => p := (load p + 1)
+;; fannkuch: (Int, SInt, Int, Perm) -> St = \(m0, csum0, i, perm) => /do
+;;   /let n = num-flips perm
+;;   /let m = max (m0, n)
+;;   /let csum = calc-checksum(csum0, n, i)
+;;   ;; output n
+;;   ;; output i
+;;   ;; output csum
+;;   { ;; BAL: fix parser
+;;     ; max-flips = m
+;;     ; checksum = csum
+;;     ; perm-count = i + 1
+;;     }
+
+;; reverse-n: (Int, Perm) -> () = \(n, p) => go (0, n - 1)
+;;   /where
+;;     go: (Int, Int) -> () = \(l,r) => /if
+;;       l >= r = ()
+;;       _ = /do
+;;         swap (p # l, p # r)
+;;         go (l + 1, r - 1)
+
+;; swap: (/address Int, /address Int) -> () = \(p,q) => /do
+;;   /let temp = load p
+;;   p := load q
+;;   q := temp
+
+;; inc: /address Int -> () = \p => p := (load p + 1)
+;; dec: /address Int -> () = \p => p := (load p - 1)
 
 array: (Int -> a) -> /address (/array sz a)
 
-linear: Int -> Int = \i => i + 1 ;; BAL: inline
-zeros: Int -> Int = \_ => 0 ;; BAL: inline
+unsafe-array: /address (/array sz a)
 
-permutations: Int -> () = \size => /do
-  /let perm: Perm = array linear ;; [ 1 .. ]
-  /let c: Perm = array zeros ;; repeat 0
-  output perm
-  output c
-  ;; go 0 ;; BAL: go backwards?
-  ;;   /where
-  ;;     go: Int -> () = \i => /if
-  ;;       i < size = /if
-  ;;         load (c # i) < i = /do
-  ;;           /if
-  ;;             is-odd i = swap (perm # load (c # i), perm # i)
-  ;;             /else = swap (perm # 0, perm # i)
-  ;;           output perm
-  ;;           inc (c # i)
-  ;;           go 0
-  ;;         _ = /do
-  ;;         (c # i) := 0
-  ;;         go (i + 1)
-  ;;       _ = ()
+;; linear: Int -> Int = \i => i + 1 ;; BAL: inline
+;; zeros: Int -> Int = \_ => 0 ;; BAL: inline
+
+;; ;; array-linear: /address (/array sz a) = /do
+;; ;; array-zeros: /address (/array sz a)
+
+array-size: /address (/array sz a) -> Int
+
+;; ;; blah: /address (/array sz a) -> () = \arr => go 0
+;; init-linear: Perm -> () = \arr => go 0
+;;   /where
+;;     go: Int -> () = \i => /if
+;;       i < array-size arr = /do ;; BAL: go backwards?  use an input size?
+;;         (arr # i) := i
+;;         go (i + 1)
+;;       _ = ()
+
+;; init-copy: (Perm, Perm) -> () = \(a, b) => go 0
+;;   /where
+;;     go: Int -> () = \i => /if ;; BAL: go backwards?  use an input size?
+;;       i < array-size a = /do
+;;         (a # i) := load (b # i)
+;;         go (i + 1)
+;;       _ = ()
+
+;; init-zeros: Perm -> () = \arr => go 0
+;;   /where
+;;     go: Int -> () = \i => /if ;; BAL: go backwards?  use an input size?
+;;       i < array-size arr = /do
+;;         (arr # i) := 0
+;;         go (i + 1)
+;;       _ = ()
+
+;; permutations: Int -> () = \n => /do
+;;   /let perm: Perm = unsafe-array
+;;   init-linear perm
+;;   /let count: Perm = unsafe-array
+;;   ;; init-zeros count ;; BAL: don't need this
+;;   output perm
+;;   computePerms n
+;;     /where
+;;       computePerms: Int -> () = \r0 => /do
+;;         output perm
+;;         updateCounts r0
+;;         /let r: Int = computeNextPerm 1
+;;         /if
+;;           r < n = computePerms r
+;;           _ = () ;; done computing perms
+
+;;       updateCounts: Int -> () = \r0 =>
+;;         /if
+;;           r0 > 1 = /do
+;;             /let r: Int = r0 - 1
+;;             (count # r) := r0
+;;             updateCounts r
+;;           _ = ()
+
+;;       computeNextPerm: Int -> Int = \r => /do
+;;         rotateSubPerm r
+;;         dec (count # r)
+        
+;;         /if
+;;           load (count # r) > 0 = r
+;;           _ = computeNextPerm (r + 1)
+
+;;       rotateSubPerm: Int -> () = \r => /do
+;;         /let perm0 = load (perm # 0)
+;;         rot 0
+;;           /where
+;;             rot: Int -> () = \i =>
+;;               /if
+;;                 i < r = /do
+;;                   (perm # i) := load (perm # (i + 1))
+;;                   rot (i + 1)
+;;                 _ = (perm # r) := perm0
+
+permutations: Int -> () = \n => /do
+  /let foo: Perm = unsafe-array
+  computePerms n
+    /where
+      computePerms: Int -> () = \r0 => /do
+        updateCounts r0
+        /if
+          r0 < n = computePerms r0
+          _ = ()
+
+      updateCounts: Int -> () = \r0 =>
+        /if
+          r0 > 1 = /do
+            (foo # r0) := r0
+            updateCounts r0
+          _ = ()
+
+
+;;   /let c: Perm = unsafe-array
+;;   init-zeros c
+
+;; permutations: Int -> () = \size => /do
+;; ;;  /let perm: Perm = array-linear ;; [ 1 .. ]
+;;   ;; /let c: Perm = array-zeros ;; repeat 0
+;;   /let perm: Perm = unsafe-array
+;;   /let c: Perm = unsafe-array
+;;   init-linear perm
+;;   init-zeros c
+;;   output perm
+;;   go (0, fannkuch(0, 0, 0, perm)) ;; BAL: go backwards?
+;;     /where
+;;       go: (Int, St) -> () = \(i, st) => /if
+;;         i < size = /if
+;;           load (c # i) < i = /do
+;;             /if
+;;               is-odd i = swap (perm # load (c # i), perm # i)
+;;               /else = swap (perm # 0, perm # i)
+;;             inc (c # i)
+;;             output perm
+;;             go (0, fannkuch(max-flips st, checksum st, perm-count st, perm))
+;;           _ = /do
+;;             (c # i) := 0 ;; BAL: if this is outdented it still compiles.  fix the parser
+;;             go (i + 1, st)
+;;         _ = output st
