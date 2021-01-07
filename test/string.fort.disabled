@@ -1,0 +1,13 @@
+;; types
+Char  = Unsigned 8
+
+a = "a"
+b: Char = "b"
+
+fst: (Char, Char) -> Char = \(x,_) => x
+foo: Char -> Char = \_ => fst("z","z")
+bar: Char -> Char = \_ => fst (a,b)
+qux: Char -> Char = \_ => fst (c,d)
+  /where
+    c = "c"
+    d: Char = "d"

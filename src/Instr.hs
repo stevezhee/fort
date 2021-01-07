@@ -145,6 +145,9 @@ fcmp pred a b = FCmp pred a b []
 br :: Name -> Terminator
 br val = Br val []
 
+indirectbr :: Operand -> [Name] -> Terminator
+indirectbr a bs = IndirectBr a bs []
+
 phi :: [(Operand, Name)] -> Instruction
 phi xs = Phi ty xs []
   where

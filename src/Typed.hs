@@ -10,7 +10,7 @@ module Typed ( module IRTypes, module Expr, codegen ) where
 
 import           ANF
 
-import           CPS
+-- import           CPS
 
 import           Control.Monad.State.Strict
 
@@ -34,7 +34,7 @@ import           Utils
 import Renamer
 
 verbose :: Bool
-verbose = True -- BAL: False
+verbose = True
 
 codegen :: FilePath -> [M Expr] -> IO ()
 codegen file ds = do
@@ -59,21 +59,22 @@ codegen file ds = do
             putStrLn "--- a-normalization (ANF) --------------"
         else putStrFlush "ANF->"
 
-    let (anfs, st1) = runState (mapM toAFuncs fsR) stR
+    let (anfs :: [[AFunc]], st1) = runState (mapM toAFuncs fsR) stR
     if verbose
         then do
             print $ ppFuncs (vcat . ("---" :) . map ppAFunc) anfs
-            putStrLn "--- continuation passing style (CPS) ---"
-        else putStrFlush "CPS->"
+        --     putStrLn "--- continuation passing style (CPS) ---"
+        -- else putStrFlush "CPS->"
 
-    let cpss :: [[CPSFunc]] = evalState (mapM toCPSFuncs anfs) st1
-    if verbose
-        then do
-            print $ ppFuncs (vcat . ("---" :) . map ppCPSFunc) cpss
+    -- let cpss :: [[CPSFunc]] = evalState (mapM toCPSFuncs anfs) st1
+    -- if verbose
+    --     then do
+    --         print $ ppFuncs (vcat . ("---" :) . map ppCPSFunc) cpss
             putStrLn "--- single static assignment (SSA) -----"
         else putStrFlush "SSA->"
 
-    let ssas :: [SSAFunc] = map toSSAFunc cpss
+    -- let ssas :: [SSAFunc] = map toSSAFunc cpss
+    let ssas :: [SSAFunc] = map (toSSAFunc st1) anfs
     if verbose
         then do
             print $ ppFuncs ppSSAFunc ssas

@@ -8,23 +8,17 @@
 
 module Renamer where
 
-import           Control.Monad.State.Strict
-
-import           Data.Bifunctor
 import qualified Data.HashMap.Strict        as HMS
 import           Data.List
 import           Data.Maybe
 
--- import           Data.Text.Prettyprint.Doc
-
 import           IRTypes
 
 import           Utils
-import Data.Maybe
 
 rename :: [Func] -> M [Func]
-rename funcs =
-  mapM (substFunc HMS.empty) funcs >>= mapM (callSubstFunc HMS.empty)
+rename xs =
+  mapM (substFunc HMS.empty) xs >>= mapM (callSubstFunc HMS.empty)
 
 substFunc :: HMS.HashMap Var Var -> Func -> M Func
 substFunc tbl (Func nm pat e) = do
@@ -71,6 +65,7 @@ callSubst tbl x = case x of
   where
     f = callSubst tbl
 
+callSubstFunc :: HMS.HashMap Nm Nm -> Func -> M Func
 callSubstFunc tbl (Func nm pat e) =
   Func (fromMaybe nm $ HMS.lookup nm tbl) pat <$> callSubst tbl e
 
