@@ -171,7 +171,6 @@ hOutput ty = case ty of
     ok :: (T a -> T Handle -> T ()) -> T (a, Handle) -> T ()
     ok f = classFunc tyUnit "hOutput" [ "a", "h" ] $ \v ->
         let (a, h) = argTuple2 v in f a h
-  
 upTo :: Type -> (T UInt32 -> T ()) -> (T UInt32 -> T ())
 upTo ty f = func tyUnit ("upTo." ++ hashName ty) [ "n" ] $ \n ->
     let go = callLocal "go" tyUnit
@@ -238,13 +237,10 @@ unsafeCast tb (T _ a) = T tb (U.unsafeCast a)
 string :: String -> T String_
 string = T tyString . U.string
 
-<<<<<<< HEAD
-=======
 func :: Type -> Name -> U.UPat -> (T a -> T b) -> (T a -> T b)
 func tb n upat f a@(T ta _) = T tb $
     U.app (U.func n upat (unTLam ta f) ta tb) (unT a)
 
->>>>>>> cleanup
 callLocal :: Name -> Type -> T a -> T b
 callLocal n tb a = T tb $ U.app (U.callLocal n (tyT a) tb) (unT a)
 

@@ -41,9 +41,6 @@ let_ upat (x :: E a) f = U.let_ upat x f (tyFort (Proxy :: Proxy a))
 load :: Ty a => E (Addr a -> a)
 load = unop U.load
 
-array :: (Ty a, Size sz) => E ((UInt32 -> a) -> Addr (Array sz a))
-array = undefined
-
 store :: Ty a => E ((Addr a, a) -> ())
 store = binop U.store
 

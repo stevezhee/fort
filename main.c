@@ -3,12 +3,8 @@
 #include <stdint.h>
 
 extern void reverse_n(int,int []);
-<<<<<<< HEAD
-extern int fannkuch_redux_fannkuch(int []);
-=======
 // extern int fannkuch_redux_fannkuch(int []);
 // extern int fannkuch_redux_permutations(int [], int []);
->>>>>>> cleanup
 extern int fannkuch_redux_permutations(int);
 extern void char_hello_world();
 extern int powi_powi(int, int);
