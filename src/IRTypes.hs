@@ -45,12 +45,13 @@ data St = St { unique  :: Integer -- BAL: delete unused fields
 --             , contMap :: HMS.HashMap Nm [Nm]
              , afuncs  :: [AFunc]
              , blocks  :: [SSABlock]
+             , indirectBrs :: HMS.HashMap Var [Nm]
              , path    :: FilePath
              }
     deriving Show
 
 initSt :: FilePath -> St
-initSt = St 0 mempty mempty mempty mempty mempty mempty mempty mempty mempty mempty mempty mempty
+initSt = St 0 mempty mempty mempty mempty mempty mempty mempty mempty mempty mempty mempty mempty mempty
 
 newtype E a = E { unE :: M Expr } -- a typed expression
 
@@ -166,7 +167,7 @@ data SSABlock =
 data SSATerm
     = SwitchS Atom Nm [(Tag, Nm)]
     | BrS Nm
-    | IndirectBrS Var [Nm]
+    | IndirectBrS Atom [Nm]
     | RetS [Atom]
     | UnreachableS Type
     deriving Show
@@ -250,6 +251,16 @@ returnTy x = case x of
     TyFun _ b -> b
     _ -> impossible "returnTy"
 
+argTy :: Type -> Type
+argTy x = case x of
+    TyFun a _ -> a
+    _ -> impossible "argTy"
+
+unAddrTy :: Type -> Type
+unAddrTy x = case x of
+  TyAddress t _ _ -> t
+  _ -> impossible $ "unAddrTy:" ++ show x
+
 ppFuncs :: (a -> Doc ann) -> [a] -> Doc ann
 ppFuncs f xs = indent 2 (vcat $ map f xs)
 
@@ -305,6 +316,7 @@ ppAtom x = case x of
     String s _ -> pretty (show s)
     Cont a _ -> "%" <> pretty a
     Undef _ -> "<undef>"
+    Label n nm -> pretty n <> "." <> pretty nm
 
 data Var = V { vTy :: Type, vName :: Name }
     deriving Show

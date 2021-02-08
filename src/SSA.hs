@@ -25,11 +25,181 @@ import qualified LLVM.AST                  as AST
 import           Utils
 import           Control.Monad.State.Strict
 import ANF
+import LLVM
 -- import Debug.Trace
 
-toSSAFunc :: St -> [AFunc] -> SSAFunc
-toSSAFunc st0 xs = case xs of
-  [] -> impossible "toSSAFunc"
+toSSAFuncs :: [[AFunc]] -> [SSAFunc]
+toSSAFuncs afss = [ toSSAFunc (i, af) | (i, af : _ ) <- zip [0 ..] afss ]
+
+storeInstr :: Atom -> Atom -> Instr
+storeInstr x y = ([], DefnCall nm (\[a, b] -> I.store a b) [x, y])
+  where
+    nm = Nm ty "store"
+    ty = tyUnit -- BAL: fixme can we reuse some existing code to get the type?  Does it matter? -- get it from the args
+
+allocaInstr :: Var -> Type -> Instr
+allocaInstr v t = ([v], DefnCall nm (\[] -> I.alloca (toTyLLVM t) Nothing 0) [])
+  where
+    nm = Nm t "alloca" -- BAL: is that type right?  Does it matter?
+
+freshBlock blk@(SSABlock nm _ term) = do
+  lbl <- freshNm (nTy nm) (nName nm)
+  return $ SSABlock lbl [] term
+
+addInstr x blk = blk{ ssaInstrs = ssaInstrs blk ++ [x] }
+
+fooAFunc :: AFunc -> M ()
+fooAFunc (AFunc nm vs e) = do
+  let blk = SSABlock nm [] $ IndirectBrS (Global $ retAddrRef nm) []
+  let blk' = foldr addInstr blk [ loadInstr v $ Global rr | (v, rr) <- zip vs $ argRefs nm ]
+  fooAExpr blk' (retValRefs nm) e
+
+fooAExpr :: SSABlock -> [Var] -> AExpr -> M ()
+fooAExpr blk vs x = case x of
+  CExprA e -> fooCExpr blk vs e
+
+  TupleA bs -> addBlock $ foldr addInstr blk $ safeZipWith "fooAExpr assignments mismatch" (\v -> storeInstr (Var v)) vs bs
+
+  LetA pat ce ae -> do
+    blkA <- freshBlock blk
+    ps <- sequence [ freshVar (tyAddress $ vTy p) ("ref." ++ vName p) | p <- pat ]
+    let blk' = foldr addInstr blk [ allocaInstr p (vTy pat) | (p, pat) <- zip ps pat ]
+    fooCExpr blk'{ ssaTerm = BrS $ ssaNm blkA } ps ce
+
+    let blkA' = foldr addInstr blkA [ loadInstr p $ Var q | (p, q) <- zip pat ps ]
+    fooAExpr blkA' vs ae
+
+fooCExpr :: SSABlock -> [Var] -> CExpr -> M ()
+fooCExpr blk vs x = case x of
+  UnreachableA t -> addBlock $ blk{ ssaTerm = UnreachableS t }
+
+  CallDefnA c -> do
+    xs <- sequence [ freshVar (unAddrTy $ vTy v) (vName v) | v <- vs ]
+    let blk' = addInstr (xs, c) blk
+    fooAExpr blk' vs $ TupleA $ map Var xs
+
+  SwitchA a e0 alts -> do
+    let es = e0 : map snd alts
+    bs <- sequence $ replicate (length es) $ freshBlock blk
+    addBlock blk{ ssaTerm = SwitchS a (ssaNm $ head bs) $ zip (map fst alts) $ map ssaNm $ tail bs }
+    sequence_ [ fooAExpr b vs e | (e, b) <- zip es bs ]
+
+  CallLocalA (LocalCall nm bs) -> do
+    blkA <- freshBlock blk
+    let blk' = foldr addInstr blk $
+          storeInstr (Global $ retAddrRef nm) (Label (vName obf) $ ssaNm blkA) :
+          [ storeInstr (Global ref) b | (ref, b) <- safeZip "LocalCall args mismatch" (argRefs nm) bs ]
+    addBlock blk'{ ssaTerm = BrS nm }
+
+  -- add lbl to nm-indirect-br labels
+
+    tmps <- sequence [ freshVar (vTy r) "tmp" | r <- retVals nm ]
+    let blkA' = foldr addInstr blkA $
+          [ loadInstr tmp (Global rr) | (tmp, rr) <- zip tmps $ retValRefs nm ] ++
+          [ storeInstr (Var v) (Var tmp) | (v, tmp) <- zip vs tmps ]
+    addBlock blkA'
+
+toPublicEntryBlock (AFunc nm _ _ : _) =
+  SSABlock (publicEntry nm) [ storeInstr (Global $ retAddrRef nm) (Label (nName obfNm) exitBlockNm) ] $ BrS nm
+
+publicEntry nm = nm{ nName = "public." ++ nName nm }
+
+toObfFunc :: St -> [[AFunc]] -> SSAFunc
+toObfFunc st afss = SSAFunc obfNm [obfArg] $
+  [entryBlock] ++
+  publicEntryBlocks ++
+  blocks ++
+  [exitBlock]
+  where
+    entryBlock = SSABlock (obfNm{ nName = "entry"}) [] $
+      SwitchS (Var obfArg) (last publicEntries) [ ((nName n, I.constInt 32 i), n) | (i, n) <- zip [0 .. ] $ init publicEntries ]
+    publicEntryBlocks = map toPublicEntryBlock afss
+    publicEntries = map ssaNm publicEntryBlocks
+    blocks = toSSABlocks st $ concat afss
+    exitBlock = SSABlock exitBlockNm [] $ RetS []
+
+toSSABlocks :: St -> [AFunc] -> [SSABlock]
+toSSABlocks st0 afs = flip evalState st0 $ do
+  mapM_ fooAFunc afs
+  gets blocks
+
+loadInstr :: Var -> Atom -> Instr
+loadInstr x y = ([x], DefnCall nm (\[a] -> I.load a) [y])
+  where
+    nm = Nm ty "load"
+    ty = tyUnit -- BAL: fixme can we reuse some existing code to get the type?  Does it matter? -- get it from the args
+
+callObfInstr :: Atom -> Instr
+callObfInstr x = ([], DefnCall obfNm (\[a, b] -> I.call a [(b, [])]) [Global obf, x])
+
+obfNm = varToNm obf
+obf = V (TyFun (tyUnsigned 32) tyUnit) "obf"
+
+varToNm (V a b) = Nm a b
+
+retAddrRef :: Nm -> Var
+retAddrRef nm = V (tyAddress tyLabel) $ "retAddr." ++ nName nm
+
+obfArg :: Var
+obfArg = V (tyUnsigned 32) "i"
+
+exitBlockNm :: Nm
+exitBlockNm = Nm (vTy obf) "exit"
+
+tyLabel :: Type
+tyLabel = tyAddress $ tyUnsigned 8
+
+toPrivates :: AFunc -> [(Name, Type)]
+toPrivates (AFunc nm _ _) = [ (vName v, vTy v) | v <- retAddrRef nm : retValRefs nm ++ argRefs nm ]
+
+argRefs :: Nm -> [Var]
+argRefs nm = [ V (tyAddress t) (nName nm ++ ".arg" ++ show i) | (i, t) <- zip [0 :: Int ..] $ unTupleTy $ argTy $ nTy nm ]
+
+retVals :: Nm -> [Var]
+retVals nm = [ V t (nName nm ++ ".retVal" ++ show i) | (i, t) <- zip [0 :: Int ..] $ unTupleTy $ returnTy $ nTy nm ]
+
+retValRefs :: Nm -> [Var]
+retValRefs nm = [ V (tyAddress t) (nName nm ++ ".retValRef" ++ show i) | (i, t) <- zip [0 :: Int ..] $ unTupleTy $ returnTy $ nTy nm ]
+
+toSSAFunc :: (Integer, AFunc) -> SSAFunc
+toSSAFunc (i, AFunc nm vs _) =
+  SSAFunc nm vs [ SSABlock lbl ins term ]
+    where
+      lbl = nm{ nName = "entry" }
+      rs = retVals nm
+      ins :: [Instr]
+      ins =
+        [ storeInstr (Global rr) (Var v) | (rr, v) <- zip (argRefs nm) vs ] ++
+        [ callObfInstr $ Int 32 i ] ++
+        [ loadInstr r (Global rr) | (r, rr) <- zip (retVals nm) (retValRefs nm) ]
+      term = RetS $ map Var rs
+
+ppSSAFunc :: SSAFunc -> Doc ann
+ppSSAFunc (SSAFunc nm vs xs) = pretty nm <+> ppPat vs <+> "=" <> line
+    <> indent 2 (vcat (map ppSSABlock xs))
+
+ppSSABlock :: SSABlock -> Doc ann
+ppSSABlock (SSABlock nm xs y) = pretty nm <> ":" <> line
+    <> indent 2 (vcat (map ppInstr xs ++ [ppSSATerm y]))
+
+ppInstr :: Instr -> Doc ann
+ppInstr (vs, x) = ppPat vs <+> "=" <+> ppDefnCall x
+
+ppDefnCall :: DefnCall -> Doc ann
+ppDefnCall (DefnCall nm _ xs) = pretty nm <> ppTuple (map pretty xs)
+
+ppSSATerm :: SSATerm -> Doc ann
+ppSSATerm x = case x of
+    SwitchS a b cs -> ppSwitch a b cs
+    BrS n -> "br" <+> pretty n
+    IndirectBrS v ns -> "indirectbr" <+> pretty v
+    RetS bs -> "ret" <+> ppTuple (map pretty bs)
+    UnreachableS t -> "unreachable"
+
+addBlock :: SSABlock -> M ()
+addBlock x = modify' $ \st -> st{ blocks = x : blocks st }
+
+{-
   AFunc nm vs ae : _ -> flip evalState st0 $ do
     let fn = nName nm
     let t = tyAExpr ae
@@ -41,7 +211,7 @@ toSSAFunc st0 xs = case xs of
   -- get the first arg value for each label
     args <- gets indirectPhiMap
     -- error $ show [ show x1, show x2 ]
---    gets indirectPhiMap >>= error . show
+    -- gets indirectPhiMap >>= error . show
     SSAFunc nm us <$> (map <$> (patchPhis <$> gets phiMap <*> gets paramMap) <*> gets blocks)
 
 ssaACont :: Name -> Atom -> Nm -> [Var] -> AExpr -> M ()
@@ -66,28 +236,6 @@ exitBlock t = do
   addBlock $ SSABlock exitLbl [] $ RetS (map Var vs)
   pure exitLbl
 
-ppSSAFunc :: SSAFunc -> Doc ann
-ppSSAFunc (SSAFunc nm vs xs) = pretty nm <+> ppPat vs <+> "=" <> line
-    <> indent 2 (vcat (map ppSSABlock xs))
-
-ppSSABlock :: SSABlock -> Doc ann
-ppSSABlock (SSABlock nm xs y) = pretty nm <> ":" <> line
-    <> indent 2 (vcat (map ppInstr xs ++ [ppSSATerm y]))
-
-ppInstr :: Instr -> Doc ann
-ppInstr (vs, x) = ppPat vs <+> "=" <+> ppDefnCall x
-
-ppDefnCall :: DefnCall -> Doc ann
-ppDefnCall (DefnCall nm f xs) = pretty nm -- BAL: f $ map toOperand xs
-
-ppSSATerm :: SSATerm -> Doc ann
-ppSSATerm x = case x of
-    SwitchS a b cs -> ppSwitch a b cs
-    BrS n -> "br" <+> pretty n
-    IndirectBrS v ns -> "indirectbr" <+> pretty v
-    RetS bs -> "ret" <+> ppTuple (map pretty bs)
-    UnreachableS t -> "unreachable"
-
 addIndirectArgs :: Var -> [Atom] -> Nm -> M ()
 addIndirectArgs v xs nm =
   modify' $ \st ->
@@ -102,9 +250,6 @@ addParams :: Nm -> [Var] -> M ()
 addParams nm vs =
   modify' $ \st ->
     st{ paramMap = HMS.insert nm vs $ paramMap st }
-
-addBlock :: SSABlock -> M ()
-addBlock x = modify' $ \st -> st{ blocks = x : blocks st }
 
 unContParam :: Var -> Nm
 unContParam (V t n) = case t of
@@ -366,3 +511,4 @@ patchPhis phiTbl paramTbl (SSABlock n ins t) = SSABlock n (phiInstrs ++ ins) t
 --         p :: Atom -> Bool
 --         p (Var a) = vName a == vName v
 --         p _ = False
+-}

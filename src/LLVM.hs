@@ -28,13 +28,15 @@ import           Utils
 toLLVMModule :: FilePath
              -> [(String, Var)]
              -> [(Name, Type)]
+             -> [(Name, Type)]
              -> [SSAFunc]
              -> AST.Module
-toLLVMModule file strs exts xs =
+toLLVMModule file strs exts privs xs =
     AST.defaultModule { AST.moduleSourceFileName = fromString file
                       , AST.moduleName           = fromString $ modNameOf file
                       , AST.moduleDefinitions    = map toLLVMExternDefn exts
                             ++ map toLLVMStringDefn strs
+                      ++ map toLLVMPrivateDefn privs
                             ++ map toLLVMFunction xs
                       }
 
@@ -73,8 +75,16 @@ toLLVMExternDefn (n, ty) = AST.GlobalDefinition $ case ty of
                                       }
     _ -> AST.globalVariableDefaults { AST.linkage = AST.External
                                     , AST.name = AST.mkName n
-                                    , LLVM.AST.Global.type' = toTyLLVM ty
+                                    , LLVM.AST.Global.type' = toTyLLVM ty -- BAL: shouldn't this call unAddrTy?
                                     }
+
+toLLVMPrivateDefn :: (Name, Type) -> AST.Definition
+toLLVMPrivateDefn (n, ty) = AST.GlobalDefinition $ AST.globalVariableDefaults { AST.linkage = AST.Private
+                                    , AST.name = AST.mkName n
+                                    , LLVM.AST.Global.type' = t
+                                    , AST.initializer = Just $ AST.Undef t
+                                    }
+  where t = toTyLLVM $ unAddrTy ty
 
 toLLVMStringDefn :: (String, Var) -> AST.Definition
 toLLVMStringDefn (s, v) = AST.GlobalDefinition $
@@ -110,7 +120,7 @@ toLLVMTerminator x = AST.Do $ case x of
                  (AST.mkName $ nName b)
                  [ (c, AST.mkName $ nName n) | ((_, c), n) <- cs ]
     BrS a -> I.br (AST.mkName $ nName a)
-    IndirectBrS a bs -> I.indirectbr (toOperand $ Var a) (map (AST.mkName . nName) bs)
+    IndirectBrS a bs -> I.indirectbr (toOperand a) (map (AST.mkName . nName) bs)
     RetS bs -> case bs of
         []    -> I.retVoid
         [ v ] -> I.ret $ toOperand v
