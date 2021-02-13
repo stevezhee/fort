@@ -39,68 +39,69 @@ int main(int argc, char**argv)
   g_stdout = stdout;
   g_stderr = stderr;
 
-  printf("3^2 = %d\n",powi_powi(3,2));
   printf("128^0 = %d\n",powi_powi(128,0));
+  printf("3^2 = %d\n",powi_powi(3,2));
+  printf("2^3 = %d\n",powi_powi(2,3));
   printf("128^1 = %d\n",powi_powi(128,1));
-  printf("3^2 = %d\n",powi_squared(3));
+  // printf("3^2 = %d\n",powi_squared(3));
 
-  int x = 0;
-  printf("%d\n",x);
-  address_inc(&x);
-  printf("%d\n",x);
-  address_inc2(&x);
-  printf("%d\n",x);
+  /* int x = 0; */
+  /* printf("%d\n",x); */
+  /* address_inc(&x); */
+  /* printf("%d\n",x); */
+  /* address_inc2(&x); */
+  /* printf("%d\n",x); */
 
-  int arr[2];
-  array_foo_array(arr);
-  printf("arr[0] %d\n",arr[0]);
-  printf("arr[1] %d\n",arr[1]);
+  /* int arr[2]; */
+  /* array_foo_array(arr); */
+  /* printf("arr[0] %d\n",arr[0]); */
+  /* printf("arr[1] %d\n",arr[1]); */
 
-  printf("sizeof int %lu\n", sizeof(int));
-  printf("sizeof FILE* %lu\n", sizeof(FILE*));
+  /* printf("sizeof int %lu\n", sizeof(int)); */
+  /* printf("sizeof FILE* %lu\n", sizeof(FILE*)); */
 
-  if(argc > 1)
-    {
-      char_char_io_test();
-    }
+  /* if(argc > 1) */
+  /*   { */
+  /*     char_char_io_test(); */
+  /*   } */
 
-  int arr2[2][3];
-  array_foo_2dim_array(arr2);
+  /* int arr2[2][3]; */
+  /* array_foo_2dim_array(arr2); */
 
-  int i,j;
-  for(i=0;i<2;++i)
-    {
-      for(j=0;j<3;++j)
-        {
-          printf("arr2[%d][%d] = %d\n",i,j,arr2[i][j]);
-        }
-    }
+  /* int i,j; */
+  /* for(i=0;i<2;++i) */
+  /*   { */
+  /*     for(j=0;j<3;++j) */
+  /*       { */
+  /*         printf("arr2[%d][%d] = %d\n",i,j,arr2[i][j]); */
+  /*       } */
+  /*   } */
 
-  int myInt = 4;
-  primitives_add315AtLoc(&myInt);
-  printf("myInt = %d\n", myInt);
+  /* int myInt = 4; */
+  /* primitives_add315AtLoc(&myInt); */
+  /* printf("myInt = %d\n", myInt); */
 
-  char_hello_world();
+  /* char_hello_world(); */
 
-  enum_enum_foo(0);
+  /* enum_enum_foo(0); */
 
-  struct_foo();
-  enum_foo();
+  /* struct_foo(); */
+  /* enum_foo(); */
 
-  // int perm[] = {4,2,1,5,3};
-  // printf("flips: %d\n", fannkuch_redux_fannkuch(perm));
+  /* // int perm[] = {4,2,1,5,3}; */
+  /* // printf("flips: %d\n", fannkuch_redux_fannkuch(perm)); */
 
-  // for(i=0; i < 5; ++i)
-  // {
-  // printf("%d,",perm[i]);
-  //}
-  //printf("\n");
+  /* // for(i=0; i < 5; ++i) */
+  /* // { */
+  /* // printf("%d,",perm[i]); */
+  /* //} */
+  /* //printf("\n"); */
 
-  //int arra[] = {1,2,3,4,5};
-  //int arrc[] = {0,0,0,0,0};
-  fannkuch_redux_permutations(5);
-  /* fannkuch_redux_permutations(arra, arrc); */
-  /* 228 */
-  /* Pfannkuchen(7) = 16 */
+  /* //int arra[] = {1,2,3,4,5}; */
+  /* //int arrc[] = {0,0,0,0,0}; */
+  /* fannkuch_redux_permutations(5); */
+  /* /\* fannkuch_redux_permutations(arra, arrc); *\/ */
+  /* /\* 228 *\/ */
+  /* /\* Pfannkuchen(7) = 16 *\/ */
   return 0;
 }

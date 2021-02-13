@@ -75,7 +75,7 @@ codegen file ds = do
 
     -- let ssas :: [SSAFunc] = map toSSAFunc cpss
     -- let ssas :: [SSAFunc] = map (toSSAFunc st1) anfs
-    let ssas :: [SSAFunc] = toSSAFuncs anfs ++ [toObfFunc st1 anfs] -- BAL: use cons instead (swap order)
+    let ssas :: [SSAFunc] = toSSAFuncs st1 anfs
     if verbose
         then do
             print $ ppFuncs ppSSAFunc ssas
@@ -85,7 +85,7 @@ codegen file ds = do
     let m = toLLVMModule file
                          (HMS.toList $ strings st)
                          (HMS.toList $ externs st)
-                         (concatMap toPrivates $ concat anfs)
+                         (concatMap toPrivateGlobals $ map head anfs) -- BAL: use ssas
                          ssas
     let s = AST.ppllvm m
     when verbose $ T.putStrLn s

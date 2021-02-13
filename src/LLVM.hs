@@ -22,7 +22,7 @@ import qualified LLVM.AST.Global
 import qualified LLVM.AST.Global   as AST
 import qualified LLVM.AST.Linkage  as AST
 import qualified LLVM.AST.Type     as AST
-
+import qualified LLVM.AST.Visibility as AST
 import           Utils
 
 toLLVMModule :: FilePath
@@ -41,7 +41,7 @@ toLLVMModule file strs exts privs xs =
                       }
 
 toLLVMFunction :: SSAFunc -> AST.Definition
-toLLVMFunction (SSAFunc nm vs xs) =
+toLLVMFunction (SSAFunc vis nm vs xs) =
     AST.GlobalDefinition AST.functionDefaults { AST.name        =
                                                     AST.mkName $ nName nm
                                               , AST.parameters  =
@@ -57,7 +57,13 @@ toLLVMFunction (SSAFunc nm vs xs) =
                                                                 )
                                               , AST.basicBlocks =
                                                     map toLLVMBasicBlock xs
+                                              , AST.linkage = toLLVMLinkage vis
                                               }
+
+toLLVMLinkage :: Visibility -> AST.Linkage
+toLLVMLinkage x = case x of
+  Public -> AST.External
+  Private -> AST.Private
 
 mkParams :: [(String, Type)] -> ([AST.Parameter], Bool)
 mkParams xs = (map mkParam $ filter ((/=) tyUnit . snd) xs, False)
@@ -103,12 +109,12 @@ toLLVMStringDefn (s, v) = AST.GlobalDefinition $
                                }
 
 toLLVMBasicBlock :: SSABlock -> AST.BasicBlock
-toLLVMBasicBlock (SSABlock n xs t) = AST.BasicBlock (AST.mkName $ nName n)
-                                                    (map toLLVMInstruction xs)
-                                                    (toLLVMTerminator t)
+toLLVMBasicBlock (SSABlock _ n _ xs t) = AST.BasicBlock (AST.mkName $ nName n)
+                                                        (map toLLVMInstruction xs)
+                                                        (toLLVMTerminator t)
 
 toLLVMInstruction :: Instr -> AST.Named AST.Instruction
-toLLVMInstruction x@(pat, DefnCall _ f xs) = case pat of
+toLLVMInstruction x@(Instr pat _ f xs) = case pat of
     [] -> AST.Do $ f $ map toOperand xs
     [ V _ v ] -> AST.mkName v AST.:= f (map toOperand xs)
     _ -> impossible $ "toLLVMInstruction:" ++ show x
@@ -119,8 +125,8 @@ toLLVMTerminator x = AST.Do $ case x of
         I.switch (toOperand a)
                  (AST.mkName $ nName b)
                  [ (c, AST.mkName $ nName n) | ((_, c), n) <- cs ]
-    BrS a -> I.br (AST.mkName $ nName a)
-    IndirectBrS a bs -> I.indirectbr (toOperand a) (map (AST.mkName . nName) bs)
+    BrS a _ -> I.br (AST.mkName $ nName a)
+    IndirectBrS a bs _ -> I.indirectbr (toOperand $ Var a) (map (AST.mkName . nName) bs)
     RetS bs -> case bs of
         []    -> I.retVoid
         [ v ] -> I.ret $ toOperand v

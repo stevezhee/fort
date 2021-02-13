@@ -25,6 +25,18 @@ is-odd: Int -> Bool = cast
 
 ^ = powi
 
+;; powi: (Int, Int) -> Int = \(x,y) => go (1,x)
+;;   /where
+;;     go: (Int, Int) -> Int = \(r,b) => /if
+;;       b == 0   = r
+;;       _  = b
+
+;; powi: (Int, Int) -> Int = \(x,y) => go (1,x,y)
+;;   /where
+;;     go: (Int, Int, Int) -> Int = \(r,a,b) => /if
+;;       b == 0   = r
+;;       _        = go (r, a * a, b / 2)
+
 powi: (Int, Int) -> Int = \(x,y) => go (1,x,y)
   /where
     go: (Int, Int, Int) -> Int = \(r,a,b) => /if
@@ -32,4 +44,5 @@ powi: (Int, Int) -> Int = \(x,y) => go (1,x,y)
       is-odd b = go (r * a, a, b - 1)
       _        = go (r, a * a, b / 2)
 
-squared: Int -> Int = powi (,2)
+;; squared: Int -> Int = powi (,2)
+;; cubed: Int -> Int = powi (,3)

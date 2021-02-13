@@ -34,7 +34,7 @@ import           Utils
 type UPat = [Name] -- BAL: handle nested patterns
 
 callLocal :: Name -> Type -> Type -> E (a -> b)
-callLocal n ta tb = callE (Nm (TyFun ta tb) n) LocalDefn
+callLocal n ta tb = callE (Nm (TyFun ta tb) n) $ Internal Private
 
 if_ :: E Bool_ -> E a -> E a -> E a
 if_ x t f = case_ tyBool x (Prelude.const t) [ ("False", Prelude.const f) ]
@@ -91,9 +91,12 @@ store = binaryInstr "store" I.store
 -- BAL: call B.store_volatile if needed by the type
 externFunc :: Name -> Type -> E (a -> b)
 externFunc n ty = E $ do
-    let (nm, g) = funTys n ty
+    let nm = Nm ty n
     modify' $ \st -> st { externs = HMS.insert n (nTy nm) $ externs st }
-    unE $ callE nm (Defn g)
+    unE $ callE nm (External f)
+  where
+    v = AST.ConstantOperand (AST.GlobalReference (toTyLLVM ty) $ AST.mkName n)
+    f = I.call v . map (, [])
 
 fromUPat :: Type -> UPat -> Pat
 fromUPat ty upat = case (unTupleTy ty, upat) of
@@ -106,13 +109,6 @@ qualifyName a b = modNameOf b ++ "_" ++ a
 
 char :: Char -> E Char_
 char = atomE . Char
-
-funTys :: Name -> Type -> (Nm, [Operand] -> Instruction)
-funTys n ty = (Nm ty n, f)
-  where
-    v = AST.ConstantOperand (AST.GlobalReference (toTyLLVM ty) $ AST.mkName n)
-
-    f = I.call v . map (, [])
 
 seqs_ :: [E ()] -> E ()
 seqs_ [] = unit
@@ -239,16 +235,17 @@ func :: Name -> UPat -> (E a -> E b) -> Type -> Type -> E (a -> b)
 func n0 pat f ta tb = E $ do
     n <- qualifyName n0 <$> gets path
     tbl <- gets funcs
-    let (nm, g) = funTys n $ TyFun ta tb
+    let nm = Nm (TyFun ta tb) n
     case HMS.lookup n tbl of
         Just _ -> pure ()
         Nothing -> do
             lbl <- letFunc ta tb n pat f
             modify' $ \st -> st { funcs = HMS.insert n lbl $ funcs st }
-    unE (callE nm (Defn g) :: E (a -> b))
+    -- BAL: remove? unE (callE nm (Defn g) :: E (a -> b))
+    unE (callE nm $ Internal Public)
 
 instr :: Type -> Name -> ([Operand] -> Instruction) -> E a
-instr t s f = callE (Nm t s) (Defn f)
+instr t s f = callE (Nm t s) (External f)
 
 cast :: Type -> Type -> E (a -> b)
 cast tyA tyB = case (tyA, tyB) of

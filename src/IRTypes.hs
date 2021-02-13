@@ -20,7 +20,7 @@ import           Data.Text.Prettyprint.Doc
 import           LLVM.AST                   ( Instruction, Operand )
 
 import           LLVM.AST.Constant          ( Constant )
-
+import           qualified LLVM.AST.Constant          as Constant
 import           Utils
 
 class Size a where
@@ -36,7 +36,6 @@ data St = St { unique  :: Integer -- BAL: delete unused fields
              , externs :: HMS.HashMap Name Type
              , funcs   :: HMS.HashMap Name Func
              , lifted  :: HMS.HashMap Name AFunc
-             , sfuncs  :: [CPSFunc]
              , instrs  :: [Instr]
              , conts   :: HMS.HashMap Name (HMS.HashMap Nm Integer)
              , phiMap  :: HMS.HashMap Nm [[(Atom, Name)]]
@@ -46,6 +45,7 @@ data St = St { unique  :: Integer -- BAL: delete unused fields
              , afuncs  :: [AFunc]
              , blocks  :: [SSABlock]
              , indirectBrs :: HMS.HashMap Var [Nm]
+             , argPhis :: HMS.HashMap Nm [[(Atom, Nm)]]
              , path    :: FilePath
              }
     deriving Show
@@ -73,44 +73,27 @@ data Expr = AtomE Atom
           | UnreachableE Type
     deriving Show
 
-data CallType = LocalDefn | Defn ([Operand] -> Instruction)
+data CallType = Internal Visibility | External ([Operand] -> Instruction)
+
+data Visibility = Public | Private deriving Show
+
+instance Show CallType where
+  show x = case x of
+    Internal a -> show a
+    External _ -> "External"
 
 data AFunc = AFunc { afNm :: Nm, afParams :: [Var], afBody :: AExpr }
     deriving Show
 
 data AExpr = LetA Pat CExpr AExpr
            | CExprA CExpr
-           | TupleA [Atom]
+           | ReturnA [Atom]
     deriving Show
 
 data CExpr = UnreachableA Type
-           | CallDefnA DefnCall
-           | CallLocalA LocalCall
+           | CallA Nm CallType [Atom]
            | SwitchA Atom AExpr [(Tag, AExpr)]
-    deriving Show
-
--- BAL: remove
--- data SAFunc = SAFunc { saNm :: Nm, saParams :: [Var], saBody :: SAExpr }
---   deriving Show
-
--- data SAExpr
---   = SALet Pat DefnCall SAExpr
---   | SACont SCExpr Nm
---   | SCExpr SCExpr
---   | SATuple [Atom]
---   | SAUnreachable Type
---   deriving Show
-
--- data SCExpr
---   = SCSwitch Atom LocalCall [(Tag, LocalCall)]
---   | SCCallLocal LocalCall
---   deriving Show
-
-data DefnCall =
-    DefnCall { dcNm :: Nm, dcF :: [Operand] -> Instruction, dcArgs :: [Atom] }
-
-data LocalCall = LocalCall { lcNm :: Nm, lcArgs :: [Atom] }
-    deriving Show
+  deriving Show
 
 data Atom = Int Integer Integer
           | Enum (String, (Type, Integer))
@@ -119,60 +102,40 @@ data Atom = Int Integer Integer
           | Global Var
           | String String Var
           | Undef Type
-          | Label Name Nm
+          | Label Name Nm -- Label (function name) (label name)
           | Cont Nm (Name, Integer, Integer) -- BAL: remove
-    deriving Show
-
-instance Show CallType where
-    show x = case x of
-        Defn{} -> "defn"
-        LocalDefn -> "local"
+    deriving (Show, Eq)
 
 afName :: AFunc -> Name
 afName = nName . afNm
 
-instance Show DefnCall where
-    show (DefnCall a _ bs) = unwords [ "DefnCall", show a, show bs ]
-
-lcName :: LocalCall -> Name
-lcName = nName . lcNm
-
-data CPSFunc = CPSFunc { cpsNm     :: Nm
-                       , cpsParams :: [Var]
-                       , cpsInstrs :: [Instr]
-                       , cpsTerm   :: CPSTerm
-                       }
-    deriving Show
-
-cpsName :: CPSFunc -> Name
-cpsName = nName . cpsNm
-
-data CPSTerm = SwitchT Atom LocalCall [(Tag, LocalCall)]
-             | CallT LocalCall
-             | ContT Name Name [Atom]
-             | RetT [Atom]
-             | UnreachableT Type
-    deriving Show
+labelNm :: Atom -> Nm
+labelNm x = case x of
+  Label _ nm -> nm
+  _ -> impossible "expected label atom"
 
 data Cont = NmC Nm | VarC Name Name
     deriving Show
 
-data SSAFunc = SSAFunc Nm [Var] [SSABlock]
+data SSAFunc = SSAFunc Visibility Nm [Var] [SSABlock]
     deriving Show
 
 data SSABlock =
-    SSABlock { ssaNm :: Nm, ssaInstrs :: [Instr], ssaTerm :: SSATerm }
+    SSABlock { ssaFunName :: Name, ssaNm :: Nm, ssaArgs :: [Var], ssaInstrs :: [Instr], ssaTerm :: SSATerm }
     deriving Show
 
 data SSATerm
     = SwitchS Atom Nm [(Tag, Nm)]
-    | BrS Nm
-    | IndirectBrS Atom [Nm]
+    | BrS Nm [Atom]
+    | IndirectBrS Var [Nm] [Atom]
     | RetS [Atom]
     | UnreachableS Type
     deriving Show
 
-type Instr = ([Var], DefnCall)
+data Instr = Instr [Var] Nm ([Operand] -> Instruction) [Atom]
+
+instance Show Instr where
+  show (Instr vs nm _ args) = unwords $ map show vs ++ ["=", show nm] ++ map show args
 
 data IsVolatile = Volatile | NonVolatile
     deriving ( Show, Eq )
@@ -280,7 +243,6 @@ ppExpr x = case x of
     CallE (a, _) bs -> pretty a <+> ppTuple (map ppExpr bs)
     SwitchE a b cs -> ppSwitch a b cs
     LetE a b c -> vcat
-                           -- [ "let" <+> ppPat a <+> "=" <+> ppExpr b
                            [ if null a
                              then ppExpr b
                              else "let" <+> ppPat a <+> "=" <+> ppExpr b <+> "in"
@@ -299,7 +261,12 @@ ppSwitch a b cs = vcat
   ]
 
 ppAlt :: Pretty a => (Tag, a) -> Doc ann
-ppAlt ((s, _), e) = pretty s <> ppAltRHS e
+ppAlt ((s, c), e) = pretty s <+> ppConstant c <> ppAltRHS e
+
+ppConstant :: Constant -> Doc ann
+ppConstant x = case x of
+  Constant.Int _ i -> pretty i
+  _ -> impossible "not printing non-integer constants"
 
 ppAltRHS :: Pretty a => a -> Doc ann
 ppAltRHS e = ":" <> line <> indent 2 (pretty e)
@@ -319,7 +286,12 @@ ppAtom x = case x of
     Label n nm -> pretty n <> "." <> pretty nm
 
 data Var = V { vTy :: Type, vName :: Name }
-    deriving Show
+--    deriving Show
+instance Show Var where
+  show x = "V " ++ vName x
+
+instance Pretty Visibility where
+  pretty = pretty . show
 
 instance Pretty Var where
     pretty = pretty . vName
@@ -331,7 +303,10 @@ instance Hashable Var where
     hashWithSalt i = hashWithSalt i . vName
 
 data Nm = Nm { nTy :: Type, nName :: Name }
-    deriving Show
+--    deriving Show
+
+instance Show Nm where
+  show x = "Nm " ++ nName x
 
 instance Pretty Nm
     -- ^ enable to print types
@@ -368,6 +343,12 @@ tyAtom x = case x of
     Enum (_, (t, _)) -> t
     Cont _ (_, a, _) -> tyUnsigned a
     Label _ nm -> TyLabel $ nTy nm
+
+varAtom :: Atom -> Var -- BAL: hacky
+varAtom x = case x of
+  Var a -> a
+  Global a -> a
+  _ -> impossible "nAtom expected Var"
 
 freshPat :: Pat -> M Pat
 freshPat xs = sequence [ freshVar t s | V t s <- xs ]
@@ -527,3 +508,37 @@ sizeFort x = case x of
     TyFun{} -> impossible $ "sizeFort:" ++ show x
     TyCont{} -> impossible $ "sizeFort:" ++ show x
     TyLabel{} -> ptrSize
+
+-- BAL: remove
+-- data SAFunc = SAFunc { saNm :: Nm, saParams :: [Var], saBody :: SAExpr }
+--   deriving Show
+
+-- data SAExpr
+--   = SALet Pat DefnCall SAExpr
+--   | SACont SCExpr Nm
+--   | SCExpr SCExpr
+--   | SATuple [Atom]
+--   | SAUnreachable Type
+--   deriving Show
+
+-- data SCExpr
+--   = SCSwitch Atom LocalCall [(Tag, LocalCall)]
+--   | SCCallLocal LocalCall
+--   deriving Show
+
+-- data CPSFunc = CPSFunc { cpsNm     :: Nm
+--                        , cpsParams :: [Var]
+--                        , cpsInstrs :: [Instr]
+--                        , cpsTerm   :: CPSTerm
+--                        }
+--     deriving Show
+
+-- cpsName :: CPSFunc -> Name
+-- cpsName = nName . cpsNm
+
+-- data CPSTerm = SwitchT Atom LocalCall [(Tag, LocalCall)]
+--              | CallT LocalCall
+--              | ContT Name Name [Atom]
+--              | RetT [Atom]
+--              | UnreachableT Type
+--     deriving Show

@@ -5,6 +5,7 @@
 TEST_DIR=test
 HS_FILES=$(shell find src -name \*.hs) $(shell find app -name \*.hs)
 LLC=llc-9
+OPT=opt-9
 
 ALL_FORT_FILES=$(wildcard $(TEST_DIR)/*.fort)
 
@@ -51,6 +52,7 @@ a.out.actual: $(OUT_FILE)
 	stack runghc -- -Wall -isrc $<
 
 %.fort.s: %.fort.ll
+	$(OPT) -S -O2 -o $< $<
 	$(LLC) $<
 
 %.fort.o: %.fort.s

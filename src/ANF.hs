@@ -34,15 +34,11 @@ toAExpr x = case x of
     ds <- mapM toAFunc bs
     modify' $ \st -> st{ afuncs = ds ++ afuncs st }
     toAExpr c
-  AtomE a           -> pure $ TupleA [a]
+  AtomE a           -> pure $ ReturnA [a]
   UnreachableE t    -> pure $ CExprA $ UnreachableA t
   LetE pat a b      -> toLetA pat <$> toAExpr a <*> toAExpr b
-  TupleE bs         -> mapM toAExpr bs >>= withAtoms TupleA
-  CallE (nm, ct) bs -> mapM toAExpr bs >>= withAtoms f
-    where
-      f = case ct of
-        LocalDefn -> CExprA . CallLocalA . LocalCall nm
-        Defn g -> CExprA . CallDefnA . DefnCall nm g
+  TupleE bs         -> mapM toAExpr bs >>= withAtoms ReturnA
+  CallE (nm, ct) bs -> mapM toAExpr bs >>= withAtoms (CExprA . CallA nm ct)
   SwitchE e b cs    -> do
     ae <- toAExpr e
     dflt <- toAExpr b
@@ -57,13 +53,13 @@ withAtoms f = go []
       LetA pat a b -> LetA pat a <$> go rs (b : xs)
       CExprA a -> do
         pat <- freshBind $ tyCExpr a
-        go rs (LetA pat a (TupleA $ map Var pat) : xs)
-      TupleA bs -> go (bs ++ rs) xs -- BAL: Tuples just get smashed together
+        go rs (LetA pat a (ReturnA $ map Var pat) : xs)
+      ReturnA bs -> go (bs ++ rs) xs -- BAL: Tuples just get smashed together
 
 toLetA :: Pat -> AExpr -> AExpr -> AExpr
 toLetA pat x y = case x of
   CExprA a -> LetA pat a y
-  TupleA bs -> subst (mkSubst pat bs) y
+  ReturnA bs -> subst (mkSubst pat bs) y
   LetA pat1 a b -> LetA pat1 a $ toLetA pat b y
 
 ppAFunc :: AFunc -> Doc ann
@@ -134,7 +130,7 @@ withAtoms = go
 
 letEToAExpr :: Pat -> AExpr -> Expr -> M AExpr
 letEToAExpr pat x y = case x of
-    TupleA bs -> subst (mkSubst pat bs) <$> toAExpr y
+    ReturnA bs -> subst (mkSubst pat bs) <$> toAExpr y
     CExprA a -> do
         pat' <- freshPat pat
         LetA pat' a . subst (mkSubst pat $ map Var pat') <$> toAExpr y
@@ -152,8 +148,8 @@ toAExpr x = case x of
     CallE (n, ct) es -> withAtoms es $ \vs -> case ct of
         LocalDefn -> pure (CExprA (CallLocalA (LocalCall n vs)))
         Defn f -> pure (CExprA (CallDefnA (DefnCall n vs f)))
-    TupleE es -> withAtoms es $ \vs -> pure (TupleA vs)
-    AtomE a -> pure $ TupleA [ a ]
+    TupleE es -> withAtoms es $ \vs -> pure (ReturnA vs)
+    AtomE a -> pure $ ReturnA [ a ]
     LetRecE bs c       -- lambda lift local function -- BAL: can this be simpler? (i.e. don't lift free vars?)
         -> do
             (fs, ds) <- unzip <$> mapM mkLambdaLift bs
@@ -183,7 +179,7 @@ lambdaLift tbl = go
     go x = case x of
         CExprA a -> CExprA $ goCExpr a
         LetA pat a b -> LetA pat (goCExpr a) (go b)
-        TupleA{} -> x
+        ReturnA{} -> x
 
     goCExpr x = case x of
         CallDefnA{} -> x
@@ -200,7 +196,7 @@ freeVars :: [Var] -> AExpr -> [Var]
 freeVars bvs = go
   where
     go x = case x of
-        TupleA bs -> nub $ concatMap goAtom bs
+        ReturnA bs -> nub $ concatMap goAtom bs
         CExprA a -> goCExpr a
         LetA pat a b -> nub (goCExpr a ++ freeVars (pat ++ bvs) b)
 
@@ -221,17 +217,12 @@ subst :: HMS.HashMap Var Atom -> AExpr -> AExpr
 subst tbl = go
   where
     go x = case x of
-        TupleA bs -> TupleA $ map goAtom bs
+        ReturnA bs -> ReturnA $ map goAtom bs
         CExprA a -> CExprA $ goCExpr a
         LetA pat a b -> LetA pat (goCExpr a) (subst (remove pat) b)
 
-    goDefnCall (DefnCall n f bs) = DefnCall n f (map goAtom bs)
-
-    goLocalCall (LocalCall n bs) = LocalCall n (map goAtom bs)
-
     goCExpr x = case x of
-        CallDefnA a -> CallDefnA $ goDefnCall a
-        CallLocalA a -> CallLocalA $ goLocalCall a
+        CallA nm ct bs -> CallA nm ct $ map goAtom bs
         SwitchA a b cs -> SwitchA (goAtom a) (go b) $ map (second go) cs
         UnreachableA{} -> x
 
@@ -244,7 +235,7 @@ subst tbl = go
 
 fromAExpr :: AExpr -> Expr
 fromAExpr x = case x of
-    TupleA bs -> TupleE $ map AtomE bs
+    ReturnA bs -> TupleE $ map AtomE bs
     LetA pat a b -> LetE pat (fromCExpr a) (fromAExpr b)
     CExprA a -> fromCExpr a
 
@@ -253,8 +244,7 @@ fromAFunc (AFunc n pat e) = Func n pat $ fromAExpr e
 
 fromCExpr :: CExpr -> Expr
 fromCExpr x = case x of
-    CallDefnA (DefnCall nm f bs) -> CallE (nm, Defn f) $ map AtomE bs
-    CallLocalA (LocalCall nm bs) -> CallE (nm, LocalDefn) $ map AtomE bs
+    CallA nm ct bs -> CallE (nm, ct) $ map AtomE bs
     SwitchA a b cs -> SwitchE (AtomE a) (fromAExpr b) $
         map (second fromAExpr) cs
     UnreachableA t -> UnreachableE t
