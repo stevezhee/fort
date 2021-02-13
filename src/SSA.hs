@@ -218,9 +218,10 @@ patchBlock (argTbl, indirectBrTbl) blk = blk{ ssaInstrs = ins ++ ssaInstrs blk, 
       Nothing -> []
       Just bs -> [ phiInstr v b | (v, b) <- zip (ssaArgs blk) bs ]
     term = case ssaTerm blk of
-      IndirectBrS v [] bs -> case HMS.lookup v indirectBrTbl of
-        Just lbls | not (null lbls) -> IndirectBrS v lbls bs
-        _ -> impossible "missing indirect branch targets"
+      IndirectBrS v [] bs -> case fromMaybe [] $ HMS.lookup v indirectBrTbl of
+        [] -> impossible "missing indirect branch targets"
+        [lbl] -> BrS lbl bs
+        lbls -> IndirectBrS v lbls bs
       IndirectBrS _ _ _ -> impossible "expected empty indirect branch targets"
       t -> t
 

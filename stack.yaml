@@ -29,7 +29,7 @@ resolver: lts-16.27
 #   - auto-update
 #   - wai
 packages:
-  - .
+  - '.'
 # Dependency packages to be pulled from upstream that are not in the resolver.
 # These entries can reference officially published versions as well as
 # forks / in-progress versions pinned to a git hash. For example:
@@ -41,10 +41,9 @@ packages:
 #
 extra-deps:
   - lexer-applicative-2.1.0.2@sha256:44f71ecb10a50838a5cfd254bc0ede46bb9dcd32897da378c54c43e513229663,1427
-  - git: https://github.com/llvm-hs/llvm-hs-pretty.git
-    commit: 9df9ca533702ba104f2d475afeebb023b563c4ed
   - prettyprinter-1.5.1@sha256:fca87c3e2611d3499a0341a59857e9b424a23f31646e4737d535a18582284f96,5375 
-   
+  - git: llvm-hs-pretty
+    commit: a87d6d529663b6a88a6a7a5ef8f2d4fa74aeaa71 
 # Override default flag values for local packages and extra-deps
 # flags: {}
 

@@ -42,8 +42,7 @@ pretty: $(HS_FILES)
 	floskell -s cramer $^
 
 a.out.actual: $(OUT_FILE)
-#	./$< | tee ./a.out.actual
-	./$< > a.out.actual
+	./$< | tee ./a.out.actual
 
 %.fort.hs: %.fort $(HS_FILES)
 	stack runghc -- -Wall -isrc app/Main.hs $<

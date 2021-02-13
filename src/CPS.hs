@@ -7,6 +7,7 @@
 {-# LANGUAGE TupleSections #-}
 
 module CPS where
+{-
 
 import           ANF
 
@@ -216,3 +217,4 @@ phis (CPSFunc nm _ _ t) = [ (n, map (, nName nm) bs) | (n, bs) <- xs ]
         ContT{} -> impossible "phis"
 
     f a = (lcName a, lcArgs a)
+-}

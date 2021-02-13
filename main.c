@@ -9,6 +9,7 @@ extern int fannkuch_redux_permutations(int);
 extern void char_hello_world();
 extern int powi_powi(int, int);
 extern int powi_squared(int);
+extern int powi_cubed(int);
 extern void address_inc(int*);
 extern void address_inc2(int*);
 extern void array_foo_array(int[2]);
@@ -43,7 +44,8 @@ int main(int argc, char**argv)
   printf("3^2 = %d\n",powi_powi(3,2));
   printf("2^3 = %d\n",powi_powi(2,3));
   printf("128^1 = %d\n",powi_powi(128,1));
-  // printf("3^2 = %d\n",powi_squared(3));
+  printf("3^2 = %d\n",powi_squared(3));
+  printf("2^3 = %d\n",powi_cubed(2));
 
   /* int x = 0; */
   /* printf("%d\n",x); */
