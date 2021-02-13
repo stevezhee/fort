@@ -36,22 +36,16 @@ data St = St { unique  :: Integer -- BAL: delete unused fields
              , externs :: HMS.HashMap Name Type
              , funcs   :: HMS.HashMap Name Func
              , lifted  :: HMS.HashMap Name AFunc
-             , instrs  :: [Instr]
-             , conts   :: HMS.HashMap Name (HMS.HashMap Nm Integer)
-             , phiMap  :: HMS.HashMap Nm [[(Atom, Name)]]
-             , indirectPhiMap :: HMS.HashMap Var [[(Atom, Name)]]
-             , paramMap:: HMS.HashMap Nm [Var]
---             , contMap :: HMS.HashMap Nm [Nm]
              , afuncs  :: [AFunc]
              , blocks  :: [SSABlock]
-             , indirectBrs :: HMS.HashMap Var [Nm]
-             , argPhis :: HMS.HashMap Nm [[(Atom, Nm)]]
+             -- , instrs  :: [Instr]
+             -- , conts   :: HMS.HashMap Name (HMS.HashMap Nm Integer)
              , path    :: FilePath
              }
     deriving Show
 
 initSt :: FilePath -> St
-initSt = St 0 mempty mempty mempty mempty mempty mempty mempty mempty mempty mempty mempty mempty mempty
+initSt = St 0 mempty mempty mempty mempty mempty mempty
 
 newtype E a = E { unE :: M Expr } -- a typed expression
 
@@ -206,7 +200,7 @@ tyTuple xs = TyTuple xs
 
 unTupleTy :: Type -> [Type]
 unTupleTy x = case x of
-    TyTuple bs -> bs
+    TyTuple bs -> concatMap unTupleTy bs
     _ -> [ x ]
 
 returnTy :: Type -> Type

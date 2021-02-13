@@ -23,7 +23,10 @@ toAFuncs x = do
   a <- toAFunc x
   bs <- gets afuncs
   modify' $ \st -> st{ afuncs = [] }
-  return (a : bs)
+  return $ map filterOutUnitParams (a : bs)
+
+filterOutUnitParams :: AFunc -> AFunc
+filterOutUnitParams (AFunc nm vs e) = AFunc nm (filter (\v -> unTupleTy (vTy v) /= []) vs) e
 
 toAFunc :: Func -> M AFunc
 toAFunc (Func nm pat e) = AFunc nm pat <$> toAExpr e

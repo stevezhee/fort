@@ -15,9 +15,6 @@ multiply: (a, a) -> a
 / = divide
 divide: (a, a) -> a
 
-;; & = bitwise-and
-bitwise-and: (a, a) -> a
-
 cast: a -> b
 
 ;; code
@@ -34,3 +31,4 @@ powi: (Int, Int) -> Int = \(x,y) => go (1,x,y)
 
 squared: Int -> Int = powi (,2)
 cubed: Int -> Int = powi (,3)
+pow2: Int -> Int = powi (2,)

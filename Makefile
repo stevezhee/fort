@@ -9,20 +9,19 @@ OPT=opt-9
 
 ALL_FORT_FILES=$(wildcard $(TEST_DIR)/*.fort)
 
-# EXCLUDE_FILES += $(TEST_DIR)/address.fort
-# EXCLUDE_FILES += $(TEST_DIR)/array.fort
-# EXCLUDE_FILES += $(TEST_DIR)/helloworld.fort
-EXCLUDE_FILES += $(TEST_DIR)/fannkuch-redux.fort
-EXCLUDE_FILES += $(TEST_DIR)/char.fort
-EXCLUDE_FILES += $(TEST_DIR)/primitives.fort
+# EXCLUDE_FILES += $(TEST_DIR)/fannkuch-redux.fort
+# EXCLUDE_FILES += $(TEST_DIR)/nestedif.fort
 # EXCLUDE_FILES += $(TEST_DIR)/powi.fort
-EXCLUDE_FILES += $(TEST_DIR)/todd.fort
-EXCLUDE_FILES += $(TEST_DIR)/nestedif.fort
-EXCLUDE_FILES += $(TEST_DIR)/struct.fort
+# EXCLUDE_FILES += $(TEST_DIR)/primitives.fort
+EXCLUDE_FILES += $(TEST_DIR)/address.fort
+EXCLUDE_FILES += $(TEST_DIR)/array.fort
+EXCLUDE_FILES += $(TEST_DIR)/char.fort
 EXCLUDE_FILES += $(TEST_DIR)/enum.fort
+EXCLUDE_FILES += $(TEST_DIR)/helloworld.fort
+EXCLUDE_FILES += $(TEST_DIR)/struct.fort
+EXCLUDE_FILES += $(TEST_DIR)/todd.fort
 
 FORT_FILES=$(filter-out $(EXCLUDE_FILES), $(ALL_FORT_FILES))
-FORT_FILES= $(TEST_DIR)/powi.fort
 
 GEN_HS_FILES=$(addsuffix .hs, $(FORT_FILES))
 LL_FILES=$(addsuffix .ll, $(FORT_FILES))

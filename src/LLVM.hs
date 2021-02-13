@@ -22,7 +22,6 @@ import qualified LLVM.AST.Global
 import qualified LLVM.AST.Global   as AST
 import qualified LLVM.AST.Linkage  as AST
 import qualified LLVM.AST.Type     as AST
-import qualified LLVM.AST.Visibility as AST
 import           Utils
 
 toLLVMModule :: FilePath

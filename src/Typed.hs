@@ -34,7 +34,7 @@ import           Utils
 import Renamer
 
 verbose :: Bool
-verbose = True
+verbose = False
 
 codegen :: FilePath -> [M Expr] -> IO ()
 codegen file ds = do
