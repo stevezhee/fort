@@ -17,7 +17,8 @@ EXCLUDE_FILES += $(TEST_DIR)/address.fort
 EXCLUDE_FILES += $(TEST_DIR)/array.fort
 EXCLUDE_FILES += $(TEST_DIR)/char.fort
 EXCLUDE_FILES += $(TEST_DIR)/enum.fort
-EXCLUDE_FILES += $(TEST_DIR)/helloworld.fort
+# EXCLUDE_FILES += $(TEST_DIR)/empty.fort
+# EXCLUDE_FILES += $(TEST_DIR)/helloworld.fort
 EXCLUDE_FILES += $(TEST_DIR)/struct.fort
 EXCLUDE_FILES += $(TEST_DIR)/todd.fort
 
@@ -50,7 +51,7 @@ a.out.actual: $(OUT_FILE)
 	stack runghc -- -Wall -isrc $<
 
 %.fort.s: %.fort.ll
-	$(OPT) -S -O2 -o $< $<
+	#$(OPT) -S -O2 -o $< $<
 	$(LLC) $<
 
 %.fort.o: %.fort.s

@@ -182,9 +182,7 @@ mkPatchTbls = go (mempty, mempty)
         resolved :: HMS.HashMap Nm [[(Atom, Nm)]]
         resolved = HMS.fromList $ concat [ [ (nm, transpose $ resolveIndirect v) | nm <- nms ] | (v, nms) <- indirects ]
         resolveIndirect :: Var -> [[(Atom, Nm)]]
-        resolveIndirect v = case HMS.lookup v indirectArgs of
-          Nothing -> impossible "missing indirect args"
-          Just xs -> xs
+        resolveIndirect v = fromMaybe [] $ HMS.lookup v indirectArgs
     go tbls@(args, indirectArgs) (blk:blks) = case ssaTerm blk of
       BrS nm bs -> go (concatInsert (nm, [zip bs $ repeat $ ssaNm blk]) args, indirectArgs) blks
       IndirectBrS v _ bs -> go (args, concatInsert (v, [zip bs $ repeat $ ssaNm blk]) indirectArgs) blks
@@ -219,6 +217,7 @@ callInstr :: [Var] -> Nm -> [Atom] -> Instr
 callInstr vs nm bs = Instr vs nm (\(fn : cs) -> I.call fn $ map (,[]) cs) $ Global (nmToVar nm) : bs
 
 toSSAFuncs :: St -> [[AFunc]] -> [SSAFunc]
+toSSAFuncs _ [] = []
 toSSAFuncs st0 afss = obfFunc : map (toSSAFuncPublic obfNm) (zip [0 ..] publicAfs)
   where
     fn = nName obfNm
