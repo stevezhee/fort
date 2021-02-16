@@ -12,6 +12,7 @@ extern int powi_squared(int);
 extern int powi_cubed(int);
 extern int powi_pow2(int);
 extern void address_inc(int*);
+extern void address_inc_op(int*);
 extern void address_inc2(int*);
 extern void array_foo_array(int[2]);
 extern void char_char_io_test();
@@ -49,12 +50,14 @@ int main(int argc, char**argv)
   printf("2^3 = %d\n",powi_cubed(2));
   printf("2^8 = %d\n",powi_pow2(8));
 
-  /* int x = 0; */
-  /* printf("%d\n",x); */
-  /* address_inc(&x); */
-  /* printf("%d\n",x); */
-  /* address_inc2(&x); */
-  /* printf("%d\n",x); */
+  int x = 0;
+  printf("%d\n",x);
+  address_inc(&x);
+  printf("%d\n",x);
+  address_inc_op(&x);
+  printf("%d\n",x);
+  address_inc2(&x);
+  printf("%d\n",x);
 
   /* int arr[2]; */
   /* array_foo_array(arr); */

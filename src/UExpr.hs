@@ -104,9 +104,6 @@ fromUPat ty upat = case (unTupleTy ty, upat) of
     (_, [ v ]) -> [ V ty v ]
     (tys, _) -> safeZipWith "fromUPat" V tys upat
 
-qualifyName :: String -> FilePath -> String
-qualifyName a b = modNameOf b ++ "_" ++ a
-
 char :: Char -> E Char_
 char = atomE . Char
 
@@ -232,8 +229,7 @@ let_ upat x f ty = E $ LetE pat <$> unE x <*> unE (f $ patToExpr pat)
     pat = fromUPat ty upat
 
 func :: Name -> UPat -> (E a -> E b) -> Type -> Type -> E (a -> b)
-func n0 pat f ta tb = E $ do
-    n <- qualifyName n0 <$> gets path
+func n pat f ta tb = E $ do
     tbl <- gets funcs
     let nm = Nm (TyFun ta tb) n
     case HMS.lookup n tbl of

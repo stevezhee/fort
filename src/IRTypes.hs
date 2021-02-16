@@ -115,7 +115,7 @@ data SSAFunc = SSAFunc Visibility Nm [Var] [SSABlock]
     deriving Show
 
 data SSABlock =
-    SSABlock { ssaFunName :: Name, ssaNm :: Nm, ssaArgs :: [Var], ssaInstrs :: [Instr], ssaTerm :: SSATerm }
+    SSABlock { ssaFunName :: Name, ssaNm :: Nm, ssaParams :: [Var], ssaInstrs :: [Instr], ssaTerm :: SSATerm }
     deriving Show
 
 data SSATerm
@@ -277,7 +277,7 @@ ppAtom x = case x of
     String s _ -> pretty (show s)
     Cont a _ -> "%" <> pretty a
     Undef _ -> "<undef>"
-    Label n nm -> pretty n <> "." <> pretty nm
+    Label _ nm -> pretty nm
 
 data Var = V { vTy :: Type, vName :: Name }
 --    deriving Show
@@ -338,11 +338,11 @@ tyAtom x = case x of
     Cont _ (_, a, _) -> tyUnsigned a
     Label _ nm -> TyLabel $ nTy nm
 
-varAtom :: Atom -> Var -- BAL: hacky
+varAtom :: Atom -> Maybe Var
 varAtom x = case x of
-  Var a -> a
-  Global a -> a
-  _ -> impossible "nAtom expected Var"
+  Var a -> Just a
+  Global a -> Just a
+  _ -> Nothing
 
 freshPat :: Pat -> M Pat
 freshPat xs = sequence [ freshVar t s | V t s <- xs ]

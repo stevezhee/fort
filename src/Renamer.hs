@@ -1,9 +1,4 @@
--- {-# LANGUAGE FlexibleInstances #-}
-
--- {-# LANGUAGE OverloadedStrings #-}
--- {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-
 {-# LANGUAGE TupleSections #-}
 
 module Renamer where
@@ -68,18 +63,3 @@ callSubst tbl x = case x of
 callSubstFunc :: HMS.HashMap Nm Nm -> Func -> M Func
 callSubstFunc tbl (Func nm pat e) =
   Func (fromMaybe nm $ HMS.lookup nm tbl) pat <$> callSubst tbl e
-
--- subst :: HMS.HashMap Var Var -> M Expr
--- subst x = case x of
---   _ -> return x
---     deriving Show
-
--- data Atom = Int Integer Integer
---           | Enum (String, (Type, Integer))
---           | Char Char
---           | Var Var
---           | Global Var
---           | String String Var
---           | Undef Type
---           | Cont Nm (Name, Integer, Integer)
---     deriving Show
