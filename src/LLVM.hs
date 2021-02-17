@@ -65,7 +65,7 @@ toLLVMLinkage x = case x of
   Private -> AST.Private
 
 mkParams :: [(String, Type)] -> ([AST.Parameter], Bool)
-mkParams xs = (map mkParam $ filter ((/=) tyUnit . snd) xs, False)
+mkParams xs = (map mkParam $ filter (notTyUnit . snd) xs, False)
 
 mkParam :: (String, Type) -> AST.Parameter
 mkParam (n, t) = AST.Parameter (toTyLLVM t) (AST.mkName n) []

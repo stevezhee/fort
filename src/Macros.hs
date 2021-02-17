@@ -126,7 +126,7 @@ hOutput ty = case ty of
     TyVariant bs -> ok $ \x h ->
         let c : cs = map (fst &&& f) bs
             f (s, t)
-                | t == tyUnit = \_ -> putS s h
+                | isTyUnit t = \_ -> putS s h
                 | otherwise = \_ ->
                     seqs_ [ putS s h
                           , putS " " h

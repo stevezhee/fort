@@ -200,7 +200,7 @@ output :: Ty a => E (a -> ())
 output = f Proxy
   where
     f :: Ty a => Proxy a -> E (a -> ())
-    f proxy = unTFun ("eoutput." ++ hashName (tyFort proxy))
+    f proxy = unTFun ("aOutput." ++ hashName (tyFort proxy))
                      (Prelude.const T.output)
 
 hOutput :: Ty a => E ((a, Handle) -> ())

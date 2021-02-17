@@ -190,6 +190,12 @@ tyEnum xs = TyInteger (neededBitsList xs) Unsigned (TyEnum xs)
 tyUnit :: Type
 tyUnit = tyTuple []
 
+isTyUnit :: Type -> Bool
+isTyUnit = null . unTupleTy
+
+notTyUnit :: Type -> Bool
+notTyUnit = not . isTyUnit
+
 ptrSize :: Integer
 ptrSize = 64 -- BAL: architecture dependent
 
@@ -299,6 +305,9 @@ instance Hashable Var where
 data Nm = Nm { nTy :: Type, nName :: Name }
 --    deriving Show
 
+instance Ord Nm where
+  x <= y = nName x <= nName y
+
 instance Show Nm where
   show x = "Nm " ++ nName x
 
@@ -341,7 +350,6 @@ tyAtom x = case x of
 varAtom :: Atom -> Maybe Var
 varAtom x = case x of
   Var a -> Just a
-  Global a -> Just a
   _ -> Nothing
 
 freshPat :: Pat -> M Pat

@@ -25,7 +25,8 @@ import Data.Maybe
 import Data.Hashable
 import LLVM
 import qualified LLVM.AST          as AST
--- import Debug.Trace
+import Data.Graph hiding (path)
+import Data.Bifunctor
 
 storeInstr :: Atom -> Atom -> Instr
 storeInstr x y = Instr [] (Nm (TyFun (tyTuple [tyAtom x, tyAtom y]) tyUnit) "store") (\[a, b] -> I.store a b) [x, y]
@@ -47,10 +48,10 @@ freshVarFrom :: Var -> M Var
 freshVarFrom (V t n) = freshVar t n
 
 publicEntryNm :: Nm -> Nm
-publicEntryNm nm = nm{ nName = nName nm ++ "_public_entry" }
+publicEntryNm nm = nm{ nName = "public_entry_" ++ nName nm }
 
 publicExitNm :: Nm -> Nm
-publicExitNm nm = nm{ nName = nName nm ++ "_public_exit"}
+publicExitNm nm = nm{ nName = "public_exit_" ++ nName nm }
 
 ssaAExpr :: Name -> Nm -> SSABlock -> AExpr -> M ()
 ssaAExpr fn nm0 = go
@@ -104,10 +105,10 @@ ssaAExpr fn nm0 = go
           return $ ssaNm aBlk
 
 globalArg :: Nm -> Var -> Var
-globalArg nm (V t n) = V (tyAddress t) (nName nm ++ "_" ++ n ++ "_in")
+globalArg nm (V t n) = V (tyAddress t) ("in_" ++ nName nm ++ "_" ++ n)
 
 globalOutput :: Var -> Var
-globalOutput (V t n) = V (tyAddress t) (n ++ "_out")
+globalOutput (V t n) = V (tyAddress t) ("out_" ++ n)
 
 toPrivateGlobals :: AFunc -> [(Name, Type)]
 toPrivateGlobals (AFunc nm vs _) = [ (vName v, vTy v) | v <- map (globalArg nm) vs ++ map globalOutput (outputs nm) ]
@@ -116,12 +117,12 @@ useIndirectBr :: Bool
 useIndirectBr = True
 
 retId :: Nm -> Var
-retId nm
-  | useIndirectBr = V tyLabel $ nName nm ++ "_retAddr"
-  | otherwise = V (tyUnsigned 32) $ nName nm ++ "_retId"
+retId nm = V t $ "retId_" ++ nName nm
+  where
+    t = if useIndirectBr then tyLabel else tyUnsigned 32
 
 outputs :: Nm -> [Var]
-outputs nm = [ V t (nName nm ++ "_output" ++ show i) | (i, t) <- zip [0 :: Int ..] $ unTupleTy $ returnTy $ nTy nm ]
+outputs nm = [ V t ("output_" ++ show i ++ "_" ++ nName nm) | (i, t) <- zip [0 :: Int ..] $ unTupleTy $ returnTy $ nTy nm ]
 
 ssaAFunc :: Name -> AFunc -> M ()
 ssaAFunc fn (AFunc nm vs e) = do
@@ -144,7 +145,7 @@ nmToVar :: Nm -> Var
 nmToVar (Nm a b) = V a b
 
 obfArg :: Var
-obfArg = V (tyUnsigned 32) "i"
+obfArg = V (tyUnsigned 32) "i."
 
 entryNm :: Nm -> Nm
 entryNm nm = nm{ nName = "entry." }
@@ -255,29 +256,84 @@ toSSAFuncPublic p fn (i, AFunc nm vs _) =
     stores = [ storeInstr (Global $ globalArg nm v) (Var v) | v <- vs ]
     loads = [ loadInstr r (Global $ globalOutput r) | r <- outputs nm ]
 
+substBlock :: HMS.HashMap Var Var -> SSABlock -> SSABlock
+substBlock tbl blk = blk{
+  ssaParams = map (substVar tbl) $ ssaParams blk,
+  ssaInstrs = map (substInstr tbl) $ ssaInstrs blk,
+  ssaTerm = substTerm tbl $ ssaTerm blk
+  }
+
+nmSubstBlock :: HMS.HashMap Nm Nm -> SSABlock -> SSABlock
+nmSubstBlock tbl blk = blk{
+  ssaNm = nmSubstNm tbl $ ssaNm blk,
+  ssaInstrs = map (nmSubstInstr tbl) $ ssaInstrs blk,
+  ssaTerm = nmSubstTerm tbl $ ssaTerm blk
+  }
+
+nmSubstNm :: HMS.HashMap Nm Nm -> Nm -> Nm
+nmSubstNm tbl nm = fromMaybe nm $ HMS.lookup nm tbl
+
+nmSubstAtom :: HMS.HashMap Nm Nm -> Atom -> Atom
+nmSubstAtom tbl x = case x of
+  Label fn nm -> Label fn $ nmSubstNm tbl nm
+  _ -> x
+
+nmSubstTerm :: HMS.HashMap Nm Nm -> SSATerm -> SSATerm
+nmSubstTerm tbl x = case x of
+  SwitchS a nm alts -> SwitchS (g a) (f nm) $ map (second f) alts
+  BrS nm bs -> BrS (f nm) $ map g bs
+  IndirectBrS v nms bs -> IndirectBrS v (map f nms) $ map g bs
+  RetS bs -> RetS $ map g bs
+  UnreachableS t -> UnreachableS t
+  where
+    f = nmSubstNm tbl
+    g = nmSubstAtom tbl
+
+nmSubstInstr :: HMS.HashMap Nm Nm -> Instr -> Instr
+nmSubstInstr tbl (Instr vs nm f bs) = Instr vs nm f $ map (nmSubstAtom tbl) bs
+
+substVar :: HMS.HashMap Var Var -> Var -> Var
+substVar tbl v = fromMaybe v $ HMS.lookup v tbl
+
+substAtom :: HMS.HashMap Var Var -> Atom -> Atom
+substAtom tbl x = case x of
+  Var v -> Var $ substVar tbl v
+  _ -> x
+
+substInstr :: HMS.HashMap Var Var -> Instr -> Instr
+substInstr tbl (Instr vs nm f bs) = Instr (map (substVar tbl) vs) nm f $ map (substAtom tbl) bs
+
+substTerm :: HMS.HashMap Var Var -> SSATerm -> SSATerm
+substTerm tbl x = case x of
+  SwitchS a nm alts -> SwitchS (f a) nm alts
+  BrS nm bs -> BrS nm $ map f bs
+  IndirectBrS v nms bs -> IndirectBrS (substVar tbl v) nms $ map f bs
+  RetS bs -> RetS $ map f bs
+  UnreachableS t -> UnreachableS t
+  where
+    f = substAtom tbl
+
 -- add a store for everything defined here
 -- add a load for everything not defined here (except for inside a phi node)
-patchNonLocals :: SSABlock -> M SSABlock
-patchNonLocals blk = do
-  vs' <- mapM freshVarFrom nonLocals
-  let tbl = zip nonLocals vs'
-  let loads = [ loadInstr v' (Var $ envVar v) | (v, v') <- tbl ]
-  let substVar v = fromMaybe v $ HMS.lookup v $ HMS.fromList tbl
-  let substAtom x = case x of
-        Var v -> Var $ substVar v
-        _ -> x
-  let substInstr (Instr vs nm f bs) = Instr vs nm f $ map substAtom bs
-  let substTerm = case ssaTerm blk of
-        SwitchS a nm alts -> SwitchS (substAtom a) nm alts
-        BrS nm bs -> BrS nm $ map substAtom bs
-        IndirectBrS v nms bs -> IndirectBrS (substVar v) nms $ map substAtom bs
-        RetS bs -> RetS $ map substAtom bs
-        UnreachableS t -> UnreachableS t
-  return blk{ ssaInstrs = loads ++ map substInstr (ssaInstrs blk) ++ stores, ssaTerm = substTerm }
+patchNonLocals :: HS.HashSet Var -> SSABlock -> M SSABlock
+patchNonLocals allNonLcls blk = do
+  vs' <- mapM freshVarFrom nonLcls
+  let tbl = HMS.fromList $ zip nonLcls vs'
+  let loads = [ loadInstr v' (Var $ envVar v) | (v, v') <- HMS.toList tbl ]
+  let stores = [ storeInstr (Var $ envVar v) (Var v) | v <- lcls, v `HS.member` allNonLcls ]
+  return blk{
+    ssaInstrs = loads ++ map (substInstr tbl) (ssaInstrs blk) ++ stores,
+    ssaTerm = substTerm tbl $ ssaTerm blk
+    }
+  where
+    nonLcls = HS.toList $ nonLocals blk
+    lcls = locals blk
 
+nonLocals :: SSABlock -> HS.HashSet Var
+nonLocals blk =
+  HS.filter (notTyUnit . vTy) $ HS.fromList used `HS.difference` HS.fromList lcls
   where
     lcls = locals blk
-    nonLocals = HS.toList $ HS.fromList used `HS.difference` HS.fromList lcls
     used = usedTerm ++ concat [ catMaybes $ map varAtom bs | Instr _ _ _ bs <- ssaInstrs blk ]
     usedTerm = case ssaTerm blk of
       SwitchS a _ _ -> catMaybes [varAtom a]
@@ -285,16 +341,43 @@ patchNonLocals blk = do
       IndirectBrS v _ bs -> v : catMaybes (map varAtom bs)
       RetS bs -> catMaybes $ map varAtom bs
       UnreachableS{} -> []
-    stores = [ storeInstr (Var $ envVar v) (Var v) | v <- lcls ]
 
 locals :: SSABlock -> [Var]
 locals blk = ssaParams blk ++ concat [ vs | Instr vs _ _ _ <- ssaInstrs blk ]
 
 envVar :: Var -> Var
-envVar (V t n) = V (tyAddress t) $ n ++ "_env"
+envVar (V t n) = V (tyAddress t) $ "env_" ++ n
 
 qualifyName :: FilePath -> String -> String
 qualifyName a b = modNameOf a ++ "_" ++ b
+
+mkPrettyVarTbl :: [SSABlock] -> HMS.HashMap Var Var
+mkPrettyVarTbl blks = HMS.fromList tbl
+  where
+    tbl :: [(Var, Var)]
+    tbl = concatMap f groups
+    f xs = case xs of
+      [x] -> [x]
+      _ -> [ (v, V t $ n ++ g i) | (i, (v, V t n)) <- zip [0 :: Integer ..] xs ]
+    g i = if i == 0 then "" else "." ++ show i
+
+    groups :: [[(Var, Var)]]
+    groups = groupBy (\(_, V _ a) (_, V _ b) -> a == b) [ (v, V t $ takeWhile (/= '.') n) | v@(V t n) <- sortBy (\(V _ a) (V _ b) -> compare a b) vs ]
+    vs = concatMap locals blks
+
+mkPrettyNmTbl :: [SSABlock] -> HMS.HashMap Nm Nm
+mkPrettyNmTbl blks = HMS.fromList tbl
+  where
+    tbl :: [(Nm, Nm)]
+    tbl = concatMap f groups
+    f xs = case xs of
+      [x] -> [x]
+      _ -> [ (v, Nm t $ n ++ g i) | (i, (v, Nm t n)) <- zip [0 :: Integer ..] xs ]
+    g i = if i == 0 then "" else "." ++ show i
+
+    groups :: [[(Nm, Nm)]]
+    groups = groupBy (\(_, Nm _ a) (_, Nm _ b) -> a == b) [ (v, Nm t $ takeWhile (/= '.') n) | v@(Nm t n) <- sortBy (\(Nm _ a) (Nm _ b) -> compare a b) vs ]
+    vs = map ssaNm blks
 
 callInstr :: [Var] -> Nm -> [Atom] -> Instr
 callInstr vs nm bs = Instr vs nm (\(fn : cs) -> I.call fn $ map (,[]) cs) $ Global (nmToVar nm) : bs
@@ -308,6 +391,19 @@ ssaAFuncPublic fn (AFunc nm vs _) = do
     stores = [ storeInstr (Global $ globalOutput r) (Var r) | r <- outputs nm ]
     exitBlock = SSABlock fn (publicExitNm nm) (outputs nm) stores $ RetS []
 
+ssaTargets :: SSABlock -> [Nm]
+ssaTargets blk = case ssaTerm blk of
+  BrS nm _ -> [nm]
+  SwitchS _ nm alts -> nm : map snd alts
+  IndirectBrS _ nms _ -> nms
+  _ -> []
+
+topSortBlocks :: [SSABlock] -> [SSABlock]
+topSortBlocks blks = [ blk | (blk, _, _) <- map nodeFromVertex verts ]
+  where
+      (gr, nodeFromVertex, _vertFromKey) = graphFromEdges [ (blk, ssaNm blk, ssaTargets blk) | blk <- blks ]
+      verts = topSort gr
+
 toSSAFuncs :: St -> [[AFunc]] -> [SSAFunc]
 toSSAFuncs _ [] = []
 toSSAFuncs st0 afss = obfFunc : map (toSSAFuncPublic (path st0 ) obfNm) (zip [0 ..] publicAfs)
@@ -318,24 +414,32 @@ toSSAFuncs st0 afss = obfFunc : map (toSSAFuncPublic (path st0 ) obfNm) (zip [0 
       mapM_ (ssaAFunc fn) $ concat afss
       blks <- gets blocks
       blksPub <- concat <$> mapM (ssaAFuncPublic fn) publicAfs
+      blks <- return $ blksPub ++ blks
 
       let paramTbl = HMS.fromList [ (ssaNm blk, ssaParams blk) | blk <- blks ]
-      let blockIdTbl = HMS.fromList $ zip (map ssaNm blks) [0 ..] -- BAL: include public blocks?
-      let allocas = [ allocaInstr (envVar v) | v <- concatMap locals blks ]
+      let blockIdTbl = HMS.fromList $ zip (map ssaNm blks) [0 ..]
 
-      let (_, indirectBrTbl) = mkPatchTbls $ blksPub ++ blks
+      let (_, indirectBrTbl) = mkPatchTbls blks
 
       blks <- concat <$> mapM (patchTerm paramTbl blockIdTbl indirectBrTbl) blks
       -- ^ blocks with indirectbrs patched
 
-      blks <- mapM patchNonLocals blks
+      let allNonLcls = HS.unions $ map nonLocals blks
+
+      blks <- mapM (patchNonLocals allNonLcls) blks
       -- ^ blocks no longer contain non-locals
 
-      let phiTbl = mkPatchTbls' $ blksPub ++ blks
-      blks <- return $ map (patchParamInstrs phiTbl) $ blksPub ++ blks
+      let nmTbl = mkPrettyNmTbl blks
+      blks <- return $ topSortBlocks blks
+      blks <- return $ map ( nmSubstBlock nmTbl . substBlock (mkPrettyVarTbl blks)) blks
+      -- ^ blocks are prettier
+
+      let phiTbl = mkPatchTbls' blks
+      blks <- return $ map (patchParamInstrs phiTbl) blks
       -- ^ blocks with phi instrs
 
-      let entryBlk = obfEntry publicAfs
+      let entryBlk = nmSubstBlock nmTbl $ obfEntry publicAfs
+      let allocas = [ allocaInstr (envVar v) | v <- HS.toList allNonLcls ]
       return $ SSAFunc Private obfNm [obfArg] (entryBlk{ ssaInstrs = allocas ++ ssaInstrs entryBlk } : blks)
 
 ppSSAFunc :: SSAFunc -> Doc ann

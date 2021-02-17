@@ -1,8 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Utils where
-
+module Utils ( module Utils, trace)
+where
 import           Data.Char
 
 import           Data.Hashable
@@ -16,6 +16,7 @@ import           System.FilePath
 import           System.IO
 
 import           Text.Read                 hiding ( parens )
+import Debug.Trace (trace)
 
 useLoc :: Located b => a -> b -> L a
 useLoc a b = L (locOf b) a

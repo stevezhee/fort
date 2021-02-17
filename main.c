@@ -3,8 +3,8 @@
 #include <stdint.h>
 
 extern void reverse_n(int,int []);
-// extern int fannkuch_redux_fannkuch(int []);
-// extern int fannkuch_redux_permutations(int [], int []);
+extern int fannkuch_redux_num_flips(int []);
+extern int fannkuch_redux_fannkuch(int []);
 extern int fannkuch_redux_permutations(int);
 extern void char_hello_world();
 extern int powi_powi(int, int);
@@ -15,8 +15,8 @@ extern void address_inc(int*);
 extern void address_inc_op(int*);
 extern void address_inc2(int*);
 extern void array_foo_array(int[2]);
-extern void char_char_io_test();
 extern void array_foo_2dim_array(int[2][3]);
+extern void char_char_io_test();
 extern void primitives_add315AtLoc(int*);
 extern void struct_foo();
 extern void enum_foo();
@@ -38,39 +38,35 @@ FILE* g_stderr;
 
 int main(int argc, char**argv)
 {
+
+  printf("sizeof int %lu\n", sizeof(int));
+  printf("sizeof FILE* %lu\n", sizeof(FILE*));
+
   g_stdin = stdin;
   g_stdout = stdout;
   g_stderr = stderr;
 
-  printf("128^0 = %d\n",powi_powi(128,0));
-  printf("3^2 = %d\n",powi_powi(3,2));
-  printf("2^3 = %d\n",powi_powi(2,3));
-  printf("128^1 = %d\n",powi_powi(128,1));
-  printf("3^2 = %d\n",powi_squared(3));
-  printf("2^3 = %d\n",powi_cubed(2));
-  printf("2^8 = %d\n",powi_pow2(8));
+  /* printf("128^0 = %d\n",powi_powi(128,0)); */
+  /* printf("3^2 = %d\n",powi_powi(3,2)); */
+  /* printf("2^3 = %d\n",powi_powi(2,3)); */
+  /* printf("128^1 = %d\n",powi_powi(128,1)); */
+  /* printf("3^2 = %d\n",powi_squared(3)); */
+  /* printf("2^3 = %d\n",powi_cubed(2)); */
+  /* printf("2^8 = %d\n",powi_pow2(8)); */
 
-  int x = 0;
-  printf("%d\n",x);
-  address_inc(&x);
-  printf("%d\n",x);
-  address_inc_op(&x);
-  printf("%d\n",x);
-  address_inc2(&x);
-  printf("%d\n",x);
+  /* int x = 0; */
+  /* printf("%d\n",x); */
+  /* address_inc(&x); */
+  /* printf("%d\n",x); */
+  /* address_inc_op(&x); */
+  /* printf("%d\n",x); */
+  /* address_inc2(&x); */
+  /* printf("%d\n",x); */
 
   /* int arr[2]; */
   /* array_foo_array(arr); */
   /* printf("arr[0] %d\n",arr[0]); */
   /* printf("arr[1] %d\n",arr[1]); */
-
-  /* printf("sizeof int %lu\n", sizeof(int)); */
-  /* printf("sizeof FILE* %lu\n", sizeof(FILE*)); */
-
-  /* if(argc > 1) */
-  /*   { */
-  /*     char_char_io_test(); */
-  /*   } */
 
   /* int arr2[2][3]; */
   /* array_foo_2dim_array(arr2); */
@@ -88,15 +84,22 @@ int main(int argc, char**argv)
   /* primitives_add315AtLoc(&myInt); */
   /* printf("myInt = %d\n", myInt); */
 
+  /* if(argc > 1) */
+  /*   { */
+  /*     char_char_io_test(); */
+  /*   } */
   /* char_hello_world(); */
 
   /* enum_enum_foo(0); */
-
-  /* struct_foo(); */
   /* enum_foo(); */
 
-  /* // int perm[] = {4,2,1,5,3}; */
-  /* // printf("flips: %d\n", fannkuch_redux_fannkuch(perm)); */
+  /* struct_foo(); */
+
+  int perm[] = {4,2,1,5,3};
+  printf("flips: %d\n", fannkuch_redux_num_flips(perm));
+  printf("perm[0] = %d\n", perm[0]);
+
+  fannkuch_redux_permutations(3);
 
   /* // for(i=0; i < 5; ++i) */
   /* // { */
@@ -106,7 +109,6 @@ int main(int argc, char**argv)
 
   /* //int arra[] = {1,2,3,4,5}; */
   /* //int arrc[] = {0,0,0,0,0}; */
-  /* fannkuch_redux_permutations(5); */
   /* /\* fannkuch_redux_permutations(arra, arrc); *\/ */
   /* /\* 228 *\/ */
   /* /\* Pfannkuchen(7) = 16 *\/ */
