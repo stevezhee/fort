@@ -115,7 +115,7 @@ toLLVMBasicBlock (SSABlock _ n _ xs t) = AST.BasicBlock (AST.mkName $ nName n)
 toLLVMInstruction :: Instr -> AST.Named AST.Instruction
 toLLVMInstruction x@(Instr pat _ f xs) = case pat of
     [] -> AST.Do $ f $ map toOperand xs
-    [ V _ v ] -> AST.mkName v AST.:= f (map toOperand xs)
+    [ V _ _ v ] -> AST.mkName v AST.:= f (map toOperand xs)
     _ -> impossible $ "toLLVMInstruction:" ++ show x
 
 toLLVMTerminator :: SSATerm -> AST.Named AST.Terminator
@@ -134,13 +134,14 @@ toLLVMTerminator x = AST.Do $ case x of
 
 toOperand :: Atom -> AST.Operand
 toOperand x = case x of
-    Var a -> AST.LocalReference (toTyLLVM $ vTy a) (AST.mkName $ vName a)
     Int sz i -> AST.ConstantOperand $ I.constInt sz i
     Char a -> toOperand $ Int 8 $ fromIntegral $ fromEnum a
-    String _ a -> toOperand $ Global a
+    String _ a -> toOperand $ Var a
     Undef t -> AST.ConstantOperand $ AST.Undef $ toTyLLVM t
-    Global a -> AST.ConstantOperand $
-        AST.GlobalReference (toTyLLVM $ vTy a) (AST.mkName $ vName a)
+    Var a
+      | vScope a == Local -> AST.LocalReference (toTyLLVM $ vTy a) (AST.mkName $ vName a)
+      | otherwise -> AST.ConstantOperand $
+          AST.GlobalReference (toTyLLVM $ vTy a) (AST.mkName $ vName a)
     Enum (_, (t, i)) -> toOperand $ Int (sizeFort t) i
     Label a b -> AST.ConstantOperand $ AST.BlockAddress (AST.mkName a) (AST.mkName $ nName b)
 

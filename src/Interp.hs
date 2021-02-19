@@ -143,7 +143,6 @@ data Cmd
 initSt :: [SSAFunc] -> St
 initSt fns = St {
   env = mempty,
-  globalEnv = mempty,
   primOps = prims,
   blocks = mempty,
   functions = HMS.fromList [ (nm, fn) | fn@(SSAFunc _ nm _ _) <- fns ],
@@ -193,7 +192,6 @@ loadF = \[a] -> case a of
 evalAtom :: Atom -> M Atom
 evalAtom x = case x of
   Var v -> getVarVal v
-  Global v -> getGlobalVarVal v
   _ -> pure x
 
 getAtomConstant :: Atom -> M Constant
@@ -222,7 +220,6 @@ data StackFrame = StackFrame [Var] Nm Nm Int
 
 data St = St {
   env :: HMS.HashMap Var Atom,
-  globalEnv :: HMS.HashMap Var Atom,
   primOps :: HMS.HashMap String ([Atom] -> M [Atom]),
   blocks :: HMS.HashMap Nm SSABlock,
   functions :: HMS.HashMap Nm SSAFunc,
@@ -276,9 +273,6 @@ data Val
   | UndefV Type
   | LabelV Name Nm -- Label (function name) (label name)
   deriving (Show, Eq)
-
-getGlobalVarVal :: Var -> M Atom
-getGlobalVarVal v = fromMaybe (Undef $ vTy v) . HMS.lookup v <$> gets globalEnv
 
 getVarVal :: Var -> M Atom
 getVarVal v = fromMaybe (Undef $ vTy v) . HMS.lookup v <$> gets env

@@ -46,7 +46,7 @@ case_ ty (E x) f ys = E $ do
          of
             AtomE a -> go a
             _ -> do
-                v <- freshVar ty "c"
+                v <- freshVar Local ty "c"
                 LetE [ v ] e <$> go (Var v)
   where
     go :: Atom -> M Expr
@@ -77,7 +77,7 @@ global t s =
     app (load ty t)
         (E $ do
              modify' $ \st -> st { externs = HMS.insert s t $ externs st }
-             pure $ AtomE $ Global $ V ty s)
+             pure $ AtomE $ Var $ V Global ty s)
   where
     ty = tyAddress t
 
@@ -100,9 +100,9 @@ externFunc n ty = E $ do
 
 fromUPat :: Type -> UPat -> Pat
 fromUPat ty upat = case (unTupleTy ty, upat) of
-    ([], [ v ]) -> [ V tyUnit v ]
-    (_, [ v ]) -> [ V ty v ]
-    (tys, _) -> safeZipWith "fromUPat" V tys upat
+    ([], [ v ]) -> [ V Local tyUnit v ]
+    (_, [ v ]) -> [ V Local ty v ]
+    (tys, _) -> safeZipWith "fromUPat" (V Local) tys upat
 
 char :: Char -> E Char_
 char = atomE . Char
@@ -138,7 +138,7 @@ string s = app f str
     t = tyAddress (TyArray (genericLength s + 1) tyChar)
 
     str = E $ do
-        let v = V t $ "s." ++ hashName s
+        let v = V Global t $ "s." ++ hashName s
         modify' $ \st -> st { strings = HMS.insert s v $ strings st }
         pure $ AtomE $ String s v
 

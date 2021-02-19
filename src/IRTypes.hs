@@ -69,7 +69,7 @@ data Expr = AtomE Atom
 
 data CallType = Internal Visibility | External ([Operand] -> Instruction)
 
-data Visibility = Public | Private deriving Show
+data Visibility = Public | Private deriving (Show, Eq)
 
 instance Show CallType where
   show x = case x of
@@ -93,7 +93,6 @@ data Atom = Int Integer Integer
           | Enum (String, (Type, Integer))
           | Char Char
           | Var Var
-          | Global Var
           | String String Var
           | Undef Type
           | Label Name Nm -- Label (function name) (label name)
@@ -279,17 +278,16 @@ ppAtom x = case x of
     Enum a -> pretty (fst a)
     Char c -> pretty (show c)
     Var v -> pretty v
-    Global v -> pretty v
     String s _ -> pretty (show s)
     Undef _ -> "<undef>"
     Label _ nm -> pretty nm
 
-data Scope = Global | Local deriving Show
+data Scope = Global | Local deriving (Show, Eq)
 
-data Var = V { vTy :: Type, vName :: Name }
+data Var = V { vScope :: Scope, vTy :: Type, vName :: Name }
 --    deriving Show
 instance Show Var where
-  show x = "V " ++ vName x
+  show x = vName x
 
 instance Pretty Visibility where
   pretty = pretty . show
@@ -341,7 +339,6 @@ tyAtom x = case x of
     Int sz _ -> tyUnsigned sz
     Char{} -> tyChar
     Var a -> vTy a
-    Global a -> vTy a
     String{} -> tyString
     Undef t -> t
     Enum (_, (t, _)) -> t
@@ -353,18 +350,21 @@ varAtom x = case x of
   _ -> Nothing
 
 freshPat :: Pat -> M Pat
-freshPat xs = sequence [ freshVar t s | V t s <- xs ]
+freshPat = sequence . map freshVarFrom
+
+freshVarFrom :: Var -> M Var
+freshVarFrom (V s t n) = freshVar s t n
 
 freshBind :: Type -> M Pat
-freshBind x = freshPat [ V t ("v" ++ show i)
+freshBind x = freshPat [ V Local t ("v" ++ show i)
                        | (t, i) <- zip (unTupleTy x) [ 0 :: Int .. ]
                        ]
 
 freshNm :: Type -> Name -> M Nm
 freshNm t n = Nm t <$> freshName n
 
-freshVar :: Type -> Name -> M Var
-freshVar t n = V t <$> freshName n
+freshVar :: Scope -> Type -> Name -> M Var
+freshVar s t n = V s t <$> freshName n
 
 freshName :: Name -> M Name
 freshName v = do

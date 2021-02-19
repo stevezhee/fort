@@ -20,12 +20,12 @@ s: String = "hello, world"
 
 ;; functions
 
-char-foo: Char -> Char = \_ => fst (#"z",#"a")
-char-bar: Char -> Char = \_ => fst (a,b : Char)
+foo: Char -> Char = \_ => fst (#"z",#"a")
+bar: Char -> Char = \_ => fst (a,b : Char)
 
 get-char: () -> Char = \() => h-get-char stdin
 
-char-io-test: () -> () = \w => /do
+io-test: () -> () = \w => /do
   output (get-char w)
 
 hello-world: () -> () = \_ => /do
