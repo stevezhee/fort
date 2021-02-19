@@ -113,7 +113,6 @@ hOutput ty = case ty of
                                 hPutUInt64 (unsafeCast tyUInt64 x) h
                 _ -> ok $ \x h -> hOutput tyUInt64 $ tuple2 (cast tyUInt64 x) h
     TyFun{} -> ok $ \_ -> putS "<function>"
-    TyCont{} -> ok $ \_ -> putS "<continuation>"
     TyTuple [] -> ok $ \_ -> putS "()"
     TyRecord bs -> ok $ \x h -> delim h "{" "}" $
         seqs_ [ prefixS h "; " $

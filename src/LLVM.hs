@@ -142,7 +142,6 @@ toOperand x = case x of
     Global a -> AST.ConstantOperand $
         AST.GlobalReference (toTyLLVM $ vTy a) (AST.mkName $ vName a)
     Enum (_, (t, i)) -> toOperand $ Int (sizeFort t) i
-    Cont _ (_, sz, i) -> toOperand $ Int sz i
     Label a b -> AST.ConstantOperand $ AST.BlockAddress (AST.mkName a) (AST.mkName $ nName b)
 
 tyLLVM :: Ty a => Proxy a -> AST.Type
@@ -162,5 +161,4 @@ toTyLLVM = go
         TyVariant bs -> go $ tyVariantToTyRecord bs
         TyFun _ b ->
             AST.FunctionType (toTyLLVM b) (map toTyLLVM $ unTupleTy b) False
-        TyCont _ -> impossible "toTyLLVM"
         TyLabel{} -> AST.ptr (AST.IntegerType 8)

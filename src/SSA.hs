@@ -7,26 +7,84 @@
 {-# LANGUAGE TupleSections #-}
 {-# OPTIONS_GHC -fno-warn-name-shadowing #-}
 
-module SSA (toSSAFuncs, ppSSAFunc, toPrivateGlobals) where
+module SSA (toSSAFuncs, ppSSAFunc, toPrivateGlobals, ssaWriteDotFile, locals) where
 
+import           Control.Monad.State.Strict
+import           Data.List
+import           IRTypes
+import           Utils
+import Data.Bifunctor
+import Data.Graph hiding (path)
+import Data.GraphViz hiding (Number(..))
+import Data.Hashable
+import Data.Maybe
+import LLVM
 import qualified Data.HashMap.Strict       as HMS
 import qualified Data.HashSet       as HS
-import           Data.List
-
+import qualified Instr                     as I
+import qualified LLVM.AST          as AST
+import Data.Text.Lazy (unpack)
 import           Data.Text.Prettyprint.Doc
 
-import           IRTypes
+ssaWriteDotFile :: FilePath -> [SSAFunc] -> IO ()
+ssaWriteDotFile fn fs = writeFile (fn ++ ".dot") $ unpack $ printDotGraph gr
+  where
+    gr = graphElemsToDot quickParams [ (f blk, f blk) | blk <- blks] $ concatMap es blks
+    es :: SSABlock -> [(String, String, String)]
+    es blk = [ (f blk, nName t, show $ ppTuple $ map pretty $ ssaTargetArgs blk) | t <- ssaTargets blk ]
+    blks = case fs of
+      [] -> []
+      SSAFunc _ _ _ xs : _ -> xs
+    f = nName . ssaNm
 
-import qualified Instr                     as I
+prettify :: Bool
+prettify = True
 
-import           Utils
-import           Control.Monad.State.Strict
-import Data.Maybe
-import Data.Hashable
-import LLVM
-import qualified LLVM.AST          as AST
-import Data.Graph hiding (path)
-import Data.Bifunctor
+toSSAFuncs :: St -> [[AFunc]] -> [SSAFunc]
+toSSAFuncs _ [] = []
+toSSAFuncs st0 afss = obfFunc : map (toSSAFuncPublic (path st0 ) obfNm) (zip [0 ..] publicAfs)
+  where
+    fn = nName obfNm
+    publicAfs = [ af | af : _ <- afss ]
+    obfFunc = flip evalState st0 $ do
+      mapM_ (ssaAFunc fn) $ concat afss
+      blks <- gets blocks
+      blksPub <- concat <$> mapM (ssaAFuncPublic fn) publicAfs
+      blks <- return $ blksPub ++ blks
+
+      let paramTbl = HMS.fromList [ (ssaNm blk, ssaParams blk) | blk <- blks ]
+      let blockIdTbl = HMS.fromList $ zip (map ssaNm blks) [0 ..]
+
+      let (_, indirectBrTbl) = mkPatchTbls blks
+
+      blks <- concat <$> mapM (patchTerm paramTbl blockIdTbl indirectBrTbl) blks
+      -- ^ blocks with indirectbrs patched
+
+      let allNonLcls = HS.unions $ map nonLocals blks
+
+      blks <- mapM (patchNonLocals allNonLcls) blks
+      -- ^ blocks no longer contain non-locals
+
+
+      let nmTbl = mkPrettyNmTbl blks
+      blks <- if prettify
+        then do
+          blks <- return $ topSortBlocks blks
+          return $ map ( nmSubstBlock nmTbl . substBlock (mkPrettyVarTbl blks)) blks
+          -- ^ blocks are prettier
+        else return blks
+
+      let phiTbl = mkPatchTbls' blks
+      blks <- return $ map (patchParamInstrs phiTbl) blks
+      -- ^ blocks with phi instrs
+
+      entryBlk <- return $ obfEntry publicAfs
+      entryBlk <- if prettify
+        then return $ nmSubstBlock nmTbl entryBlk
+        else return entryBlk
+
+      let allocas = [ allocaInstr (envVar v) | v <- HS.toList allNonLcls ]
+      return $ SSAFunc Private obfNm [obfArg] (entryBlk{ ssaInstrs = allocas ++ ssaInstrs entryBlk } : blks)
 
 storeInstr :: Atom -> Atom -> Instr
 storeInstr x y = Instr [] (Nm (TyFun (tyTuple [tyAtom x, tyAtom y]) tyUnit) "store") (\[a, b] -> I.store a b) [x, y]
@@ -250,11 +308,14 @@ patchTerm paramTbl blockIdTbl indirectBrTbl blk
 
 toSSAFuncPublic :: FilePath -> Nm -> (Integer, AFunc) -> SSAFunc
 toSSAFuncPublic p fn (i, AFunc nm vs _) =
-  SSAFunc Public nm{ nName = qualifyName p $ nName nm} vs [SSABlock (nName nm) (entryNm nm) [] ins $ RetS $ map Var $ outputs nm]
+  SSAFunc Public nm{ nName = qualifyName p $ nName nm } vs [SSABlock (nName nm) (entryNm nm) [] ins $ RetS $ map Var $ outputs nm]
   where
     ins = stores ++ [ callInstr [] fn [Int 32 i] ] ++ loads
     stores = [ storeInstr (Global $ globalArg nm v) (Var v) | v <- vs ]
     loads = [ loadInstr r (Global $ globalOutput r) | r <- outputs nm ]
+
+callInstr :: [Var] -> Nm -> [Atom] -> Instr
+callInstr vs nm bs = Instr vs nm (\cs -> I.call (toOperand $ Global (nmToVar nm)) $ map (,[]) cs) bs
 
 substBlock :: HMS.HashMap Var Var -> SSABlock -> SSABlock
 substBlock tbl blk = blk{
@@ -379,9 +440,6 @@ mkPrettyNmTbl blks = HMS.fromList tbl
     groups = groupBy (\(_, Nm _ a) (_, Nm _ b) -> a == b) [ (v, Nm t $ takeWhile (/= '.') n) | v@(Nm t n) <- sortBy (\(Nm _ a) (Nm _ b) -> compare a b) vs ]
     vs = map ssaNm blks
 
-callInstr :: [Var] -> Nm -> [Atom] -> Instr
-callInstr vs nm bs = Instr vs nm (\(fn : cs) -> I.call fn $ map (,[]) cs) $ Global (nmToVar nm) : bs
-
 ssaAFuncPublic :: Name -> AFunc -> M [SSABlock]
 ssaAFuncPublic fn (AFunc nm vs _) = do
   bs <- mapM freshVarFrom vs
@@ -390,6 +448,12 @@ ssaAFuncPublic fn (AFunc nm vs _) = do
   where
     stores = [ storeInstr (Global $ globalOutput r) (Var r) | r <- outputs nm ]
     exitBlock = SSABlock fn (publicExitNm nm) (outputs nm) stores $ RetS []
+
+ssaTargetArgs :: SSABlock -> [Atom]
+ssaTargetArgs blk = case ssaTerm blk of
+  BrS _ bs -> bs
+  IndirectBrS _ _ bs -> bs
+  _ -> []
 
 ssaTargets :: SSABlock -> [Nm]
 ssaTargets blk = case ssaTerm blk of
@@ -403,63 +467,6 @@ topSortBlocks blks = [ blk | (blk, _, _) <- map nodeFromVertex verts ]
   where
       (gr, nodeFromVertex, _vertFromKey) = graphFromEdges [ (blk, ssaNm blk, ssaTargets blk) | blk <- blks ]
       verts = topSort gr
-
-toSSAFuncs :: St -> [[AFunc]] -> [SSAFunc]
-toSSAFuncs _ [] = []
-toSSAFuncs st0 afss = obfFunc : map (toSSAFuncPublic (path st0 ) obfNm) (zip [0 ..] publicAfs)
-  where
-    fn = nName obfNm
-    publicAfs = [ af | af : _ <- afss ]
-    obfFunc = flip evalState st0 $ do
-      mapM_ (ssaAFunc fn) $ concat afss
-      blks <- gets blocks
-      blksPub <- concat <$> mapM (ssaAFuncPublic fn) publicAfs
-      blks <- return $ blksPub ++ blks
-
-      let paramTbl = HMS.fromList [ (ssaNm blk, ssaParams blk) | blk <- blks ]
-      let blockIdTbl = HMS.fromList $ zip (map ssaNm blks) [0 ..]
-
-      let (_, indirectBrTbl) = mkPatchTbls blks
-
-      blks <- concat <$> mapM (patchTerm paramTbl blockIdTbl indirectBrTbl) blks
-      -- ^ blocks with indirectbrs patched
-
-      let allNonLcls = HS.unions $ map nonLocals blks
-
-      blks <- mapM (patchNonLocals allNonLcls) blks
-      -- ^ blocks no longer contain non-locals
-
-      let nmTbl = mkPrettyNmTbl blks
-      blks <- return $ topSortBlocks blks
-      blks <- return $ map ( nmSubstBlock nmTbl . substBlock (mkPrettyVarTbl blks)) blks
-      -- ^ blocks are prettier
-
-      let phiTbl = mkPatchTbls' blks
-      blks <- return $ map (patchParamInstrs phiTbl) blks
-      -- ^ blocks with phi instrs
-
-      let entryBlk = nmSubstBlock nmTbl $ obfEntry publicAfs
-      let allocas = [ allocaInstr (envVar v) | v <- HS.toList allNonLcls ]
-      return $ SSAFunc Private obfNm [obfArg] (entryBlk{ ssaInstrs = allocas ++ ssaInstrs entryBlk } : blks)
-
-ppSSAFunc :: SSAFunc -> Doc ann
-ppSSAFunc (SSAFunc vis nm vs xs) = pretty vis <+> pretty nm <+> ppPat vs <+> "=" <> line
-    <> indent 2 (vcat (map ppSSABlock xs))
-
-ppSSABlock :: SSABlock -> Doc ann
-ppSSABlock (SSABlock _ nm vs xs y) = pretty nm <+> ppTuple (map pretty vs) <> ":" <> line
-    <> indent 2 (vcat (map ppInstr xs ++ [ppSSATerm y]))
-
-ppInstr :: Instr -> Doc ann
-ppInstr (Instr vs nm _ bs) = ppPat vs <+> "=" <+> pretty nm <+> ppTuple (map pretty bs)
-
-ppSSATerm :: SSATerm -> Doc ann
-ppSSATerm x = case x of
-    SwitchS a b cs -> ppSwitch a b cs
-    BrS n bs -> "br" <+> pretty n <+> ppTuple (map pretty bs)
-    IndirectBrS v ns bs -> "indirectbr" <+> pretty v <+> ppTuple (map pretty ns) <+> ppTuple (map pretty bs)
-    RetS bs -> "ret" <+> ppTuple (map pretty bs)
-    UnreachableS _ -> "unreachable"
 
 addBlock :: SSABlock -> M ()
 addBlock x = modify' $ \st -> st{ blocks = x : blocks st }

@@ -1,10 +1,10 @@
 name:                fort
 version:             0.1.0.0
-github:              "githubuser/fort"
+github:              "stevezhee/fort"
 license:             BSD3
-author:              "Author name here"
-maintainer:          "example@example.com"
-copyright:           "2021 Author name here"
+author:              "Brett Letner"
+maintainer:          "brettletner@gmail.com"
+copyright:           "2021 Brett Letner"
 
 extra-source-files:
 - README.md
@@ -34,6 +34,8 @@ dependencies:
 - unordered-containers
 - text
 - llvm-hs-pretty
+- graphviz
+- containers
 
 library:
   source-dirs: src
@@ -52,6 +54,7 @@ library:
     - SyntaxTypes
     - UExpr
     - Expr
+    - Interp
 
 executables:
   fort-exe:

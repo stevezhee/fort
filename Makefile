@@ -25,7 +25,7 @@ ALL_FORT_FILES=$(wildcard $(TEST_DIR)/*.fort)
 FORT_FILES=$(filter-out $(EXCLUDE_FILES), $(ALL_FORT_FILES))
 # FORT_FILES=$(TEST_DIR)/powi.fort
 # FORT_FILES=$(TEST_DIR)/address.fort
-# FORT_FILES=$(TEST_DIR)/fannkuch-redux.fort
+FORT_FILES=$(TEST_DIR)/fannkuch-redux.fort
 
 GEN_HS_FILES=$(addsuffix .hs, $(FORT_FILES))
 LL_FILES=$(addsuffix .ll, $(FORT_FILES))
@@ -34,7 +34,11 @@ OUT_FILE=a.out
 
 .PHONY: all
 # all: diff
+
 all: a.out.actual
+	# $(OPT) -O0 --dot-cfg test/fannkuch-redux.fort.ll
+	# dot .obf.dot -Tpng > t.png
+
 
 .PHONY: diff
 diff: a.out.actual
@@ -55,7 +59,7 @@ a.out.actual: $(OUT_FILE)
 
 %.fort.s: %.fort.ll
 	#$(OPT) -S -O2 -o $< $<
-	$(LLC) $<
+	#$(LLC) $<
 
 %.fort.o: %.fort.s
 	clang -o $@ -c $^

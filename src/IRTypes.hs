@@ -97,7 +97,6 @@ data Atom = Int Integer Integer
           | String String Var
           | Undef Type
           | Label Name Nm -- Label (function name) (label name)
-          | Cont Nm (Name, Integer, Integer) -- BAL: remove
     deriving (Show, Eq)
 
 afName :: AFunc -> Name
@@ -107,9 +106,6 @@ labelNm :: Atom -> Nm
 labelNm x = case x of
   Label _ nm -> nm
   _ -> impossible "expected label atom"
-
-data Cont = NmC Nm | VarC Name Name
-    deriving Show
 
 data SSAFunc = SSAFunc Visibility Nm [Var] [SSABlock]
     deriving Show
@@ -126,7 +122,13 @@ data SSATerm
     | UnreachableS Type
     deriving Show
 
+instance Pretty SSATerm where
+  pretty = ppSSATerm
+
 data Instr = Instr [Var] Nm ([Operand] -> Instruction) [Atom]
+
+instance Pretty Instr where
+  pretty = ppInstr
 
 instance Show Instr where
   show (Instr vs nm _ args) = unwords $ map show vs ++ ["=", show nm] ++ map show args
@@ -150,7 +152,6 @@ data Type = TyInteger Integer IsSigned IntType
           | TyRecord [(String, Type)]
           | TyVariant [(String, Type)]
           | TyFun Type Type
-          | TyCont Name -- BAL: remove
           | TyLabel Type
     deriving ( Show, Eq )
 
@@ -177,7 +178,6 @@ instance Pretty Type where
                                                  | (s, t) <- bs
                                                  ]) <> ">"
         TyFun a b -> pretty a <+> "->" <+> pretty b
-        TyCont a -> pretty a
         TyLabel{} -> "Label"
 
 tyBool :: Type
@@ -281,9 +281,10 @@ ppAtom x = case x of
     Var v -> pretty v
     Global v -> pretty v
     String s _ -> pretty (show s)
-    Cont a _ -> "%" <> pretty a
     Undef _ -> "<undef>"
     Label _ nm -> pretty nm
+
+data Scope = Global | Local deriving Show
 
 data Var = V { vTy :: Type, vName :: Name }
 --    deriving Show
@@ -344,7 +345,6 @@ tyAtom x = case x of
     String{} -> tyString
     Undef t -> t
     Enum (_, (t, _)) -> t
-    Cont _ (_, a, _) -> tyUnsigned a
     Label _ nm -> TyLabel $ nTy nm
 
 varAtom :: Atom -> Maybe Var
@@ -508,8 +508,26 @@ sizeFort x = case x of
     TyRecord bs -> sizeFort $ tyRecordToTyTuple bs
     TyVariant bs -> sizeFort $ tyVariantToTyRecord bs
     TyFun{} -> impossible $ "sizeFort:" ++ show x
-    TyCont{} -> impossible $ "sizeFort:" ++ show x
     TyLabel{} -> ptrSize
+
+ppSSABlock :: SSABlock -> Doc ann
+ppSSABlock (SSABlock _ nm vs xs y) = pretty nm <+> ppTuple (map pretty vs) <> ":" <> line
+    <> indent 2 (vcat (map ppInstr xs ++ [ppSSATerm y]))
+
+ppSSAFunc :: SSAFunc -> Doc ann
+ppSSAFunc (SSAFunc vis nm vs xs) = pretty vis <+> pretty nm <+> ppPat vs <+> "=" <> line
+    <> indent 2 (vcat (map ppSSABlock xs))
+
+ppInstr :: Instr -> Doc ann
+ppInstr (Instr vs nm _ bs) = ppPat vs <+> "=" <+> pretty nm <+> ppTuple (map pretty bs)
+
+ppSSATerm :: SSATerm -> Doc ann
+ppSSATerm x = case x of
+    SwitchS a b cs -> ppSwitch a b cs
+    BrS n bs -> "br" <+> pretty n <+> ppTuple (map pretty bs)
+    IndirectBrS v ns bs -> "indirectbr" <+> pretty v <+> ppTuple (map pretty ns) <+> ppTuple (map pretty bs)
+    RetS bs -> "ret" <+> ppTuple (map pretty bs)
+    UnreachableS _ -> "unreachable"
 
 -- BAL: remove
 -- data SAFunc = SAFunc { saNm :: Nm, saParams :: [Var], saBody :: SAExpr }

@@ -4,7 +4,6 @@
 
 extern void reverse_n(int,int []);
 extern int fannkuch_redux_num_flips(int []);
-extern int fannkuch_redux_fannkuch(int []);
 extern int fannkuch_redux_permutations(int);
 extern void char_hello_world();
 extern int powi_powi(int, int);
@@ -96,10 +95,10 @@ int main(int argc, char**argv)
   /* struct_foo(); */
 
   int perm[] = {4,2,1,5,3};
-  printf("flips: %d\n", fannkuch_redux_num_flips(perm));
+  // printf("flips: %d\n", fannkuch_redux_num_flips(perm));
   printf("perm[0] = %d\n", perm[0]);
 
-  fannkuch_redux_permutations(3);
+  printf("checksum = %d\n", fannkuch_redux_permutations(3));
 
   /* // for(i=0; i < 5; ++i) */
   /* // { */

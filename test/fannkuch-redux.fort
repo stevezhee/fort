@@ -35,18 +35,6 @@ cast: a -> b
 ;; code
 is-odd: Int -> Bool = cast
 
-num-flips: Perm -> Int = \perm => /do
-  /let p = unsafe-array
-  init-copy (p, perm)
-  go 0
-    /where
-      go: Int -> Int = \n => /case load (p # 0) /of
-        1 = n
-        \i => /do
-          reverse-n (i, p)
-          ;; output p
-          go (n + 1)
-
 max: (Int, Int) -> Int = \(x, y) => /if
   x >= y = x
   _ = y
@@ -57,23 +45,10 @@ max: (Int, Int) -> Int = \(x, y) => /if
 ;;   perm-count: Int
 
 ;; BAL: try multiply version when benchmarking
-calc-checksum: (SInt, Int, Int) -> SInt = \(csum, n-flips, i) => /if
-  is-odd i = csum - cast n-flips
-  _ = csum + cast n-flips
+;; calc-checksum: (SInt, Int, Int) -> SInt = \(csum, n-flips, i) => /if
+;;   is-odd i = csum - cast n-flips
+;;   _ = csum + cast n-flips
   
-reverse-n: (Int, Perm) -> () = \(n, p) => go (0, n - 1)
-  /where
-    go: (Int, Int) -> () = \(l,r) => /if
-      l >= r = ()
-      _ = /do
-        swap (p # l, p # r)
-        go (l + 1, r - 1)
-
-swap: (/address Int, /address Int) -> () = \(p,q) => /do
-  /let temp = load p
-  p := load q
-  q := temp
-
 ;; inc: /address Int -> () = \p => p := (load p + 1)
 dec: /address Int -> () = \p => p := (load p - 1)
 
@@ -105,32 +80,29 @@ init-copy: (Perm, Perm) -> () = \(a, b) => go 0
         go (i + 1)
       _ = ()
 
-permutations: Int -> () = \n => /do
+perms: () -> Int = \_ => permutations(2)
+
+permutations: Int -> Int = \n => /do
   /let perm: Perm = unsafe-array
   init-linear perm
   /let count: Perm = unsafe-array
+  /let flips: Perm = unsafe-array
   ;; init-zeros count ;; BAL: don't need this
   ;; output perm
 
-  computePerms (n, 0, 0, 0)
+  computePerms (n, 0)
     /where
-      computePerms: (Int, Int, SInt, Int) -> () = \(r0, mx0, csum0, idx) => /do
-        /let n = num-flips perm
+      computePerms: (Int, Int) -> Int = \(r0, idx) => /do
         ;; /let mx = max (mx0, n)
+        /let n = num-flips perm
         ;; /let csum = calc-checksum(csum0, n, idx)
-        /let mx = mx0
-        /let csum = csum0
-        output mx0
-        output csum0
-        output idx
-        output perm
         updateCounts r0
         /let r: Int = computeNextPerm 1
         /if
-          r < n = computePerms (r, mx, csum, idx + 1)
-          _ = /do
-            output mx
-            output csum
+          r < n = computePerms (r, idx + 1)
+          _ = r ;; /do
+            ;; output mx
+            ;; output csum
 
       updateCounts: Int -> () = \r0 =>
         /if
@@ -159,6 +131,50 @@ permutations: Int -> () = \n => /do
                   rot (i + 1)
                 _ = (perm # r) := perm0
 
+      num-flips: Perm -> Int = \asdf => /do
+        init-copy (flips, perm)
+        goX 0
+          /where
+            goX: Int -> Int = \nX => /case load (flips # 0) /of
+              1 = nX
+              \iX => /do
+                reverse-n (iX)
+                ;; output p
+                goX (nX + 1)
+
+      reverse-n: (Int) -> () = \(nXX) => goXX (0, nXX - 1)
+        /where
+          goXX: (Int, Int) -> () = \(lXX, rXX) => /if
+            lXX >= rXX = ()
+            _ = /do
+              swap (flips # lXX, flips # rXX)
+              goXX (lXX + 1, rXX - 1)
+
+      swap: (/address Int, /address Int) -> () = \(pXXX, qXXX) => /do
+        /let temp = load pXXX
+        pXXX := load qXXX
+        qXXX := temp
+
+
+      ;; num-flips: Perm -> Int = \permX => /do
+      ;;   /let pX = unsafe-array
+      ;;   init-copy (pX, permX)
+      ;;   goX 0
+      ;;     /where
+      ;;       goX: Int -> Int = \nX => /case load (pX # 0) /of
+      ;;         1 = nX
+      ;;         \iX => /do
+      ;;           reverse-n (iX, pX)
+      ;;           ;; output p
+      ;;           goX (nX + 1)
+
+      ;; reverse-n: (Int, Perm) -> () = \(nXX, pXX) => goXX (0, nXX - 1)
+      ;;   /where
+      ;;     goXX: (Int, Int) -> () = \(lXX, rXX) => /if
+      ;;       lXX >= rXX = ()
+      ;;       _ = /do
+      ;;         swap (pXX # lXX, pXX # rXX)
+      ;;         goXX (lXX + 1, rXX - 1)
 
 ;; init-zeros: Perm -> () = \arr => go 0
 ;;   /where

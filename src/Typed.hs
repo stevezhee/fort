@@ -32,6 +32,7 @@ import           SSA
 
 import           Utils
 import Renamer
+import Interp
 
 verbose :: Bool
 verbose = False
@@ -76,11 +77,17 @@ codegen file ds = do
     -- let ssas :: [SSAFunc] = map toSSAFunc cpss
     -- let ssas :: [SSAFunc] = map (toSSAFunc st1) anfs
     let ssas :: [SSAFunc] = toSSAFuncs st1 anfs
+    let sSSAs = ppFuncs ppSSAFunc ssas
+    writeFile "t.ssa" $ show sSSAs
+    interp ssas
+
     if verbose
         then do
-            print $ ppFuncs ppSSAFunc ssas
+            print sSSAs
             putStrLn "--- LLVM -----"
         else putStrFlush "LLVM->"
+
+    ssaWriteDotFile file ssas
 
     let m = toLLVMModule file
                          (HMS.toList $ strings st)
@@ -88,7 +95,7 @@ codegen file ds = do
                          (concatMap toPrivateGlobals $ map head anfs) -- BAL: use ssas
                          ssas
     let s = AST.ppllvm m
-    when verbose $ T.putStrLn s
+    -- BAL: when verbose $ T.putStrLn s
     let oFile = file ++ ".ll"
     T.writeFile oFile s
     putStrLn oFile
