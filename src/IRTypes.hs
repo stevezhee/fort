@@ -511,7 +511,7 @@ sizeFort x = case x of
     TyLabel{} -> ptrSize
 
 ppSSABlock :: SSABlock -> Doc ann
-ppSSABlock (SSABlock _ nm vs xs y) = pretty nm <+> ppTuple (map pretty vs) <> ":" <> line
+ppSSABlock (SSABlock _ nm vs xs y) = "label" <+> pretty nm <> ":" <+> ppTuple (map pretty vs) <> line
     <> indent 2 (vcat (map ppInstr xs ++ [ppSSATerm y]))
 
 ppSSAFunc :: SSAFunc -> Doc ann

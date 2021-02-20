@@ -79,34 +79,32 @@ codegen file ds = do
 
     -- let ssas :: [SSAFunc] = map toSSAFunc cpss
     -- let ssas :: [SSAFunc] = map (toSSAFunc st1) anfs
-    let ssas :: [SSAFunc] = toSSAFuncs st1 anfs
+    let (ssas :: [SSAFunc], gs) = toSSAFuncs st1 anfs
 
-    if debugger
-      then interp ssas
-      else do
-        let sSSAs = ppFuncs ppSSAFunc ssas
-        writeFile "t.ssa" $ show sSSAs
+    let sSSAs = ppFuncs ppSSAFunc ssas
+    writeFile "t.ssa" $ show sSSAs
 
-        if verbose
-            then do
-                print sSSAs
-                putStrLn "--- LLVM -----"
-            else putStrFlush "LLVM->"
+    if verbose
+        then do
+            print sSSAs
+            putStrLn "--- LLVM -----"
+        else putStrFlush "LLVM->"
 
-        ssaWriteDotFile file ssas
+    ssaWriteDotFile file ssas
 
-        let m = toLLVMModule file
-                            (HMS.toList $ strings st)
-                            (HMS.toList $ externs st)
-                            (concatMap toPrivateGlobals ssas)
-                            ssas
-        let s = AST.ppllvm m
-        -- BAL: when verbose $ T.putStrLn s
-        let oFile = file ++ ".ll"
-        T.writeFile oFile s
-        putStrLn oFile
+    let m = toLLVMModule file
+                        (HMS.toList $ strings st)
+                        (HMS.toList $ externs st)
+                        [ (vName g, vTy g) | g <- gs ]
+                        ssas
+    let s = AST.ppllvm m
+    -- BAL: when verbose $ T.putStrLn s
+    let oFile = file ++ ".ll"
+    T.writeFile oFile s
+    putStrLn oFile
 
-        when verbose $ putStrLn "=================================="
+    when verbose $ putStrLn "=================================="
+    when debugger $ interp ssas
 
 toFuncs :: [M Expr] -> M [Func]
 toFuncs ds = do

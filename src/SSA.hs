@@ -7,7 +7,7 @@
 {-# LANGUAGE TupleSections #-}
 {-# OPTIONS_GHC -fno-warn-name-shadowing #-}
 
-module SSA (toSSAFuncs, ppSSAFunc, toPrivateGlobals, ssaWriteDotFile, locals) where
+module SSA (toSSAFuncs, ppSSAFunc, ssaWriteDotFile, locals) where
 
 import           Control.Monad.State.Strict
 import           Data.List
@@ -40,8 +40,8 @@ ssaWriteDotFile fn fs = writeFile (fn ++ ".dot") $ unpack $ printDotGraph gr
 prettify :: Bool
 prettify = False -- BAL: pretty is currently broken
 
-toSSAFuncs :: St -> [[AFunc]] -> [SSAFunc]
-toSSAFuncs _ [] = []
+toSSAFuncs :: St -> [[AFunc]] -> ([SSAFunc], [Var])
+toSSAFuncs _ [] = ([], [])
 toSSAFuncs st0 afss = flip evalState st0 $ do
   mapM_ (ssaAFunc fn) $ concat afss
   blks <- gets blocks
@@ -80,14 +80,14 @@ toSSAFuncs st0 afss = flip evalState st0 $ do
     then return $ nmSubstBlock nmTbl entryBlk
     else return entryBlk
 
-  publicFuns <- return $ map (toSSAFuncPublic (path st0 ) obfNm) (zip [0 ..] publicAfs)
+  (publicFuns, publicVars) <- pure $ unzip $ map (toSSAFuncPublic (path st0) obfNm) (zip [0 ..] publicAfs)
   publicFuns <- if prettify
     then return $ map (substFunc varTbl) publicFuns
     else return publicFuns
 
   let allocas = [ allocaInstr (envVar v) | v <- HS.toList allNonLcls ]
   let obfFunc = SSAFunc Private obfNm [obfArg] (entryBlk{ ssaInstrs = allocas ++ ssaInstrs entryBlk } : blks)
-  pure $ obfFunc : publicFuns
+  pure (obfFunc : publicFuns, concat publicVars)
     where
       fn = nName obfNm
       publicAfs = [ af | af : _ <- afss ]
@@ -165,16 +165,11 @@ ssaAExpr fn nm0 = go
           go aBlk e
           return $ ssaNm aBlk
 
-globalArg :: Nm -> Var -> Var
-globalArg nm (V _ t n) = V Global (tyAddress t) ("in_" ++ nName nm ++ "_" ++ n)
+globalArg :: Name -> Var -> Var
+globalArg qn (V _ t n) = V Global (tyAddress t) ("in_" ++ qn ++ "_" ++ n)
 
 globalOutput :: Var -> Var
 globalOutput (V _ t n) = V Global (tyAddress t) ("out_" ++ n)
-
-toPrivateGlobals :: SSAFunc -> [(Name, Type)]
-toPrivateGlobals (SSAFunc vis nm vs _)
-  | vis == Public = [ (vName v, vTy v) | v <- map (globalArg nm) vs ++ map globalOutput (outputs nm) ]
-  | otherwise = []
 
 useIndirectBr :: Bool
 useIndirectBr = True
@@ -311,14 +306,20 @@ patchTerm paramTbl blockIdTbl indirectBrTbl blk
       Label _ nm -> Int 32 $ lookupBlockId nm
       _ -> x
 
-toSSAFuncPublic :: FilePath -> Nm -> (Integer, AFunc) -> SSAFunc
-toSSAFuncPublic p fn (i, AFunc nm0 vs _) =
-  SSAFunc Public nm vs [SSABlock (nName nm) (entryNm nm) [] ins $ RetS $ map Var $ outputs nm]
+toSSAFuncPublic :: FilePath -> Nm -> (Integer, AFunc) -> (SSAFunc, [Var])
+toSSAFuncPublic p obfFn (i, AFunc nm vs _) =
+  (SSAFunc Public nm' vs [SSABlock (nName nm) (entryNm nm) [] ins $ RetS $ map Var $ outputs nm], sVs ++ lVs)
   where
-    nm = nm0{ nName = qualifyName p $ nName nm0 }
-    ins = stores ++ [ callInstr [] fn [Int 32 i] ] ++ loads
-    stores = [ storeInstr (Var $ globalArg nm v) (Var v) | v <- vs ]
-    loads = [ loadInstr r (Var $ globalOutput r) | r <- outputs nm ]
+    nm' = nm{ nName = qualifyName p $ nName nm }
+    ins = stores ++ [ callInstr [] obfFn [Int 32 i] ] ++ loads
+    sVs = map (globalArg $ nName nm) vs
+    rs = outputs nm
+    lVs = map globalOutput rs
+    stores = [ storeInstr (Var s) (Var v) | (s, v) <- zip sVs vs ]
+    loads = [ loadInstr r (Var l) | (r, l) <- zip rs lVs ]
+
+qualifyName :: FilePath -> String -> String
+qualifyName a b = modNameOf a ++ "_" ++ b
 
 callInstr :: [Var] -> Nm -> [Atom] -> Instr
 callInstr vs nm bs = Instr vs nm (\cs -> I.call (toOperand $ Var (nmToGlobalVar nm)) $ map (,[]) cs) bs
@@ -401,7 +402,7 @@ patchNonLocals allNonLcls blk = do
 
 nonLocals :: SSABlock -> HS.HashSet Var
 nonLocals blk =
-  HS.filter (notTyUnit . vTy) $ HS.fromList used `HS.difference` HS.fromList lcls
+  HS.filter (\v -> vScope v == Local && notTyUnit (vTy v)) $ HS.fromList used `HS.difference` HS.fromList lcls
   where
     lcls = locals blk
     used = usedTerm ++ concat [ catMaybes $ map varAtom bs | Instr _ _ _ bs <- ssaInstrs blk ]
@@ -417,9 +418,6 @@ locals blk = ssaParams blk ++ concat [ vs | Instr vs _ _ _ <- ssaInstrs blk ]
 
 envVar :: Var -> Var
 envVar (V _ t n) = V Local (tyAddress t) $ "env_" ++ n
-
-qualifyName :: FilePath -> String -> String
-qualifyName a b = modNameOf a ++ "_" ++ b
 
 mkPrettyVarTbl :: [SSABlock] -> HMS.HashMap Var Var
 mkPrettyVarTbl blks = HMS.fromList tbl
@@ -452,7 +450,7 @@ mkPrettyNmTbl blks = HMS.fromList tbl
 ssaAFuncPublic :: Name -> AFunc -> M [SSABlock]
 ssaAFuncPublic fn (AFunc nm vs _) = do
   bs <- mapM freshVarFrom vs
-  let loads = [ loadInstr b (Var p) | (b, p) <- zip bs $ map (globalArg nm) vs ]
+  let loads = [ loadInstr b (Var p) | (b, p) <- zip bs $ map (globalArg $ nName nm) vs ]
   return [ SSABlock fn (publicEntryNm nm) [] loads $ BrS nm (Label fn (ssaNm exitBlock) : map Var bs), exitBlock ]
   where
     stores = [ storeInstr (Var $ globalOutput r) (Var r) | r <- outputs nm ]

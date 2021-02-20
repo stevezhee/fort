@@ -79,9 +79,7 @@ safeZipWith msg f xs ys
 impossible :: String -> a
 impossible s = error $ "the impossible happened:" ++ s
 
-ppTuple :: [Doc x]
-        -> Doc x -- BAL: don't print the parens with a single element (bug)
-
+ppTuple :: [Doc x] -> Doc x
 ppTuple = parens . commaSep
 
 ppList :: [Doc x] -> Doc x
