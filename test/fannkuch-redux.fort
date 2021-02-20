@@ -59,8 +59,8 @@ unsafe-array: /address (/array sz a)
 ;; linear: Int -> Int = \i => i + 1 ;; BAL: inline
 ;; zeros: Int -> Int = \_ => 0 ;; BAL: inline
 
-;; ;; array-linear: /address (/array sz a) = /do
-;; ;; array-zeros: /address (/array sz a)
+;; array-linear: /address (/array sz a) = /do
+;; array-zeros: /address (/array sz a)
 
 array-size: /address (/array sz a) -> Int
 
@@ -86,8 +86,6 @@ permutations: Int -> Int = \n => /do
   /let perm: Perm = unsafe-array
   /let count: Perm = unsafe-array
   init-linear perm
-  ;; init-zeros count ;; BAL: don't need this
-  ;; output perm
 
   computePerms (n, 0, 0, 0)
     /where
@@ -99,9 +97,7 @@ permutations: Int -> Int = \n => /do
         /let r: Int = computeNextPerm 1
         /if
           r < n = computePerms (r, idx + 1, mx, csum)
-          _ = r ;; /do
-            ;; output mx
-            ;; output csum
+          _ = r
 
       updateCounts: Int -> () = \r0 =>
         /if
@@ -155,26 +151,6 @@ swap: (/address Int, /address Int) -> () = \(p, q) => /do
   p := load q
   q := temp
 
-
-      ;; num-flips: Perm -> Int = \permX => /do
-      ;;   /let pX = unsafe-array
-      ;;   init-copy (pX, permX)
-      ;;   goX 0
-      ;;     /where
-      ;;       goX: Int -> Int = \nX => /case load (pX # 0) /of
-      ;;         1 = nX
-      ;;         \iX => /do
-      ;;           reverse-n (iX, pX)
-      ;;           ;; output p
-      ;;           goX (nX + 1)
-
-      ;; reverse-n: (Int, Perm) -> () = \(nXX, pXX) => goXX (0, nXX - 1)
-      ;;   /where
-      ;;     goXX: (Int, Int) -> () = \(lXX, rXX) => /if
-      ;;       lXX >= rXX = ()
-      ;;       _ = /do
-      ;;         swap (pXX # lXX, pXX # rXX)
-      ;;         goXX (lXX + 1, rXX - 1)
 
 ;; init-zeros: Perm -> () = \arr => go 0
 ;;   /where
