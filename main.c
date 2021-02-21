@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 
+extern void fannkuch_redux_init_linear(int []);
 extern void fannkuch_redux_swap(int*,int*);
 extern void fannkuch_redux_reverse_n(int,int []);
 extern int fannkuch_redux_num_flips(int []);
@@ -35,6 +36,10 @@ void h_put_sint64(int64_t x, FILE *h)
 FILE* g_stdin;
 FILE* g_stdout;
 FILE* g_stderr;
+
+void pfann(int n) {
+  printf("Pfannkuchen(%d) = %d\n", n, fannkuch_redux_permutations(n));
+}
 
 int main(int argc, char**argv)
 {
@@ -95,18 +100,23 @@ int main(int argc, char**argv)
 
   /* struct_foo(); */
 
+  /* int linear[100] = {42, 42}; */
 
-  int rev[] = {4,2,1,5,3};
-  fannkuch_redux_swap(&rev[0], &rev[1]);
-  printf("rev[0] = %d\n", rev[0]);
-  fannkuch_redux_reverse_n(5, rev);
-  printf("rev[0] = %d\n", rev[0]);
+  /* fannkuch_redux_init_linear(linear); */
+  /* printf("linear[0] = %d\n", linear[0]); */
+  /* printf("linear[1] = %d\n", linear[1]); */
 
-  int perm[] = {4,2,1,5,3};
-  printf("flips: %d\n", fannkuch_redux_num_flips(perm));
-  printf("perm[0] = %d\n", perm[0]);
+  /* int rev[] = {4,2,1,5,3}; */
+  /* fannkuch_redux_swap(&rev[0], &rev[1]); */
+  /* printf("rev[0] = %d\n", rev[0]); */
+  /* fannkuch_redux_reverse_n(5, rev); */
+  /* printf("rev[0] = %d\n", rev[0]); */
 
-  printf("checksum = %d\n", fannkuch_redux_permutations(3));
+  /* int perm[] = {4,2,1,5,3}; */
+  /* printf("flips: %d\n", fannkuch_redux_num_flips(perm)); */
+  /* printf("perm[0] = %d\n", perm[0]); */
+
+  pfann(7);
 
   /* // for(i=0; i < 5; ++i) */
   /* // { */

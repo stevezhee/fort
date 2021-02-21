@@ -68,8 +68,9 @@ init-linear: Perm -> () = \arr => go 0
   /where
     go: Int -> () = \i => /if
       i < array-size arr = /do ;; BAL: go backwards?  use an input size?
-        (arr # i) := i
-        go (i + 1)
+        /let j = i + 1
+        (arr # i) := j
+        go j
       _ = ()
 
 init-copy: (Perm, Perm) -> () = \(a, b) => go 0
@@ -80,7 +81,7 @@ init-copy: (Perm, Perm) -> () = \(a, b) => go 0
         go (i + 1)
       _ = ()
 
-;; perms: () -> Int = \_ => permutations(2)
+perms: () -> Int = \_ => permutations(2)
 
 permutations: Int -> Int = \n => /do
   /let perm: Perm = unsafe-array
@@ -90,14 +91,22 @@ permutations: Int -> Int = \n => /do
   computePerms (n, 0, 0, 0)
     /where
       computePerms: (Int, Int, Int, SInt) -> Int = \(r0, idx, mx0, csum0) => /do
-        /let n = num-flips perm
-        /let mx = max (mx0, n)
-        /let csum = calc-checksum(csum0, n, idx)
+        ;; output perm
+        /let nflips = num-flips perm
+        ;; output nflips
+        /let mx = max (mx0, nflips)
+        ;; output "mx ="
+        ;; output mx
+        /let csum = calc-checksum(csum0, nflips, idx)
+        ;; output "csum ="
+        ;; output csum
         updateCounts r0
         /let r: Int = computeNextPerm 1
         /if
           r < n = computePerms (r, idx + 1, mx, csum)
-          _ = r
+          _ = /do
+            output csum
+            mx
 
       updateCounts: Int -> () = \r0 =>
         /if

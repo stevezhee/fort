@@ -3,6 +3,8 @@ generated/
 fort.cabal
 *~
 *.o
+*.dot
+*.png
 *.s
 *.out
 *.gz
