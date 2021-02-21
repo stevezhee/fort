@@ -1,15 +1,19 @@
-3^2 = 9
+sizeof int 4
+sizeof FILE* 8
 128^0 = 1
+3^2 = 9
+2^3 = 8
 128^1 = 128
 3^2 = 9
+2^3 = 8
+2^8 = 256
 0
 1
-3
+2
+4
 [; 21; 42]
 arr[0] 21
 arr[1] 42
-sizeof int 4
-sizeof FILE* 8
 [; [; 0; 1; 1]; [; 2; 3; 5]]
 arr2[0][0] = 0
 arr2[0][1] = 1
@@ -24,12 +28,18 @@ Green
 Red
 Green
 Blue
+Left #"a"
+Some #"z"
+Some #"z"
 {; x = 42; y = #"z"; z = 255}
 {; a = 11; b = 3735928559}
 {; x = 24; y = #"a"; z = 255}
 #"a"
-Left #"a"
-Some #"z"
-Some #"z"
+linear[0] = 1
+linear[1] = 2
+rev[0] = 2
+rev[0] = 3
 flips: 5
-1,3,2,4,5,
+perm[0] = 4
+228
+Pfannkuchen(7) = 16

@@ -81,8 +81,6 @@ init-copy: (Perm, Perm) -> () = \(a, b) => go 0
         go (i + 1)
       _ = ()
 
-perms: () -> Int = \_ => permutations(2)
-
 permutations: Int -> Int = \n => /do
   /let perm: Perm = unsafe-array
   /let count: Perm = unsafe-array
@@ -160,24 +158,3 @@ swap: (/address Int, /address Int) -> () = \(p, q) => /do
   p := load q
   q := temp
 
-
-;; init-zeros: Perm -> () = \arr => go 0
-;;   /where
-;;     go: Int -> () = \i => /if ;; BAL: go backwards?  use an input size?
-;;       i < array-size arr = /do
-;;         (arr # i) := 0
-;;         go (i + 1)
-;;       _ = ()
-
-;; fannkuch: (Int, SInt, Int, Perm) -> St = \(m0, csum0, i, Perm) => /do
-;;   /let n = num-flips perm
-;;   /let m = max (m0, n)
-;;   /let csum = calc-checksum(csum0, n, i)
-;;   output n
-;;   output i
-;;   output csum
-;;   { ;; BAL: fix parser
-;;     ; max-flips = m
-;;     ; checksum = csum
-;;     ; perm-count = i + 1
-;;     }

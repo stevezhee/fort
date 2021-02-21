@@ -6,6 +6,7 @@ TEST_DIR=test
 HS_FILES=$(shell find src -name \*.hs) $(shell find app -name \*.hs)
 LLC=llc-9
 OPT=opt-9
+OPTLVL=-O3
 
 ALL_FORT_FILES=$(wildcard $(TEST_DIR)/*.fort)
 
@@ -25,7 +26,7 @@ ALL_FORT_FILES=$(wildcard $(TEST_DIR)/*.fort)
 FORT_FILES=$(filter-out $(EXCLUDE_FILES), $(ALL_FORT_FILES))
 # FORT_FILES=$(TEST_DIR)/powi.fort
 # FORT_FILES=$(TEST_DIR)/address.fort
-FORT_FILES=$(TEST_DIR)/fannkuch-redux.fort
+# FORT_FILES=$(TEST_DIR)/fannkuch-redux.fort
 
 GEN_HS_FILES=$(addsuffix .hs, $(FORT_FILES))
 LL_FILES=$(addsuffix .ll, $(FORT_FILES))
@@ -33,9 +34,9 @@ O_FILES=$(addsuffix .o, $(FORT_FILES))
 OUT_FILE=a.out
 
 .PHONY: all
-# all: diff
+all: diff
 
-all: a.out.actual
+#all: a.out.actual
 	# $(OPT) -O0 --dot-cfg test/fannkuch-redux.fort.ll
 	# dot .obf.dot -Tpng > t.png
 
@@ -58,14 +59,14 @@ a.out.actual: $(OUT_FILE)
 	stack runghc -- -Wall -isrc $<
 
 %.fort.s: %.fort.ll
-	#$(OPT) -S -O2 -o $< $<
+	$(OPT) -S $(OPTLVL) -o $< $<
 	$(LLC) $<
 
 %.fort.o: %.fort.s
-	clang -o $@ -c $^
+	clang $(OPTLVL) -o $@ -c $^
 
 $(OUT_FILE): main.c $(O_FILES)
-	clang -lc $^
+	clang $(OPTLVL) -lc $^
 
 .PHONY: coverage
 coverage: $(HS_FILES) test/Spec.hs
