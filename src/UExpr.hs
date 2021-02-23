@@ -26,6 +26,7 @@ import           LLVM.AST                   ( Instruction, Operand )
 import qualified LLVM.AST                   as AST
 import qualified LLVM.AST.Constant          as AST
 import qualified LLVM.AST.IntegerPredicate  as AST
+import qualified LLVM.AST.FloatingPointPredicate  as AST hiding (ULE, ULT, UGE, UGT)
 
 import           Prelude                    hiding ( seq )
 
@@ -126,6 +127,9 @@ seq (E x) (E y) = E $ LetE [] <$> x <*> y
 unsafeCast :: E a -> E b
 unsafeCast (E a) = E a
 
+floatE :: Integer -> Double -> E a
+floatE sz = atomE . Float sz
+
 intE :: Integer -> Integer -> E a
 intE sz = atomE . Int sz
 
@@ -168,6 +172,9 @@ tuple3 (E a, E b, E c) = tupleE [ a, b, c ]
 tuple4 :: (E a, E b, E c, E d) -> E (a, b, c, d)
 tuple4 (E a, E b, E c, E d) = tupleE [ a, b, c, d ]
 
+tuple5 :: (E a, E b, E c, E d, E e) -> E (a, b, c, d, e)
+tuple5 (E a, E b, E c, E d, E e) = tupleE [ a, b, c, d, e ]
+
 argTupleN :: Int -> E a -> E b
 argTupleN i (E x) = E $ do
     a <- x
@@ -183,6 +190,18 @@ argTuple3 x = (argTupleN 0 x, argTupleN 1 x, argTupleN 2 x)
 
 argTuple4 :: E (a, b, c, d) -> (E a, E b, E c, E d)
 argTuple4 x = (argTupleN 0 x, argTupleN 1 x, argTupleN 2 x, argTupleN 3 x)
+
+argTuple5 :: E (a, b, c, d, e) -> (E a, E b, E c, E d, E e)
+argTuple5 x = (argTupleN 0 x, argTupleN 1 x, argTupleN 2 x, argTupleN 3 x, argTupleN 4 x)
+
+argTuple6 :: E (a, b, c, d, e, f) -> (E a, E b, E c, E d, E e, E f)
+argTuple6 x = (argTupleN 0 x, argTupleN 1 x, argTupleN 2 x, argTupleN 3 x, argTupleN 4 x, argTupleN 5 x)
+
+argTuple7 :: E (a, b, c, d, e, f, g) -> (E a, E b, E c, E d, E e, E f, E g)
+argTuple7 x = (argTupleN 0 x, argTupleN 1 x, argTupleN 2 x, argTupleN 3 x, argTupleN 4 x, argTupleN 5 x, argTupleN 6 x)
+
+argTuple8 :: E (a, b, c, d, e, f, g, h) -> (E a, E b, E c, E d, E e, E f, E g, E h)
+argTuple8 x = (argTupleN 0 x, argTupleN 1 x, argTupleN 2 x, argTupleN 3 x, argTupleN 4 x, argTupleN 5 x, argTupleN 6 x, argTupleN 7 x)
 
 opapp :: E a -> E ((a, b) -> c) -> E (b -> c)
 opapp x f = app (unsafeCast f) x
@@ -247,6 +266,14 @@ cast :: Type -> Type -> E (a -> b)
 cast tyA tyB = case (tyA, tyB) of
     (TyInteger szA Unsigned _, TyInteger szB _ _) -> f zext szA szB
     (TyInteger szA Signed _, TyInteger szB _ _) -> f sext szA szB
+    (TyFloat szA, TyFloat szB)
+      | szA > szB -> fptrunc tyA tyB
+      | szA < szB -> fpext tyA tyB
+      | otherwise -> bitcast "cast" tyA tyB
+    (TyFloat{}, TyInteger _ Unsigned _) -> fptoui tyA tyB
+    (TyFloat{}, TyInteger _ Signed _) -> fptosi tyA tyB
+    (TyInteger _ Unsigned _, TyFloat{}) -> uitofp tyA tyB
+    (TyInteger _ Signed _, TyFloat{}) -> sitofp tyA tyB
     (TyInteger{}, TyAddress{}) -> inttoptr tyA tyB
     (TyAddress{}, TyInteger{}) -> ptrtoint tyA tyB
     (TyAddress{}, TyAddress{}) -> bitcast "cast" tyA tyB
@@ -256,6 +283,24 @@ cast tyA tyB = case (tyA, tyB) of
         | szA < szB = g tyA tyB
         | szA > szB = trunc tyA tyB
         | otherwise = bitcast "cast" tyA tyB
+
+fptosi :: Type -> Type -> E (a -> b)
+fptosi ta tb = instr (TyFun ta tb) "fptosi" $ \[a] -> I.fptosi a (toTyLLVM tb)
+
+fptoui :: Type -> Type -> E (a -> b)
+fptoui ta tb = instr (TyFun ta tb) "fptoui" $ \[a] -> I.fptoui a (toTyLLVM tb)
+
+uitofp :: Type -> Type -> E (a -> b)
+uitofp ta tb = instr (TyFun ta tb) "uitofp" $ \[a] -> I.uitofp a (toTyLLVM tb)
+
+sitofp :: Type -> Type -> E (a -> b)
+sitofp ta tb = instr (TyFun ta tb) "sitofp" $ \[a] -> I.sitofp a (toTyLLVM tb)
+
+fptrunc :: Type -> Type -> E (a -> b)
+fptrunc ta tb = instr (TyFun ta tb) "fptrunc" $ \[a] -> I.fptrunc a (toTyLLVM tb)
+
+fpext :: Type -> Type -> E (a -> b)
+fpext ta tb = instr (TyFun ta tb) "fpext" $ \[a] -> I.fpext a (toTyLLVM tb)
 
 bitcast :: String -> Type -> Type -> E (a -> b)
 bitcast s ta tb = instr (TyFun ta tb) s $ \[ a ] -> I.bitcast a (toTyLLVM tb)
@@ -312,78 +357,165 @@ binaryInstr :: String
 binaryInstr s f (ta, tb) tc = instr (TyFun (tyTuple [ ta, tb ]) tc) s $
     \[ a, b ] -> f a b
 
+opTyErr :: String -> Type -> a
+opTyErr s t = error $ "unable to perform " ++ s ++ " for values of type:" ++ show t
+
 arithop :: String
+        -> (AST.Operand -> AST.Operand -> AST.Instruction)
         -> (AST.Operand -> AST.Operand -> AST.Instruction)
         -> (AST.Operand -> AST.Operand -> AST.Instruction)
         -> (Type, Type)
         -> Type
         -> E ((a, a) -> a)
-arithop s f g tab tc = case tc of
+arithop s f g h tab tc = case tc of
     TyInteger _ Unsigned _ -> binaryInstr s f tab tc
     TyInteger _ Signed _ -> binaryInstr s g tab tc
-    _ -> error $ "unable to perform arithmetic on values of type:" ++ show tc
+    TyFloat _ -> binaryInstr s h tab tc
+    _ -> opTyErr s tc
+
+bitop :: String
+        -> (AST.Operand -> AST.Operand -> AST.Instruction)
+        -> (AST.Operand -> AST.Operand -> AST.Instruction)
+        -> (Type, Type)
+        -> Type
+        -> E ((a, a) -> a)
+bitop s f g tab tc = case tc of
+    TyInteger _ Unsigned _ -> binaryInstr s f tab tc
+    TyInteger _ Signed _ -> binaryInstr s g tab tc
+    _ -> opTyErr s tc
+
+floatIntrinsic :: String -> Type -> Type -> E (a -> b)
+floatIntrinsic n tA tB = case tA of
+  TyFloat sz -> extern ("llvm." ++ n ++ ".f" ++ show sz) (TyFun tA tB)
+  _ -> opTyErr n tA
+
+intIntrinsic :: String -> Type -> Type -> E (a -> b)
+intIntrinsic n tA tB = case tA of
+  TyInteger sz _ _ -> extern ("llvm." ++ n ++ ".i" ++ show sz) (TyFun tA tB)
+  _ -> opTyErr n tA
+
+floor :: Type -> Type -> E (a -> a)
+floor = floatIntrinsic "floor"
+
+ceiling :: Type -> Type -> E (a -> a)
+ceiling = floatIntrinsic "ceil"
+
+truncate :: Type -> Type -> E (a -> a)
+truncate = floatIntrinsic "trunc"
+
+round :: Type -> Type -> E (a -> a)
+round = floatIntrinsic "round"
+
+sqrt :: Type -> Type -> E (a -> a)
+sqrt = floatIntrinsic "sqrt"
+
+sin :: Type -> Type -> E (a -> a)
+sin = floatIntrinsic "sin"
+
+cos :: Type -> Type -> E (a -> a)
+cos = floatIntrinsic "cos"
+
+abs :: Type -> Type -> E (a -> a)
+abs tA tB = case tA of
+  TyFloat{} -> floatIntrinsic n tA tB
+  TyInteger _ Signed _ -> intIntrinsic n tA tB
+  _ -> opTyErr n tA
+  where
+    n = "abs"
+
+pow :: (Type, Type) -> Type -> E ((a, b) -> a)
+pow (tA, tB) tC = case tA of
+  TyFloat{} -> case tB of
+    TyFloat{} -> floatIntrinsic "pow" tT tC
+    TyInteger{} -> floatIntrinsic "powi" tT tC
+    _ -> opTyErr "pow" tB
+  _ -> opTyErr "pow" tA
+  where
+    tT = tyTuple [tA, tB]
+
+min :: (Type, Type) -> Type -> E ((a, a) -> a)
+min (tA, tB) tC = case tA of
+  TyFloat{} -> floatIntrinsic "minnum" tT tC
+  TyInteger _ Signed _ -> intIntrinsic "smin" tT tC
+  TyInteger _ Unsigned _ -> intIntrinsic "umin" tT tC
+  _ -> opTyErr "min" tA
+  where
+    tT = tyTuple [tA, tB]
+
+max :: (Type, Type) -> Type -> E ((a, a) -> a)
+max (tA, tB) tC = case tA of
+  TyFloat{} -> floatIntrinsic "maxnum" tT tC
+  TyInteger _ Signed _ -> intIntrinsic "smax" tT tC
+  TyInteger _ Unsigned _ -> intIntrinsic "umax" tT tC
+  _ -> opTyErr "max" tA
+  where
+    tT = tyTuple [tA, tB]
+
+-- BAL: memcpy, memcpy.inline, memset, memmove
 
 add :: (Type, Type) -> Type -> E ((a, a) -> a)
-add = arithop "add" I.add I.add
+add = arithop "add" I.add I.add I.fadd
 
 subtract :: (Type, Type) -> Type -> E ((a, a) -> a)
-subtract = arithop "sub" I.sub I.sub
+subtract = arithop "sub" I.sub I.sub I.fsub
 
 multiply :: (Type, Type) -> Type -> E ((a, a) -> a)
-multiply = arithop "mul" I.mul I.mul
+multiply = arithop "mul" I.mul I.mul I.fmul
 
 divide :: (Type, Type) -> Type -> E ((a, a) -> a)
-divide = arithop "div" I.udiv I.sdiv
+divide = arithop "div" I.udiv I.sdiv I.fdiv
 
 remainder :: (Type, Type) -> Type -> E ((a, a) -> a)
-remainder = arithop "rem" I.urem I.srem
+remainder = arithop "rem" I.urem I.srem I.frem
 
 cmpop :: String
       -> AST.IntegerPredicate
       -> AST.IntegerPredicate
+      -> AST.FloatingPointPredicate
       -> (Type, Type)
       -> Type
       -> E ((a, a) -> Bool_)
-cmpop s p q tab@(ta, _) tc = case ta of
+cmpop s p q r tab@(ta, _) tc = case ta of
     TyInteger _ Unsigned _ -> binaryInstr s (I.icmp p) tab tc
     TyInteger _ Signed _ -> binaryInstr s (I.icmp q) tab tc
+    TyFloat _ -> binaryInstr s (I.fcmp r) tab tc
     _ -> error $ "unable to compare values of type:" ++ show ta
 
 eq :: (Type, Type) -> Type -> E ((a, a) -> Bool_)
-eq = cmpop "eq" AST.EQ AST.EQ
+eq = cmpop "eq" AST.EQ AST.EQ AST.OEQ
 
 neq :: (Type, Type) -> Type -> E ((a, a) -> Bool_)
-neq = cmpop "ne" AST.NE AST.NE
+neq = cmpop "ne" AST.NE AST.NE AST.ONE
 
 gt :: (Type, Type) -> Type -> E ((a, a) -> Bool_)
-gt = cmpop "gt" AST.UGT AST.SGT
+gt = cmpop "gt" AST.UGT AST.SGT AST.OGT
 
 gte :: (Type, Type) -> Type -> E ((a, a) -> Bool_)
-gte = cmpop "gte" AST.UGE AST.SGE
+gte = cmpop "gte" AST.UGE AST.SGE AST.OGE
 
 lt :: (Type, Type) -> Type -> E ((a, a) -> Bool_)
-lt = cmpop "lt" AST.ULT AST.SLT
+lt = cmpop "lt" AST.ULT AST.SLT AST.OLT
 
 lte :: (Type, Type) -> Type -> E ((a, a) -> Bool_)
-lte = cmpop "lte" AST.ULE AST.SLE
+lte = cmpop "lte" AST.ULE AST.SLE AST.OLE
 
 shiftLeft :: (Type, Type) -> Type -> E ((a, a) -> a)
-shiftLeft = arithop "shl" I.shl I.shl
+shiftLeft = bitop "shl" I.shl I.shl
 
 arithmeticShiftRight :: (Type, Type) -> Type -> E ((a, a) -> a)
-arithmeticShiftRight = arithop "ashr" I.ashr I.ashr
+arithmeticShiftRight = bitop "ashr" I.ashr I.ashr
 
 logicalShiftRight :: (Type, Type) -> Type -> E ((a, a) -> a)
-logicalShiftRight = arithop "lshr" I.lshr I.lshr
+logicalShiftRight = bitop "lshr" I.lshr I.lshr
 
 bitwiseAnd :: (Type, Type) -> Type -> E ((a, a) -> a)
-bitwiseAnd = arithop "and" I.and I.and
+bitwiseAnd = bitop "and" I.and I.and
 
 bitwiseOr :: (Type, Type) -> Type -> E ((a, a) -> a)
-bitwiseOr = arithop "or" I.or I.or
+bitwiseOr = bitop "or" I.or I.or
 
 bitwiseXor :: (Type, Type) -> Type -> E ((a, a) -> a)
-bitwiseXor = arithop "xor" I.xor I.xor
+bitwiseXor = bitop "xor" I.xor I.xor
 
 gep :: (Type, Type) -> Type -> E ((a, UInt32) -> b)
 gep = binaryInstr "gep" I.gep

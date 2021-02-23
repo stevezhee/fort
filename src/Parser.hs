@@ -59,6 +59,7 @@ reservedWords =
     , "/enum"
     , "/signed"
     , "/unsigned"
+    , "/floating"
     , "/extern"
     , "/address"
     , "/char"
@@ -106,6 +107,7 @@ grammar = mdo
         <|> (pure TyChar <* reserved "/char")
         <|> (pure TyString <* reserved "/string")
         <|> (pure TySigned <* reserved "/signed")
+        <|> (pure TyFloating <* reserved "/floating")
         <|> (pure TyBool <* reserved "/bool")
         <|> (pure TyAddress <* reserved "/address")
         <|> (pure TyArray <* reserved "/array")
@@ -206,7 +208,7 @@ pOpE = Prim . Op <$> pOp <?> "operator"
 
 pPrimNotOp :: P r Prim
 pPrimNotOp = (Var <$> pVar <?> "variable") <|> (StringL <$> pStringLit)
-    <|> (CharL <$> pCharLit) <|> (IntL <$> pIntLit)
+    <|> (CharL <$> pCharLit) <|> (IntL <$> pIntLit) <|> (FloatL <$> pFloatLit)
 
 hasCharLitPrefix :: String -> Bool
 hasCharLitPrefix = isPrefixOf "#\""
@@ -225,6 +227,10 @@ pIntLit :: P r Token
 pIntLit = (\a -> seq (useLoc (readIntLit (unLoc a)) a) a)
     <$> satisfy isInt <?> readIntLitErrMsg
 
+pFloatLit :: P r Token
+pFloatLit = (\a -> seq (useLoc (readError readFloatLitErrMsg (unLoc a) :: Double) a) a)
+    <$> satisfy isFloat <?> readFloatLitErrMsg
+
 readIntLit :: String -> Int
 readIntLit s = case s of
     '0' : 'b' : bs -> readBin bs
@@ -232,6 +238,9 @@ readIntLit s = case s of
 
 readIntLitErrMsg :: String
 readIntLitErrMsg = "integer literal"
+
+readFloatLitErrMsg :: String
+readFloatLitErrMsg = "float literal"
 
 readBin :: String -> Int
 readBin = foldl' (\acc x -> acc * 2 + digitToInt x) 0
@@ -245,8 +254,14 @@ startsWith f t = case t of
     c : _ -> f c
     _ -> False
 
-isInt :: String -> Bool
-isInt s = case s of
-    '-' : b : _ -> digit b
-    _ -> startsWith digit s
+isIntStart :: String -> Bool
+isIntStart s = case s of
+  '-' : b : _ -> digit b
+  b : _ -> digit b
+  [] -> False
 
+isInt :: String -> Bool
+isInt s = isIntStart s && '.' `notElem` s
+
+isFloat :: String -> Bool
+isFloat s = isIntStart s && '.' `elem` s

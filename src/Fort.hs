@@ -34,7 +34,9 @@ parseAndCodeGen fn = do
     case me of
         Nothing -> return ()
         Just e -> do
-            putStrLn "" >> hPutStrLn stderr ("Lexical error at:" ++ show e)
+            putStrLn ""
+            hPutStrLn stderr ("Lexical error at:" ++ show e)
+            hPutStrLn stderr $ show ts0
             exitFailure
     -- BAL: special case this: let (hdr, ts1) = span isComment ts0
     let ts1 = ts0
@@ -128,19 +130,14 @@ letBind v x z = case x of
     VarP a mt -> ppLetIn (ppVar a) (ppAscription (ppVar v) mt) z
     TupleP [] mt -> ppLetIn "()" ("T.argUnit" <+> ppAscription (ppVar v) mt) z
     TupleP [ VarP a _mt0 ] mt -> letBind v (VarP a mt) z
-    TupleP [ VarP a _mt0, VarP b _mt1 ] mt ->
-        ppLetIn (ppTuple [ ppVar a, ppVar b ])
-                ("T.argTuple2" <+> ppAscription (ppVar v) mt)
-                z -- BAL: do something with the types
-    TupleP [ VarP a _mt0, VarP b _mt1, VarP c _mt2 ] mt ->
-        ppLetIn (ppTuple [ ppVar a, ppVar b, ppVar c ])
-                ("T.argTuple3" <+> ppAscription (ppVar v) mt)
-                z
-    TupleP [ VarP a _mt0, VarP b _mt1, VarP c _mt2, VarP d _mt3 ] mt ->
-        ppLetIn (ppTuple [ ppVar a, ppVar b, ppVar c, ppVar d ])
-                ("T.argTuple4" <+> ppAscription (ppVar v) mt)
-                z
-    _ -> error $ "unexpected letBind (unsupported tuple length?): " ++ show x
+    TupleP ps mt
+      | all isVarP ps ->
+          ppLetIn (ppTuple $ map ppVar ws)
+                  ("T.argTuple" <> pretty (length ps) <+> ppAscription (ppVar v) mt)
+                  z
+      | otherwise -> error $ "unexpected nested tuple pattern: " ++ show ps
+      where
+        ws = [ w | VarP w _mt <- ps ] -- BAL: do something with the types(?)
 
 typeSizes :: Type -> [Int]
 typeSizes x = case x of
@@ -160,6 +157,7 @@ typeSizes x = case x of
     TyBool -> []
     TyString -> []
     TyUnsigned -> []
+    TyFloating -> []
 
 patTypes :: Pat -> [Type]
 patTypes x = case x of
@@ -361,6 +359,7 @@ tyVars = sort . nub . go
         TyBool -> []
         TyChar -> []
         TyString -> []
+        TyFloating -> []
 
 stringifyName :: L String -> Doc ann
 stringifyName = pretty . show . canonicalizeName . show . ppToken
@@ -405,15 +404,21 @@ ppLetBindLam x y = ppLam v $ letBind v x (ppExpr y)
 ppLam :: Var -> Doc ann -> Doc ann
 ppLam x y = parens ("\\" <> ppVar x <+> "->" <> line <> indent 2 y)
 
+floatingSizes :: [Int]
+floatingSizes = [32, 64]
+
 ppType :: Type -> Doc ann
 ppType x = case x of
     TyApp TySigned (TySize a)
         | unLoc a > 64 -> error "maximum integer size is 64"
     TyApp TyUnsigned (TySize a)
         | unLoc a > 64 -> error "maximum unsigned integer size is 64"
+    TyApp TyFloating (TySize a)
+        | unLoc a `notElem` floatingSizes -> error $ "floating size must be one of " ++ show floatingSizes
     TyApp a b -> ppType a <+> ppType b
     TySigned -> "T.Signed"
     TyUnsigned -> "T.Unsigned"
+    TyFloating -> "T.Floating"
     TyChar -> "T.Char_"
     TyBool -> "T.Bool_"
     TyString -> "T.String_"
@@ -522,6 +527,7 @@ ppAltPat x = case x of
     IntP i -> pretty (show i)
     CharP c -> pretty (show (show c))
     StringP s -> pretty (unLoc s)
+    FloatP f -> pretty (show f)
 
 stringifyPat :: Pat -> Doc ann
 stringifyPat = pretty . show . go
@@ -537,4 +543,5 @@ ppPrim x = case x of
     StringL a -> parens ("T.string" <+> pretty (unLoc a))
     IntL a -> parens ("T.int" <+> pretty (readIntLit (unLoc a)))
     CharL a -> parens ("T.char" <+> pretty (show (unLoc a)))
+    FloatL a -> parens ("T.float" <+> pretty (read (unLoc a) :: Double))
 

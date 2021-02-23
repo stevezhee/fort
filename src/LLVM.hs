@@ -18,6 +18,7 @@ import qualified Instr             as I
 import qualified LLVM.AST          as AST
 
 import qualified LLVM.AST.Constant as AST
+import qualified LLVM.AST.Float as AST
 import qualified LLVM.AST.Global
 import qualified LLVM.AST.Global   as AST
 import qualified LLVM.AST.Linkage  as AST
@@ -134,6 +135,10 @@ toLLVMTerminator x = AST.Do $ case x of
 
 toOperand :: Atom -> AST.Operand
 toOperand x = case x of
+    Float sz a -> case sz of
+      32 -> AST.ConstantOperand $ AST.Float $ AST.Double a -- $ realToFrac (realToFrac a :: Float)
+      64 -> AST.ConstantOperand $ AST.Float $ AST.Double a
+      _ -> impossible "unexpected float size"
     Int sz i -> AST.ConstantOperand $ I.constInt sz i
     Char a -> toOperand $ Int 8 $ fromIntegral $ fromEnum a
     String _ a -> toOperand $ Var a
@@ -163,3 +168,7 @@ toTyLLVM = go
         TyFun _ b ->
             AST.FunctionType (toTyLLVM b) (map toTyLLVM $ unTupleTy b) False
         TyLabel{} -> AST.ptr (AST.IntegerType 8)
+        TyFloat sz -> case sz of
+          32 -> AST.float
+          64 -> AST.double
+          _ -> impossible $ "unsupported floating size:" ++ show sz

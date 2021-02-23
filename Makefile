@@ -22,11 +22,15 @@ ALL_FORT_FILES=$(wildcard $(TEST_DIR)/*.fort)
 # EXCLUDE_FILES += $(TEST_DIR)/enum.fort
 # EXCLUDE_FILES += $(TEST_DIR)/todd.fort
 # EXCLUDE_FILES += $(TEST_DIR)/fannkuch-redux.fort
+# EXCLUDE_FILES += $(TEST_DIR)/floating.fort
+# EXCLUDE_FILES += $(TEST_DIR)/mandelbrot.fort
 
 FORT_FILES=$(filter-out $(EXCLUDE_FILES), $(ALL_FORT_FILES))
 # FORT_FILES=$(TEST_DIR)/powi.fort
 # FORT_FILES=$(TEST_DIR)/address.fort
 # FORT_FILES=$(TEST_DIR)/fannkuch-redux.fort
+# FORT_FILES=$(TEST_DIR)/floating.fort
+FORT_FILES=$(TEST_DIR)/mandelbrot.fort
 
 GEN_HS_FILES=$(addsuffix .hs, $(FORT_FILES))
 LL_FILES=$(addsuffix .ll, $(FORT_FILES))
@@ -34,7 +38,7 @@ O_FILES=$(addsuffix .o, $(FORT_FILES))
 OUT_FILE=a.out
 
 .PHONY: all
-all: diff
+all: a.out.actual # diff
 
 #all: a.out.actual
 	# $(OPT) -O0 --dot-cfg test/fannkuch-redux.fort.ll

@@ -45,7 +45,13 @@ store :: Ty a => E ((Addr a, a) -> ())
 store = binop U.store
 
 int :: Ty a => Integer -> E a
-int i = value $ \ty -> U.intE (sizeFort ty) i
+int i = value $ \ty -> case ty of
+  TyInteger sz _ _ -> U.intE sz i
+  TyFloat sz -> U.floatE sz $ fromInteger i
+  _ -> impossible "expected int or float type"
+
+float :: Ty a => Double -> E a
+float d = value $ \ty -> U.floatE (sizeFort ty) d
 
 enum :: Ty a => (String, Integer) -> E a
 enum (x, i) = value $ \ty -> U.atomE $ Enum (x, (ty, i))
@@ -90,6 +96,18 @@ argTuple3 = U.argTuple3
 
 argTuple4 :: (Ty a, Ty b, Ty c, Ty d) => E (a, b, c, d) -> (E a, E b, E c, E d)
 argTuple4 = U.argTuple4
+
+argTuple5 :: (Ty a, Ty b, Ty c, Ty d, Ty e) => E (a, b, c, d, e) -> (E a, E b, E c, E d, E e)
+argTuple5 = U.argTuple5
+
+argTuple6 :: (Ty a, Ty b, Ty c, Ty d, Ty e, Ty f) => E (a, b, c, d, e, f) -> (E a, E b, E c, E d, E e, E f)
+argTuple6 = U.argTuple6
+
+argTuple7 :: (Ty a, Ty b, Ty c, Ty d, Ty e, Ty f, Ty g) => E (a, b, c, d, e, f, g) -> (E a, E b, E c, E d, E e, E f, E g)
+argTuple7 = U.argTuple7
+
+argTuple8 :: (Ty a, Ty b, Ty c, Ty d, Ty e, Ty f, Ty g, Ty h) => E (a, b, c, d, e, f, g, h) -> (E a, E b, E c, E d, E e, E f, E g, E h)
+argTuple8 = U.argTuple8
 
 char :: Char -> E Char_
 char = U.char
@@ -162,6 +180,39 @@ gep = binop U.gep
 
 cast :: (Ty a, Ty b) => E (a -> b)
 cast = unop U.cast
+
+floor :: (Ty a) => E (a -> a)
+floor = unop U.floor
+
+round :: (Ty a) => E (a -> a)
+round = unop U.round
+
+ceiling :: (Ty a) => E (a -> a)
+ceiling = unop U.ceiling
+
+truncate :: (Ty a) => E (a -> a)
+truncate = unop U.truncate
+
+sqrt :: (Ty a) => E (a -> a)
+sqrt = unop U.sqrt
+
+sin :: Ty a => E (a -> a)
+sin = unop U.sin
+
+cos :: Ty a => E (a -> a)
+cos = unop U.cos
+
+abs :: Ty a => E (a -> a)
+abs = unop U.abs
+
+pow :: (Ty a, Ty b) => E ((a, b) -> a)
+pow = binop U.pow
+
+min :: Ty a => E ((a, a) -> a)
+min = binop U.min
+
+max :: Ty a => E ((a, a) -> a)
+max = binop U.max
 
 value :: Ty a => (Type -> e a) -> e a
 value (f :: Type -> e a) = go Proxy
@@ -270,6 +321,9 @@ tuple3 = U.tuple3
 
 tuple4 :: (Ty a, Ty b, Ty c, Ty d) => (E a, E b, E c, E d) -> E (a, b, c, d)
 tuple4 = U.tuple4
+
+tuple5 :: (Ty a, Ty b, Ty c, Ty d, Ty e) => (E a, E b, E c, E d, E e) -> E (a, b, c, d, e)
+tuple5 = U.tuple5
 
 opapp :: (Ty a, Ty b, Ty c) => E a -> E ((a, b) -> c) -> E (b -> c)
 opapp = U.opapp

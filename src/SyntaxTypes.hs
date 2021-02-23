@@ -43,6 +43,7 @@ data Type = TyApp Type Type
           | TyBool
           | TyString
           | TyUnsigned
+          | TyFloating
     deriving ( Show, Eq )
 
 tyUnit :: Type
@@ -79,6 +80,11 @@ type Alt = ((AltPat, Maybe Type), Expr)
 data Pat = VarP Var (Maybe Type) | TupleP [Pat] (Maybe Type)
     deriving Show
 
+isVarP :: Pat -> Bool
+isVarP x = case x of
+  VarP{} -> True
+  _ -> False
+
 instance Located Pat where
     locOf x = case x of
         VarP a _ -> locOf a
@@ -86,9 +92,9 @@ instance Located Pat where
             [] -> noLoc -- BAL: add pass location info to here
             b : _ -> locOf b
 
-data Prim = Var Var | StringL (L String) | IntL Token | CharL (L Char) | Op Op
+data Prim = Var Var | StringL (L String) | IntL Token | CharL (L Char) | FloatL Token | Op Op
     deriving Show
 
 data AltPat =
-    DefaultP | ConP Con | IntP Token | CharP (L Char) | StringP (L String)
+    DefaultP | ConP Con | IntP Token | CharP (L Char) | StringP (L String) | FloatP Token
     deriving Show

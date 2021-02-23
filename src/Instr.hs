@@ -86,40 +86,40 @@ gep :: Operand -> Operand -> Instruction
 gep addr i = GetElementPtr False addr [ ConstantOperand $ C.Int 32 0, i ] []
 
 trunc :: Operand -> Type -> Instruction
-trunc a to = Trunc a to []
+trunc a ty = Trunc a ty []
 
 fptrunc :: Operand -> Type -> Instruction
-fptrunc a to = FPTrunc a to []
+fptrunc a ty = FPTrunc a ty []
 
 zext :: Operand -> Type -> Instruction
-zext a to = ZExt a to []
+zext a ty = ZExt a ty []
 
 sext :: Operand -> Type -> Instruction
-sext a to = SExt a to []
+sext a ty = SExt a ty []
 
 fptoui :: Operand -> Type -> Instruction
-fptoui a to = FPToUI a to []
+fptoui a ty = FPToUI a ty []
 
 fptosi :: Operand -> Type -> Instruction
-fptosi a to = FPToSI a to []
+fptosi a ty = FPToSI a ty []
 
 fpext :: Operand -> Type -> Instruction
-fpext a to = FPExt a to []
+fpext a ty = FPExt a ty []
 
 uitofp :: Operand -> Type -> Instruction
-uitofp a to = UIToFP a to []
+uitofp a ty = UIToFP a ty []
 
 sitofp :: Operand -> Type -> Instruction
-sitofp a to = SIToFP a to []
+sitofp a ty = SIToFP a ty []
 
 ptrtoint :: Operand -> Type -> Instruction
-ptrtoint a to = PtrToInt a to []
+ptrtoint a ty = PtrToInt a ty []
 
 inttoptr :: Operand -> Type -> Instruction
-inttoptr a to = IntToPtr a to []
+inttoptr a ty = IntToPtr a ty []
 
 bitcast :: Operand -> Type -> Instruction
-bitcast a to = BitCast a to []
+bitcast a ty = BitCast a ty []
 
 extractElement :: Operand -> Operand -> Instruction
 extractElement v i = ExtractElement v i []

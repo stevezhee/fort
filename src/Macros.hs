@@ -94,6 +94,10 @@ unsafeCon tb f x = f (cast tb (getField "val" 1 tyUInt64 x))
 
 hOutput :: Type -> (T (a, Handle) -> T ())
 hOutput ty = case ty of
+    TyFloat sz -> case sz of
+      64 -> \v -> let (x, h) = argTuple2 v
+                  in hPutF64 (unsafeCast tyF64 x) h
+      _ -> ok $ \x h -> hOutput tyF64 $ tuple2 (cast tyF64 x) h
     TyInteger sz isSigned intTy -> case intTy of
         TyChar -> ok $ \x h -> delim h "#\"" "\"" $
             hPutChar (unsafeCast tyChar x) h
@@ -223,6 +227,9 @@ hPutSInt64 = externFunc2 "h_put_sint64" tyUnit
 
 hPutUInt64 :: T UInt64 -> T Handle -> T ()
 hPutUInt64 = externFunc2 "h_put_uint64" tyUnit
+
+hPutF64 :: T F64 -> T Handle -> T ()
+hPutF64 = externFunc2 "h_put_f64" tyUnit
 
 load :: Type -> T a -> T b
 load tb a = T tb (U.app (U.load (tyT a) tb) $ unT a)

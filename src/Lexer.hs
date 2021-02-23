@@ -6,7 +6,7 @@ module Lexer where
 import           Data.List
 import           Data.Loc
 import           Data.String
-
+import Data.Maybe
 import           Language.Lexer.Applicative
 
 import qualified Language.Lexer.Applicative as L
@@ -83,7 +83,10 @@ numLit :: Tok
 numLit = hexLit <|> octLit <|> binLit <|> decLit
 
 decLit :: Tok
-decLit = (:) <$> sym '-' <*> digits <|> digits
+decLit = (\l r -> l ++ fromMaybe "" r) <$> lhs <*> optional rhs
+  where
+    lhs = (:) <$> sym '-' <*> digits <|> digits
+    rhs = (:) <$> sym '.' <*> digits
 
 identifier :: Tok
 identifier = (:) <$> psym (\c -> lower c || upper c) <*> many (psym ident)

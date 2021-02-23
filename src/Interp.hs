@@ -264,6 +264,7 @@ evalAtom x = case x of
   String a b -> pure $ StringV a b
   Undef _ -> pure UndefV
   Label a b -> pure $ LabelV a b
+  Float _ b -> pure $ FloatV b
 
 getAtomConstant :: Atom -> M Constant
 getAtomConstant x = do
@@ -345,6 +346,7 @@ data Val
   | StringV String Var
   | UndefV
   | LabelV Name Nm -- Label (function name) (label name)
+  | FloatV Double
   deriving (Show, Eq)
 
 instance Pretty Val where
@@ -357,6 +359,7 @@ instance Pretty Val where
     StringV a _ -> pretty $ show a
     UndefV -> "<undef>"
     LabelV _ b -> "%" <> pretty b
+    FloatV a -> pretty a
 
 getVarVal :: Var -> M Val
 getVarVal v = fromMaybe UndefV . HMS.lookup v <$> gets env -- BAL: error?

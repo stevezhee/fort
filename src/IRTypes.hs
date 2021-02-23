@@ -8,6 +8,7 @@
 
 module IRTypes where
 
+import Prelude hiding (Floating)
 import           Control.Monad.State.Strict
 
 import qualified Data.HashMap.Strict        as HMS
@@ -93,6 +94,7 @@ data Atom = Int Integer Integer
           | Enum (String, (Type, Integer))
           | Char Char
           | Var Var
+          | Float Integer Double
           | String String Var
           | Undef Type
           | Label Name Nm -- Label (function name) (label name)
@@ -145,6 +147,7 @@ data AddrType = TyAddr | TyString
     deriving ( Show, Eq )
 
 data Type = TyInteger Integer IsSigned IntType
+          | TyFloat Integer
           | TyAddress Type IsVolatile AddrType
           | TyArray Integer Type
           | TyTuple [Type]
@@ -177,6 +180,7 @@ instance Pretty Type where
                                                  | (s, t) <- bs
                                                  ]) <> ">"
         TyFun a b -> pretty a <+> "->" <+> pretty b
+        TyFloat a -> "f" <> pretty a
         TyLabel{} -> "Label"
 
 tyBool :: Type
@@ -281,6 +285,7 @@ ppAtom x = case x of
     String s _ -> pretty (show s)
     Undef _ -> "<undef>"
     Label _ nm -> pretty nm
+    Float _ a -> pretty a
 
 data Scope = Global | Local deriving (Show, Eq)
 
@@ -343,6 +348,7 @@ tyAtom x = case x of
     Undef t -> t
     Enum (_, (t, _)) -> t
     Label _ nm -> TyLabel $ nTy nm
+    Float sz _ -> TyFloat sz
 
 varAtom :: Atom -> Maybe Var
 varAtom x = case x of
@@ -393,6 +399,8 @@ data Signed a
 
 data Unsigned a
 
+data Floating a
+
 data Addr a
 
 data Volatile a
@@ -406,6 +414,9 @@ type UInt32 = Unsigned Size32
 type UInt64 = Unsigned Size64
 
 type SInt64 = Signed Size64
+
+type F32 = Floating Size32
+type F64 = Floating Size64
 
 data Size32
 
@@ -435,6 +446,9 @@ instance Size sz => Ty (Signed sz) where
 instance Size sz => Ty (Unsigned sz) where
     tyFort _ = tyUnsigned (size (Proxy :: Proxy sz))
 
+instance Size sz => Ty (Floating sz) where
+    tyFort _ = tyFloating (size (Proxy :: Proxy sz))
+
 tyChar :: Type
 tyChar = TyInteger 8 Unsigned TyChar
 
@@ -450,11 +464,17 @@ tySigned sz = TyInteger sz Signed TyInt
 tyUnsigned :: Integer -> Type
 tyUnsigned sz = TyInteger sz Unsigned TyInt
 
+tyFloating :: Integer -> Type
+tyFloating sz = TyFloat sz
+
 tyUInt64 :: Type
 tyUInt64 = tyUnsigned 64
 
 tySInt64 :: Type
 tySInt64 = tySigned 64
+
+tyF64 :: Type
+tyF64 = tyFloating 64
 
 tyUInt32 :: Type
 tyUInt32 = tyUnsigned 32
@@ -502,6 +522,7 @@ tyVariantToTyRecord bs =
 sizeFort :: Type -> Integer
 sizeFort x = case x of
     TyInteger sz _ _ -> sz
+    TyFloat sz -> sz
     TyAddress{} -> ptrSize
     TyArray sz a -> sz * sizeFort a
     TyTuple bs -> sum $ map sizeFort bs
