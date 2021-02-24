@@ -52,32 +52,29 @@ write-pbm: Int -> () = \w => /do
         y < h = /do
           /let ci = ((2 * cast y) / cast h) - 1
           goX(0, 0, 0) ;; BAL: goX(0) somehow compiles??
-            /where goX: (Int, Int, Int) -> () = \(x, byte-acc0, bit-num) => /if
-              x < w = /do
-                /let cr = ((2 * cast x) / cast w) - 1.5
-                /let (tr, ti) = goI(0, 0, 0, 0, 0, ci, cr)
-                /let byte-acc = (byte-acc0 << 1) | cast ((tr + ti) <= limit2)
+            /where
+              goX: (Int, Int, Int) -> () = \(x, byte-acc0, bit-num) => /do
                 /if
-                  bit-num == 7 = /do
-                    putc(byte-acc, stdout)
-                    goX(x + 1, 0, 0)
-                  x == (w - 1) = /do
-                    putc(byte-acc << (8 - (w % 8)), stdout)
-                    goX(x + 1, 0, 0)
-                  _ = goX(x + 1, byte-acc, bit-num + 1)
-              _ = ()
+                  x < w = /do
+                    /let cr = ((2 * cast x) / cast w) - 1.5
+                    /do ;; BAL: shouldn't need this.  Fix parser
+                      /let (tr, ti) = goI(0, 0, 0, 0, 0)
+                      /let byte-acc = (byte-acc0 << 1) | cast ((tr + ti) <= limit2)
+                      /if
+                        bit-num == 7 = /do
+                          putc(byte-acc, stdout)
+                          goX(x + 1, 0, 0)
+                        x == (w - 1) = /do
+                          putc(byte-acc << (8 - (w % 8)), stdout)
+                          goX(x + 1, 0, 0)
+                        _ = goX(x + 1, byte-acc, bit-num + 1)
+                      /where ;; BAL: should be able to be a /let.  fix scoping
+                        goI: (Int, Double, Double, Double, Double) -> (Double, Double) = \(i, zi0, zr0, ti, tr) => /if
+                          (i < iter) & ((tr + ti) <= limit2) = /do
+                            /let zi = ((2 * zr0) * zi0) + ci
+                            /let zr = (tr - ti) + cr
+                            goI(i + 1, zi, zr, zi * zi, zr * zr)
+                          _ = (tr, ti)
+                  _ = ()
           goY(y + 1)
         _ = ()
-      goI: (Int, Double, Double, Double, Double, Double, Double) -> (Double, Double) = \(i, zi0, zr0, ti, tr, ci, cr) => /if
-        (i < iter) & ((tr + ti) <= limit2) = /do
-          /let zi = ((2 * zr0) * zi0) + ci
-          /let zr = (tr - ti) + cr
-          goI(i + 1, zi, zr, zi * zi, zr * zr, ci, cr)
-        _ = (tr, ti)
-
-
-                ;; /let (tr, ti) = goI(0, 0, 0, 0, 0)
-                ;;   /where goI: (Int, Double, Double, Double, Double) -> (Double, Double) = \(i, zi, zr, tr, ti) => /if
-                ;;     (i < iter) & ((tr + ti) <= limit2) =
-                ;;       goI(i + 1, ((2 * zr) * zi) + ci, (tr - ti) + cr, zr * zr, zi * zi)
-                ;;     _ = (tr, ti)

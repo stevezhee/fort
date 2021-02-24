@@ -52,10 +52,10 @@ mandelbrot_c.exe: mandelbrot.c
 	# $(OPT) -O0 --dot-cfg test/fannkuch-redux.fort.ll
 	# dot .obf.dot -Tpng > t.png
 
-mandelbrot: mandelbrot_main.c $(TEST_DIR)/mandelbrot.fort.o
+mandelbrot.exe: mandelbrot_main.c $(TEST_DIR)/mandelbrot.fort.o
 	clang $(OPTLVL) -lc $^ -o $@
 
-mandelbrot.pbm: mandelbrot
+mandelbrot.pbm: mandelbrot.exe
 	./$< >  $@
 
 .PHONY: diff
