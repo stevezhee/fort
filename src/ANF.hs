@@ -12,18 +12,19 @@ import           Control.Monad.State.Strict
 
 import           Data.Bifunctor
 import qualified Data.HashMap.Strict        as HMS
-import           Data.Maybe
 
 import           Data.Text.Prettyprint.Doc
 
 import           IRTypes
+-- import Debug.Trace
 
 toAFuncs :: Func -> M [AFunc]
 toAFuncs x = do
   a <- toAFunc x
   bs <- gets afuncs
-  modify' $ \st -> st{ afuncs = [] }
-  return $ map filterOutUnitParams (a : bs)
+  tbl <- gets substTbl
+  modify' $ \st -> st{ afuncs = [], substTbl = mempty }
+  return $ map (subst tbl) $ map filterOutUnitParams (a : bs)
 
 filterOutUnitParams :: AFunc -> AFunc
 filterOutUnitParams (AFunc nm vs e) = AFunc nm (filter (\v -> unTupleTy (vTy v) /= []) vs) e
@@ -39,7 +40,7 @@ toAExpr x = case x of
     toAExpr c
   AtomE a           -> pure $ ReturnA [a]
   UnreachableE t    -> pure $ CExprA $ UnreachableA t
-  LetE pat a b      -> toLetA pat <$> toAExpr a <*> toAExpr b
+  LetE pat a b      -> toAExpr a >>= \e -> toAExpr b >>= toLetA pat e
   TupleE bs         -> mapM toAExpr bs >>= withAtoms ReturnA
   CallE (nm, ct) bs -> mapM toAExpr bs >>= withAtoms (CExprA . CallA nm ct)
   SwitchE e b cs    -> do
@@ -57,13 +58,15 @@ withAtoms f = go []
       CExprA a -> do
         pat <- freshBind $ tyCExpr a
         go rs (LetA pat a (ReturnA $ map Var pat) : xs)
-      ReturnA bs -> go (bs ++ rs) xs -- BAL: Tuples just get smashed together
+      ReturnA bs -> go (bs ++ rs) xs -- Tuples just get smashed together
 
-toLetA :: Pat -> AExpr -> AExpr -> AExpr
+toLetA :: Pat -> AExpr -> AExpr -> M AExpr
 toLetA pat x y = case x of
-  CExprA a -> LetA pat a y
-  ReturnA bs -> subst (mkSubst pat bs) y
-  LetA pat1 a b -> LetA pat1 a $ toLetA pat b y
+  CExprA a -> pure $ LetA pat a y
+  ReturnA bs -> do
+    modify' $ \st -> st{ substTbl = HMS.union (mkSubst pat bs) $ substTbl st }
+    pure y
+  LetA pat1 a b -> LetA pat1 a <$> toLetA pat b y
 
 ppAFunc :: AFunc -> Doc ann
 ppAFunc = ppFunc . fromAFunc
@@ -74,6 +77,42 @@ tyAExpr = tyExpr . fromAExpr
 tyCExpr :: CExpr -> Type
 tyCExpr = tyExpr . fromCExpr
 
+subst :: HMS.HashMap Var Atom -> AFunc -> AFunc
+subst tbl (AFunc nm0 vs e) = AFunc nm0 vs $ go e
+  where
+    go x = case x of
+        ReturnA bs -> ReturnA $ map goAtom bs
+        CExprA a -> CExprA $ goCExpr a
+        LetA pat a b -> LetA pat (goCExpr a) (go b)
+
+    goCExpr x = case x of
+        CallA nm ct bs -> CallA nm ct $ map goAtom bs
+        SwitchA a b cs -> SwitchA (goAtom a) (go b) $ map (second go) cs
+        UnreachableA{} -> x
+
+    goAtom x = case x of
+        Var a -> case HMS.lookup a tbl of
+          Nothing -> x
+          Just x' -> goAtom x'
+        _ -> x
+
+fromAExpr :: AExpr -> Expr
+fromAExpr x = case x of
+    ReturnA bs -> TupleE $ map AtomE bs
+    LetA pat a b -> LetE pat (fromCExpr a) (fromAExpr b)
+    CExprA a -> fromCExpr a
+
+fromAFunc :: AFunc -> Func
+fromAFunc (AFunc n pat e) = Func n pat $ fromAExpr e
+
+fromCExpr :: CExpr -> Expr
+fromCExpr x = case x of
+    CallA nm ct bs -> CallE (nm, ct) $ map AtomE bs
+    SwitchA a b cs -> SwitchE (AtomE a) (fromAExpr b) $
+        map (second fromAExpr) cs
+    UnreachableA t -> UnreachableE t
+
+
 -- withCExpr :: Expr -> (CExpr -> M a) -> M a
 -- withCExpr x f = case x of
 --   -- AtomE Atom
@@ -83,7 +122,7 @@ tyCExpr = tyExpr . fromCExpr
 
 --   SwitchE e b cs -> withAtom e (\a -> (SwitchA a <$> toAExpr b <*> alts) >>= f)
 --     where
---       alts = sequence [ (tg,) <$> toAExpr c | (tg, c) <- cs ] 
+--       alts = sequence [ (tg,) <$> toAExpr c | (tg, c) <- cs ]
 --   CallE (nm, LocalDefn) bs -> withAtoms bs (f . CallLocalA . LocalCall nm)
 --   CallE (nm, Defn g) bs -> withAtoms bs (f . CallDefnA . DefnCall nm g)
 --   UnreachableE t -> f $ UnreachableA t
@@ -99,8 +138,8 @@ tyCExpr = tyExpr . fromCExpr
 --   AtomE a -> f a
 --   -- TupleE [Expr]
 --   -- SwitchE a b cs ->
---   -- CallE (nm, LocalDefn) bs -> 
---   -- CallE (nm, Defn f) bs -> 
+--   -- CallE (nm, LocalDefn) bs ->
+--   -- CallE (nm, Defn f) bs ->
 
 -- LetRecE [Func] Expr
 -- LetE Pat Expr Expr
@@ -216,40 +255,3 @@ freeVars bvs = go
         UnreachableA _ -> []
 
 -}
-
-subst :: HMS.HashMap Var Atom -> AExpr -> AExpr
-subst tbl = go
-  where
-    go x = case x of
-        ReturnA bs -> ReturnA $ map goAtom bs
-        CExprA a -> CExprA $ goCExpr a
-        LetA pat a b -> LetA pat (goCExpr a) (subst (remove pat) b)
-
-    goCExpr x = case x of
-        CallA nm ct bs -> CallA nm ct $ map goAtom bs
-        SwitchA a b cs -> SwitchA (goAtom a) (go b) $ map (second go) cs
-        UnreachableA{} -> x
-
-    goAtom x = case x of
-        Var a -> fromMaybe x (HMS.lookup a tbl)
-        _ -> x
-
-    remove pat = HMS.filterWithKey (\k _ -> k `notElem` pat) tbl
-
-
-fromAExpr :: AExpr -> Expr
-fromAExpr x = case x of
-    ReturnA bs -> TupleE $ map AtomE bs
-    LetA pat a b -> LetE pat (fromCExpr a) (fromAExpr b)
-    CExprA a -> fromCExpr a
-
-fromAFunc :: AFunc -> Func
-fromAFunc (AFunc n pat e) = Func n pat $ fromAExpr e
-
-fromCExpr :: CExpr -> Expr
-fromCExpr x = case x of
-    CallA nm ct bs -> CallE (nm, ct) $ map AtomE bs
-    SwitchA a b cs -> SwitchE (AtomE a) (fromAExpr b) $
-        map (second fromAExpr) cs
-    UnreachableA t -> UnreachableE t
-

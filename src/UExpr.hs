@@ -175,6 +175,15 @@ tuple4 (E a, E b, E c, E d) = tupleE [ a, b, c, d ]
 tuple5 :: (E a, E b, E c, E d, E e) -> E (a, b, c, d, e)
 tuple5 (E a, E b, E c, E d, E e) = tupleE [ a, b, c, d, e ]
 
+tuple6 :: (E a, E b, E c, E d, E e, E f) -> E (a, b, c, d, e, f)
+tuple6 (E a, E b, E c, E d, E e, E f) = tupleE [ a, b, c, d, e, f ]
+
+tuple7 :: (E a, E b, E c, E d, E e, E f, E g) -> E (a, b, c, d, e, f, g)
+tuple7 (E a, E b, E c, E d, E e, E f, E g) = tupleE [ a, b, c, d, e, f, g ]
+
+tuple8 :: (E a, E b, E c, E d, E e, E f, E g, E h) -> E (a, b, c, d, e, f, g, h)
+tuple8 (E a, E b, E c, E d, E e, E f, E g, E h) = tupleE [ a, b, c, d, e, f, g, h ]
+
 argTupleN :: Int -> E a -> E b
 argTupleN i (E x) = E $ do
     a <- x

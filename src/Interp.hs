@@ -23,7 +23,7 @@ import qualified Data.HashSet as HS
 interp :: [SSAFunc] -> IO ()
 interp fns = flip evalStateT st0 $ do
   liftIO $ putStrLn ""
-  go NoCmd [ Call "fannkuch_redux_perms", Break "init_linear", Continue ]
+  go NoCmd [ Call "mandelbrot_debug_write_pbm" ]
   where
     st0 = initSt fns
     goCmd :: Cmd -> M Result

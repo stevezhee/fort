@@ -160,7 +160,7 @@ hOutput ty = case ty of
                       ]
             t -> \v ->
                 let (x, h) = argTuple2 v in hOutput t $ tuple2 (load t x) h
-    _ -> impossible $ "hOutput:" ++ show ty
+    _ -> error $ "hOutput: not currently able to print:" ++ show ty
   where
     delim :: T Handle -> String -> String -> T () -> T ()
     delim h l r a = seqs_ [ putS l h, a, putS r h ]

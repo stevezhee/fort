@@ -41,12 +41,13 @@ data St = St { unique  :: Integer -- BAL: delete unused fields
              , blocks  :: [SSABlock]
              -- , instrs  :: [Instr]
              -- , conts   :: HMS.HashMap Name (HMS.HashMap Nm Integer)
+             , substTbl :: HMS.HashMap Var Atom
              , path    :: FilePath
              }
     deriving Show
 
 initSt :: FilePath -> St
-initSt = St 0 mempty mempty mempty mempty mempty mempty
+initSt = St 0 mempty mempty mempty mempty mempty mempty mempty
 
 newtype E a = E { unE :: M Expr } -- a typed expression
 
@@ -508,6 +509,44 @@ instance (Ty a, Ty b, Ty c, Ty d) => Ty (a, b, c, d) where
                        , tyFort (Proxy :: Proxy b)
                        , tyFort (Proxy :: Proxy c)
                        , tyFort (Proxy :: Proxy d)
+                       ]
+
+instance (Ty a, Ty b, Ty c, Ty d, Ty e) => Ty (a, b, c, d, e) where
+    tyFort _ = tyTuple [ tyFort (Proxy :: Proxy a)
+                       , tyFort (Proxy :: Proxy b)
+                       , tyFort (Proxy :: Proxy c)
+                       , tyFort (Proxy :: Proxy d)
+                       , tyFort (Proxy :: Proxy e)
+                       ]
+
+instance (Ty a, Ty b, Ty c, Ty d, Ty e, Ty f) => Ty (a, b, c, d, e, f) where
+    tyFort _ = tyTuple [ tyFort (Proxy :: Proxy a)
+                       , tyFort (Proxy :: Proxy b)
+                       , tyFort (Proxy :: Proxy c)
+                       , tyFort (Proxy :: Proxy d)
+                       , tyFort (Proxy :: Proxy e)
+                       , tyFort (Proxy :: Proxy f)
+                       ]
+
+instance (Ty a, Ty b, Ty c, Ty d, Ty e, Ty f, Ty g) => Ty (a, b, c, d, e, f, g) where
+    tyFort _ = tyTuple [ tyFort (Proxy :: Proxy a)
+                       , tyFort (Proxy :: Proxy b)
+                       , tyFort (Proxy :: Proxy c)
+                       , tyFort (Proxy :: Proxy d)
+                       , tyFort (Proxy :: Proxy e)
+                       , tyFort (Proxy :: Proxy f)
+                       , tyFort (Proxy :: Proxy g)
+                       ]
+
+instance (Ty a, Ty b, Ty c, Ty d, Ty e, Ty f, Ty g, Ty h) => Ty (a, b, c, d, e, f, g, h) where
+    tyFort _ = tyTuple [ tyFort (Proxy :: Proxy a)
+                       , tyFort (Proxy :: Proxy b)
+                       , tyFort (Proxy :: Proxy c)
+                       , tyFort (Proxy :: Proxy d)
+                       , tyFort (Proxy :: Proxy e)
+                       , tyFort (Proxy :: Proxy f)
+                       , tyFort (Proxy :: Proxy g)
+                       , tyFort (Proxy :: Proxy h)
                        ]
 
 tyRecordToTyTuple :: [(String, Type)] -> Type

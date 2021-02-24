@@ -48,7 +48,7 @@ int :: Ty a => Integer -> E a
 int i = value $ \ty -> case ty of
   TyInteger sz _ _ -> U.intE sz i
   TyFloat sz -> U.floatE sz $ fromInteger i
-  _ -> impossible "expected int or float type"
+  _ -> error $ "expected int or float type literal:" ++ show (i, ty)
 
 float :: Ty a => Double -> E a
 float d = value $ \ty -> U.floatE (sizeFort ty) d
@@ -324,6 +324,15 @@ tuple4 = U.tuple4
 
 tuple5 :: (Ty a, Ty b, Ty c, Ty d, Ty e) => (E a, E b, E c, E d, E e) -> E (a, b, c, d, e)
 tuple5 = U.tuple5
+
+tuple6 :: (Ty a, Ty b, Ty c, Ty d, Ty e, Ty f) => (E a, E b, E c, E d, E e, E f) -> E (a, b, c, d, e, f)
+tuple6 = U.tuple6
+
+tuple7 :: (Ty a, Ty b, Ty c, Ty d, Ty e, Ty f, Ty g) => (E a, E b, E c, E d, E e, E f, E g) -> E (a, b, c, d, e, f, g)
+tuple7 = U.tuple7
+
+tuple8 :: (Ty a, Ty b, Ty c, Ty d, Ty e, Ty f, Ty g, Ty h) => (E a, E b, E c, E d, E e, E f, E g, E h) -> E (a, b, c, d, e, f, g, h)
+tuple8 = U.tuple8
 
 opapp :: (Ty a, Ty b, Ty c) => E a -> E ((a, b) -> c) -> E (b -> c)
 opapp = U.opapp
