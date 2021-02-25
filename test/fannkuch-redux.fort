@@ -1,7 +1,7 @@
 ;; types
 Int = /unsigned 32 ;; BAL: make this signed
 SInt = /signed 32
-Perm = /address (/array 12 Int) ;; BAL: make this configurable
+Perm = /address (/Array 12 Int) ;; BAL: make this configurable
 Bool = /bool
 
 ;; primitives
@@ -27,7 +27,7 @@ store: (/address a, a) -> ()
 load: /address a -> a
 ;; BAL: support unary operators @ = load
 
-index: (/address (/array sz a), Int) -> /address a
+index: (/address (/Array sz a), Int) -> /address a
 # = index
 
 cast: a -> b
@@ -39,7 +39,7 @@ max: (Int, Int) -> Int = \(x, y) => /if
   x >= y = x
   _ = y
 
-;; St = /record
+;; St = /Record
 ;;   max-flips: Int
 ;;   checksum: SInt
 ;;   perm-count: Int
@@ -52,17 +52,17 @@ calc-checksum: (SInt, Int, Int) -> SInt = \(csum, n-flips, i) => /if
 ;; inc: /address Int -> () = \p => p := (load p + 1)
 dec: /address Int -> () = \p => p := (load p - 1)
 
-;; array: (Int -> a) -> /address (/array sz a)
+;; array: (Int -> a) -> /address (/Array sz a)
 
-unsafe-array: /address (/array sz a)
+unsafe-array: /address (/Array sz a)
 
 ;; linear: Int -> Int = \i => i + 1 ;; BAL: inline
 ;; zeros: Int -> Int = \_ => 0 ;; BAL: inline
 
-;; array-linear: /address (/array sz a) = /do
-;; array-zeros: /address (/array sz a)
+;; array-linear: /address (/Array sz a) = /do
+;; array-zeros: /address (/Array sz a)
 
-array-size: /address (/array sz a) -> Int
+array-size: /address (/Array sz a) -> Int
 
 init-linear: Perm -> () = \arr => go 0
   /where

@@ -37,7 +37,7 @@ pVar = satisfy (startsWith lower)
 
 pOp :: P r Token
 pOp = satisfy (\s -> startsWith oper s && (s `notElem` reservedWords)
-               && not (hasCharLitPrefix s))
+               && not (hasCharLitPrefix s) && (and $ map oper s))
 
 pBind :: P r a -> P r a
 pBind p = p <* reserved "="
@@ -56,7 +56,8 @@ reservedWords =
     , "/of"
     , "/do"
     , "/record"
-    , "/enum"
+    , "/Record"
+    , "/Enum"
     , "/signed"
     , "/unsigned"
     , "/floating"
@@ -66,6 +67,7 @@ reservedWords =
     , "/bool"
     , "/string"
     , "/array"
+    , "/Array"
     , ","
     , ";"
     , "{"
@@ -88,11 +90,11 @@ sepMany sep p = sepSome sep p <|> pure []
 between :: String -> String -> P r a -> P r a
 between a b p = reserved a *> p <* reserved b
 
-pTuple :: ([a] -> b) -> P r a -> P r b
-pTuple f p = f <$> parens (sepMany (reserved ",") p)
+pTuple :: P r a -> P r [a]
+pTuple p = parens (sepMany (reserved ",") p)
 
-pSomeTuple :: ([a] -> b) -> P r a -> P r b
-pSomeTuple f p = f <$> parens (sepSome (reserved ",") p)
+pSomeTuple :: P r a -> P r [a]
+pSomeTuple p = parens (sepSome (reserved ",") p)
 
 grammar :: Grammar r (P r [Decl])
 grammar = mdo
@@ -110,15 +112,15 @@ grammar = mdo
         <|> (pure TyFloating <* reserved "/floating")
         <|> (pure TyBool <* reserved "/bool")
         <|> (pure TyAddress <* reserved "/address")
-        <|> (pure TyArray <* reserved "/array")
+        <|> (pure TyArray <* reserved "/Array")
         <|> (TyCon <$> pCon <?> "type constructor")
         <|> (TyVar <$> pVar <?> "type variable")
-        <|> (TyRecord <$> (reserved "/record" *> blockList (pTypedVar (,)))
+        <|> (TyRecord <$> (reserved "/Record" *> blockList (pTypedVar (,)))
              <?> "record type")
         <|> (TyVariant
-             <$> (reserved "/enum" *> blockList pConOptionalAscription)
+             <$> (reserved "/Enum" *> blockList pConOptionalAscription)
              <?> "variant type") <|> (TySize <$> pSize <?> "sized type")
-        <|> pTuple TyTuple pType <?> "tuple type"
+        <|> (TyTuple <$> pTuple pType) <?> "tuple type"
     pAscription <- rule $ reserved ":" *> pType <?> "type ascription"
     pVarOptionalAscription <- rule ((,) <$> pVar <*> optional pAscription)
     pConOptionalAscription <- rule ((,) <$> pCon <*> optional pAscription)
@@ -130,7 +132,7 @@ grammar = mdo
     pAlt <- rule $ ((,) <$> pBind pAltPatOptionalAscription <*> pExpr)
         <|> pDefaultPat
     let pIfAlt = (,) <$> pExpr <*> (reserved "=" *> pExpr)
-    pExpr <- rule $
+    pExpr :: P r Expr <- rule $
         (mkWhere <$> pLamE <*> (reserved "/where" *> blockList pExprDecl)
          <?> "where clause") <|> pLamE
     pLamE <- rule $ (Lam <$> pLam pPat <*> pLamE <?> "lambda expression")
@@ -148,19 +150,18 @@ grammar = mdo
         <|> (If <$> (reserved "/if" *> blockList pIfAlt) <?> "if expression")
         <|> (pure Extern <* reserved "/extern" <?> "/extern") <|> pAscriptionE
     pAscriptionE <- rule $ (Ascription <$> pE0 <*> pAscription) <|> pE0
-    pE0 <- rule $ (Record <$> blockList pFieldDecl <?> "record")
-        <|> (pSomeTuple Tuple (optional pExpr) <?> "tuple") <|>
-        -- ^ pSomeTuple is needed because the expr is optional
-        (Prim <$> pPrimNotOp)
+    pE0 <- rule $ (Record <$> (reserved "/record" *> blockList pFieldDecl) <?> "record")
+        <|> (Tuple <$> pSomeTuple (optional pExpr) <?> "tuple")
+        -- ^ pSomeTuple is needed because the expr is optional (see SyntaxType.hs)
+        <|> (Array <$> (reserved "/array" *> blockList pExpr) <?> "array")
+        <|> (Prim <$> pPrimNotOp)
     pPat <- rule $ (VarP <$> pVar <*> optional pAscription <?> "var pattern")
-        <|> (pTuple TupleP pPat <*> optional pAscription <?> "tuple pattern")
-    return (blockItems pDecl)
+        <|> (TupleP <$> pTuple pPat <*> optional pAscription <?> "tuple pattern")
+    return (listItems pDecl)
   where
-    blockList = braces . blockItems
-
-    blockItems p = many (reserved ";" *> p) -- BAL:
-
+    blockList = braces . listItems
     braces p = reserved "{" *> p <* reserved "}"
+    listItems p = many (reserved ";" *> p)
 
 mkApp :: Expr -> Expr -> Expr
 mkApp x y = case y of

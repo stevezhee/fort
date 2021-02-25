@@ -419,9 +419,9 @@ type SInt64 = Signed Size64
 type F32 = Floating Size32
 type F64 = Floating Size64
 
-data Size32
+data Size32 = Size32
 
-data Size64
+data Size64 = Size64
 
 instance Size Size32 where
     size _ = 32

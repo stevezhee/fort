@@ -68,7 +68,7 @@ unsafe_array = value U.alloca
 -- array_zeros :: (Size sz, Ty a) => E (Addr (Array sz a))
 -- array_zeros = value U.alloca
 
-array :: (Size sz, Ty a) => E ((UInt32 -> a) -> Addr (Array sz a))
+array :: (Size sz, Ty a) => sz -> [E a] -> E (Array sz a)
 array = undefined
 
 array_size :: (Size sz, Ty a) => E (Addr (Array sz a) -> UInt32)

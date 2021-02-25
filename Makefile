@@ -24,6 +24,7 @@ ALL_FORT_FILES=$(wildcard $(TEST_DIR)/*.fort)
 # EXCLUDE_FILES += $(TEST_DIR)/fannkuch-redux.fort
 # EXCLUDE_FILES += $(TEST_DIR)/floating.fort
 EXCLUDE_FILES += $(TEST_DIR)/mandelbrot.fort
+EXCLUDE_FILES += $(TEST_DIR)/n-body.fort
 
 FORT_FILES=$(filter-out $(EXCLUDE_FILES), $(ALL_FORT_FILES))
 # FORT_FILES=$(TEST_DIR)/powi.fort
@@ -36,27 +37,21 @@ LL_FILES=$(addsuffix .ll, $(FORT_FILES))
 O_FILES=$(addsuffix .o, $(FORT_FILES))
 OUT_FILE=a.out
 
-.PHONY: all
-all: mandelbrot.pbm mandelbrot_expected.pbm # a.out.actual diff
-	# clang -o m.exe mandelbrot.c
-	# ./m.exe > t.txt
-	# diff mandelbrot.pbm t.txt
-
-mandelbrot_expected.pbm: mandelbrot_c.exe
-	./$< > $@
-
-mandelbrot_c.exe: mandelbrot.c
-	clang $(OPTLVL) -o $@ $<
-
 #all: a.out.actual
 	# $(OPT) -O0 --dot-cfg test/fannkuch-redux.fort.ll
 	# dot .obf.dot -Tpng > t.png
 
-mandelbrot.exe: mandelbrot_main.c $(TEST_DIR)/mandelbrot.fort.o
-	clang $(OPTLVL) -lc $^ -o $@
+.PHONY: all
+all: a.out.actual n-body.fort.exe mandelbrot.fort.exe # a.out.actual mandelbrot.fort.pbm mandelbrot.c.pbm # diff
 
-mandelbrot.pbm: mandelbrot.exe
-	./$< >  $@
+mandelbrot.%.pbm: mandelbrot.%.exe
+	./$< > $@
+
+%.c.exe: %.c
+	clang $(OPTLVL) -o $@ $<
+
+%.fort.exe: %.main.c $(TEST_DIR)/%.fort.o
+	clang $(OPTLVL) -lc $^ -o $@
 
 .PHONY: diff
 diff: a.out.actual
@@ -98,3 +93,5 @@ clean:
 	rm -f test/*.s
 	rm -f test/*.o
 	rm -f test/*.fort.hs
+	rm -f *.exe
+	rm -f *.pbm

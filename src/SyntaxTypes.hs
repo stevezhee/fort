@@ -62,6 +62,7 @@ data Expr -- BAL: pass locations through to all constructs
     | If [(Expr, Expr)]
     | Case Expr [Alt]
     | Sequence [Expr]
+    | Array [Expr]
     | Record [((Var, Maybe Type), Expr)]
     | Tuple [Maybe Expr]
     | Ascription Expr Type

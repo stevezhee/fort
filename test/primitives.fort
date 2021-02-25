@@ -12,12 +12,12 @@ Int = /signed 32
 Char = /char
 Bool = /bool
 
-CharArr = /array 6 Char ;; 6 element array of characters
-IntMultArr = /array 2 (/array 3 Int) ;; multi-dimensional array [2][3] of int
+CharArr = /Array 6 Char ;; 6 element array of characters
+IntMultArr = /Array 2 (/Array 3 Int) ;; multi-dimensional array [2][3] of int
 
 CharIntTuple = (Char, Int) ;; order is specified
 
-CharIntRecord = /record ;; at struct where order is unspecified
+CharIntRecord = /Record ;; at struct where order is unspecified
   char: Char
   int: Int
 

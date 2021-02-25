@@ -3,12 +3,12 @@ Char = /char
 Int = /signed 32
 Int64 = /signed 64
 
-MyStruct = /record
+MyStruct = /Record
   x: Int
   y: Char
   z: Int64
   
-MyStruct2 = /record
+MyStruct2 = /Record
   a: Int
   b: Int64
 
@@ -25,16 +25,14 @@ get-y: MyStruct -> Char = \mystr => y mystr
 
 bar: MyStruct -> MyStruct = \mystr => set-x (24, set-y (#"a", mystr))
 
-qux: MyStruct = {
-  ; x = 42
-  ; y = #"z"
-  ; z = 0xff
-  }
+qux: MyStruct = /record
+  x = 42
+  y = #"z"
+  z = 0xff
 
-qux2: MyStruct2 = {
-  ; a = 11
-  ; b = 0xdeadbeef
-  }
+qux2: MyStruct2 = /record
+  a = 11
+  b = 0xdeadbeef
 
 foo: () -> () = \_ => /do
   output qux
@@ -46,9 +44,3 @@ foo: () -> () = \_ => /do
 ;; baz: MyStruct -> MyStruct = /set
 ;;   x = 24
 ;;   z = -1
-
-;; BAL: proposed syntax
-;; qux2: MyStruct = /record
-;;   x = 42
-;;   y = #"z"
-;;   z = 0xff

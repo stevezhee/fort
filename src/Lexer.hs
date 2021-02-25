@@ -74,7 +74,7 @@ isLiteral :: Char -> Bool
 isLiteral c = digit c || c `elem` ("\"#-" :: String)
 
 reservedWord :: Tok
-reservedWord = (:) <$> sym '/' <*> some (psym lower)
+reservedWord = (:) <$> sym '/' <*> some (psym lower <|> psym upper)
 
 specialOp :: Tok
 specialOp = (: []) <$> psym special
@@ -86,7 +86,8 @@ decLit :: Tok
 decLit = (\l r -> l ++ fromMaybe "" r) <$> lhs <*> optional rhs
   where
     lhs = (:) <$> sym '-' <*> digits <|> digits
-    rhs = (:) <$> sym '.' <*> digits
+    rhs = (:) <$> sym '.' <*> ((++) <$> digits <*> (fromMaybe "" <$> optional sci))
+    sci = (:) <$> (sym 'e' <|> sym 'E') <*> ((++) <$> (maybeToList <$> optional (sym '+' <|> sym '-')) <*> digits)
 
 identifier :: Tok
 identifier = (:) <$> psym (\c -> lower c || upper c) <*> many (psym ident)
@@ -136,7 +137,7 @@ indentation toks@(t0 : _) = go t0 [] toks
         | otherwise = adv
       where
         isOpen = unLoc x
-            `elem` [ "/of", "/where", "/if", "/do", "/record", "/enum" ]
+            `elem` [ "/of", "/where", "/if", "/do", "/record", "/Record", "/Enum", "/array" ]
 
         col = column (locOf x)
 

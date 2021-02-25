@@ -77,12 +77,10 @@ codegen file ds = do
             putStrLn "--- single static assignment (SSA) -----"
         else putStrFlush "SSA->"
 
-    -- let ssas :: [SSAFunc] = map toSSAFunc cpss
-    -- let ssas :: [SSAFunc] = map (toSSAFunc st1) anfs
     let (ssas :: [SSAFunc], gs) = toSSAFuncs st1 anfs
 
     let sSSAs = ppFuncs ppSSAFunc ssas
-    writeFile "t.ssa" $ show sSSAs
+    writeFile (file ++ ".ssa") $ show sSSAs
 
     if verbose
         then do

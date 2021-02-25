@@ -55,7 +55,8 @@ parse toks = case toks of
     [] -> Right []
     _ -> case (asts, unconsumed rpt) of
         ([ ast ], []) -> Right ast
-        _ -> Left rpt
+        ([], _) -> Left rpt
+        _ -> error $ unlines $ map show asts
   where
     (asts, rpt) = fullParses (parser grammar) toks
 
@@ -64,8 +65,8 @@ reportErrors fn s toks rpt = case unconsumed rpt of
     [] -> do
         putStrLn ""
         hPutStrLn stderr (fn ++ ":ambiguous parse")
-    -- print toks
-    -- mapM_ (\z -> hPutStrLn stderr "" >> mapM_ (hPrint stderr . show) z) asts
+        hPutStrLn stderr $ show toks
+        -- mapM_ (\z -> hPutStrLn stderr "" >> mapM_ (hPrint stderr . show) z) asts
     _ -> do
         putStrLn ""
         let errtok@(L errloc _) = toks !! position rpt
@@ -189,6 +190,7 @@ exprTypes x = case x of
         ++ concat [ maybeToList mt ++ exprTypes e | ((_, mt), e) <- bs ]
     Let a -> exprDeclTypes a
     Ascription a b -> b : exprTypes a
+    Array bs -> TySize (L NoLoc $ length bs) : concatMap exprTypes bs
 
 ppToken :: Token -> Doc ann
 ppToken = ppLoc
@@ -213,13 +215,14 @@ canonicalizeOp = concatMap f
 
 ppSize :: Int -> Doc ann
 ppSize i
-    | i `elem` [ 32, 64 ] = "type" <+> sizeCon <+> "= T." <> sizeCon
+    | i `elem` [ 32, 64 ] = "type" <+> ppSizeCon i <+> "= T." <> ppSizeCon i
     | otherwise =
-        vcat [ "data" <+> sizeCon
-             , ppInstance "T.Size" [ sizeCon ] [ "size _ =" <+> pretty i ]
+        vcat [ "data" <+> ppSizeCon i <+> "=" <+> ppSizeCon i
+             , ppInstance "T.Size" [ ppSizeCon i ] [ "size _ =" <+> pretty i ]
              ]
-  where
-    sizeCon = "Size" <> pretty i
+
+ppSizeCon :: Int -> Doc ann
+ppSizeCon i = "Size" <> pretty i
 
 conToVarName :: Con -> String
 conToVarName = canonicalizeName . lowercase . unLoc
@@ -470,7 +473,10 @@ ppExpr x = case x of
                 <> ppListV (mapMaybe ppExprDeclLabelBody bs))
     Record [] -> ppExpr unit
     Record bs -> parens ("T.record" <> ppListV (map ppRecordField bs))
-    _ -> error $ "ppExpr:" ++ show x
+    Array [] -> error "arrays must contain at least one element"
+    Array bs -> parens ("T.array" <+> ppSizeCon (length bs) <+> ppListV (map ppExpr bs))
+    Extern{} -> impossible "ppExpr:Extern"
+    Let{} -> impossible "ppExpr:Let"
 
 ppRecordField :: ((Var, Maybe Type), Expr) -> Doc ann
 ppRecordField ((x, mt), e) =
@@ -541,7 +547,7 @@ ppPrim x = case x of
     Var a -> ppVar a
     Op a -> parens (ppOp a)
     StringL a -> parens ("T.string" <+> pretty (unLoc a))
-    IntL a -> parens ("T.int" <+> pretty (readIntLit (unLoc a)))
+    IntL a -> parens ("T.int" <+> parens (pretty (readIntLit (unLoc a))))
     CharL a -> parens ("T.char" <+> pretty (show (unLoc a)))
-    FloatL a -> parens ("T.float" <+> pretty (read (unLoc a) :: Double))
+    FloatL a -> parens ("T.float" <+> parens (pretty (read (unLoc a) :: Double)))
 

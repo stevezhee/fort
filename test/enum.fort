@@ -22,7 +22,7 @@ char-case: Char -> Char = \x => /case x /of
   \c => c
 
 ;; enum
-Color = /enum
+Color = /Enum
   Red
   Green
   Blue
@@ -39,7 +39,7 @@ enum-foo: Color -> () = \c => /do
   output (enum-case blue)
 
 ;; variant
-Either = /enum
+Either = /Enum
   Left: Char
   Right: Int
   
@@ -56,7 +56,7 @@ either-case: Either -> () = \x => /case x /of
   Right = \b => output (right b)
 
 ;; variant mixed
-Optional = /enum
+Optional = /Enum
   None
   Some: Char
 
