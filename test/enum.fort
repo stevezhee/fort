@@ -1,7 +1,7 @@
 ;; types
 Int = /Signed 32
-Bool = /bool
-Char = /char
+Bool = /Bool
+Char = /Char
 
 ;; primitives
 load: /Address a -> a

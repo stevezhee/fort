@@ -60,11 +60,11 @@ reservedWords =
     , "/Enum"
     , "/Signed"
     , "/Unsigned"
-    , "/floating"
+    , "/Floating"
     , "/extern"
     , "/Address"
-    , "/char"
-    , "/bool"
+    , "/Char"
+    , "/Bool"
     , "/string"
     , "/array"
     , "/Array"
@@ -106,11 +106,11 @@ grammar = mdo
                     <?> "function type") <|> pTy1
     pTy1 <- rule $ (TyApp <$> pTy0 <*> pTy1 <?> "type application") <|> pTy0
     pTy0 <- rule $ (pure TyUnsigned <* reserved "/Unsigned")
-        <|> (pure TyChar <* reserved "/char")
+        <|> (pure TyChar <* reserved "/Char")
         <|> (pure TyString <* reserved "/string")
         <|> (pure TySigned <* reserved "/Signed")
-        <|> (pure TyFloating <* reserved "/floating")
-        <|> (pure TyBool <* reserved "/bool")
+        <|> (pure TyFloating <* reserved "/Floating")
+        <|> (pure TyBool <* reserved "/Bool")
         <|> (pure TyAddress <* reserved "/Address")
         <|> (pure TyArray <* reserved "/Array")
         <|> (TyCon <$> pCon <?> "type constructor")

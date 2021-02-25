@@ -1,6 +1,6 @@
-Float32 = /floating 32
-Float64 = /floating 64
-Bool = /bool
+Float32 = /Floating 32
+Float64 = /Floating 64
+Bool = /Bool
 Int = /Signed 32
 
 output : a -> ()

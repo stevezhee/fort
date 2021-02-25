@@ -5,7 +5,7 @@
 UInt32 = /Unsigned 32
 Pointer = /Address (/Unsigned 32)
 Bit = /Unsigned 1
-Bool = /bool
+Bool = /Bool
 
 ;; ┌─┐┬─┐┬┌┬┐┬┌┬┐┬┬  ┬┌─┐┌─┐
 ;; ├─┘├┬┘│││││ │ │└┐┌┘├┤ └─┐

@@ -9,8 +9,8 @@ Int = /Signed 32
 
 ;; TODO: floating point
 
-Char = /char
-Bool = /bool
+Char = /Char
+Bool = /Bool
 
 CharArr = /Array 6 Char ;; 6 element array of characters
 IntMultArr = /Array 2 (/Array 3 Int) ;; multi-dimensional array [2][3] of int

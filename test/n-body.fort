@@ -1,7 +1,7 @@
 Int = /Signed 32
 UInt = /Unsigned 32
-Double = /floating 64
-Bool = /bool
+Double = /Floating 64
+Bool = /Bool
 Handle = /Address (/Unsigned 64)
 
 Body = /Record

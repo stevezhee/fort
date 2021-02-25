@@ -1,6 +1,6 @@
 ;; types
-Char = /char
-Bool = /bool
+Char = /Char
+Bool = /Bool
 
 ;; primitives
 == = equals

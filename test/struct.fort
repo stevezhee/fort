@@ -1,5 +1,5 @@
 ;; types
-Char = /char
+Char = /Char
 Int = /Signed 32
 Int64 = /Signed 64
 

@@ -8,7 +8,7 @@ multiply: (Int, Int) -> Int
 + = add
 add: (a, a) -> a
 >= = greater-than-or-equals
-greater-than-or-equals: (a, a) -> /bool
+greater-than-or-equals: (a, a) -> /Bool
 
 load: /Address a -> a
 store: (/Address a, a) -> ()

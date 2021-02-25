@@ -1,5 +1,5 @@
 ;; types
-Char = /char
+Char = /Char
 Handle = /Address (/Unsigned 64)
 String = /string
 

@@ -2,7 +2,7 @@
 Int = /Unsigned 32 ;; BAL: make this signed
 SInt = /Signed 32
 Perm = /Address (/Array 12 Int) ;; BAL: make this configurable
-Bool = /bool
+Bool = /Bool
 
 ;; primitives
 add: (a, a) -> a
