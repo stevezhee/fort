@@ -3,7 +3,7 @@
 ;;  ┴  ┴ ┴  └─┘└─┘
 
 UInt32 = /unsigned 32
-Pointer = /address (/unsigned 32)
+Pointer = /Address (/unsigned 32)
 Bit = /unsigned 1
 Bool = /bool
 
@@ -11,8 +11,8 @@ Bool = /bool
 ;; ├─┘├┬┘│││││ │ │└┐┌┘├┤ └─┐
 ;; ┴  ┴└─┴┴ ┴┴ ┴ ┴ └┘ └─┘└─┘
 
-load: /address a -> a
-store: (/address a, a) -> ()
+load: /Address a -> a
+store: (/Address a, a) -> ()
 cast: a -> b
 
 ;; ┌─┐┌─┐┌─┐┬─┐┌─┐┌┬┐┌─┐┬─┐┌─┐

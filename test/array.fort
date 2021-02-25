@@ -10,20 +10,20 @@ add: (a, a) -> a
 >= = greater-than-or-equals
 greater-than-or-equals: (a, a) -> /bool
 
-load: /address a -> a
-store: (/address a, a) -> ()
+load: /Address a -> a
+store: (/Address a, a) -> ()
 
-index: (/address (/Array sz a), Idx) -> /address a ;; where a is a primitive type
+index: (/Address (/Array sz a), Idx) -> /Address a ;; where a is a primitive type
 output: a -> ()
 
 ;; code
 
-foo-array: /address (/Array 2 Int) -> () = \arr => /do
+foo-array: /Address (/Array 2 Int) -> () = \arr => /do
   store (index (arr, 0), 21)
   store (index (arr, 1), load (index (arr, 0)) * 2)
   output arr
 
-foo-2dim-array: /address (/Array 2 (/Array 3 Int)) -> () = \arr => /do
+foo-2dim-array: /Address (/Array 2 (/Array 3 Int)) -> () = \arr => /do
   store (index (index (arr, 0), 0), 0)
   store (index (index (arr, 0), 1), 1)
   store (index (index (arr, 0), 2), 1)

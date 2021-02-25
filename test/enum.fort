@@ -4,7 +4,7 @@ Bool = /bool
 Char = /char
 
 ;; primitives
-load: /address a -> a
+load: /Address a -> a
 output: a -> ()
 greater-than-or-equals: (Int, Int) -> Bool
 >= = greater-than-or-equals

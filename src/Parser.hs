@@ -62,7 +62,7 @@ reservedWords =
     , "/unsigned"
     , "/floating"
     , "/extern"
-    , "/address"
+    , "/Address"
     , "/char"
     , "/bool"
     , "/string"
@@ -111,7 +111,7 @@ grammar = mdo
         <|> (pure TySigned <* reserved "/signed")
         <|> (pure TyFloating <* reserved "/floating")
         <|> (pure TyBool <* reserved "/bool")
-        <|> (pure TyAddress <* reserved "/address")
+        <|> (pure TyAddress <* reserved "/Address")
         <|> (pure TyArray <* reserved "/Array")
         <|> (TyCon <$> pCon <?> "type constructor")
         <|> (TyVar <$> pVar <?> "type variable")

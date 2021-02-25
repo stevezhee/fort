@@ -4,19 +4,19 @@ Int = /signed 64
 
 ;; primitives
 
-load: /address a -> a ;; where a is a primitive type
-store: (/address a, a) -> () ;; where a is a primitive type
+load: /Address a -> a ;; where a is a primitive type
+store: (/Address a, a) -> () ;; where a is a primitive type
 
 add: (a, a) -> a ;; where a is a number type
 
 ;; functions
 
-inc: /address Int -> () = \p => store (p, add (1, load p))
+inc: /Address Int -> () = \p => store (p, add (1, load p))
 
 ;; operator
 + = add
-inc-op: /address Int -> () = \p => store (p, load p + 1)
+inc-op: /Address Int -> () = \p => store (p, load p + 1)
 
-inc2: /address Int -> () = \p => /do
+inc2: /Address Int -> () = \p => /do
   inc p
   inc-op p

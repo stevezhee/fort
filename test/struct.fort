@@ -14,7 +14,7 @@ MyStruct2 = /Record
 
 ;; primitives
 
-store: (/address a, a) -> ()
+store: (/Address a, a) -> ()
 := = store
 
 output: a -> ()

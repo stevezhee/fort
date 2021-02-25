@@ -1,7 +1,7 @@
 ;; types
 Int = /unsigned 32 ;; BAL: make this signed
 SInt = /signed 32
-Perm = /address (/Array 12 Int) ;; BAL: make this configurable
+Perm = /Address (/Array 12 Int) ;; BAL: make this configurable
 Bool = /bool
 
 ;; primitives
@@ -21,13 +21,13 @@ subtract: (a, a) -> a
 greater-than-or-equals: (a, a) -> Bool
 >= = greater-than-or-equals
 
-store: (/address a, a) -> ()
+store: (/Address a, a) -> ()
 := = store
 
-load: /address a -> a
+load: /Address a -> a
 ;; BAL: support unary operators @ = load
 
-index: (/address (/Array sz a), Int) -> /address a
+index: (/Address (/Array sz a), Int) -> /Address a
 # = index
 
 cast: a -> b
@@ -49,20 +49,20 @@ calc-checksum: (SInt, Int, Int) -> SInt = \(csum, n-flips, i) => /if
   is-odd i = csum - cast n-flips
   _ = csum + cast n-flips
   
-;; inc: /address Int -> () = \p => p := (load p + 1)
-dec: /address Int -> () = \p => p := (load p - 1)
+;; inc: /Address Int -> () = \p => p := (load p + 1)
+dec: /Address Int -> () = \p => p := (load p - 1)
 
-;; array: (Int -> a) -> /address (/Array sz a)
+;; array: (Int -> a) -> /Address (/Array sz a)
 
-unsafe-array: /address (/Array sz a)
+unsafe-array: /Address (/Array sz a)
 
 ;; linear: Int -> Int = \i => i + 1 ;; BAL: inline
 ;; zeros: Int -> Int = \_ => 0 ;; BAL: inline
 
-;; array-linear: /address (/Array sz a) = /do
-;; array-zeros: /address (/Array sz a)
+;; array-linear: /Address (/Array sz a) = /do
+;; array-zeros: /Address (/Array sz a)
 
-array-size: /address (/Array sz a) -> Int
+array-size: /Address (/Array sz a) -> Int
 
 init-linear: Perm -> () = \arr => go 0
   /where
@@ -153,7 +153,7 @@ reverse-n: (Int, Perm) -> () = \(n, arr) => go (0, n - 1)
         swap (arr # l, arr # r)
         go (l + 1, r - 1)
 
-swap: (/address Int, /address Int) -> () = \(p, q) => /do
+swap: (/Address Int, /Address Int) -> () = \(p, q) => /do
   /let temp = load p
   p := load q
   q := temp

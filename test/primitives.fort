@@ -29,9 +29,9 @@ CharIntRecord = /Record ;; at struct where order is unspecified
 
 ;; primitives are defined in src/LLVM.hs
 
-load: /address a -> a ;; function types have the syntax a '->' b
+load: /Address a -> a ;; function types have the syntax a '->' b
 add: (Int, Int) -> Int ;; multiple arguments are declared with tupling
-store: (/address a, a) -> () ;; void result type
+store: (/Address a, a) -> () ;; void result type
 
 ;; binary operators are declared with an operator and a name
 ;; <operator> '=' <function name>
@@ -52,7 +52,7 @@ four: Int = add1 three
 
 ;; mutable values
 
-add315AtLoc: /address Int -> () = \p => /do ;; /do sequences operations
+add315AtLoc: /Address Int -> () = \p => /do ;; /do sequences operations
   store (p, 0xff + load p)
   store (p, 0o71 + load p)
   store (p, 0b11 + load p)

@@ -2,7 +2,7 @@ Int = /signed 32
 UInt = /unsigned 32
 Double = /floating 64
 Bool = /bool
-Handle = /address (/unsigned 64)
+Handle = /Address (/unsigned 64)
 
 Body = /Record
   x: Double
@@ -13,7 +13,7 @@ Body = /Record
   vz: Double
   mass: Double
 
-Bodies = /address (/Array 5 Body)
+Bodies = /Address (/Array 5 Body)
 
 pi: Double = 3.141592653589793
 solar-mass: Double = (4 * pi) * pi
@@ -61,10 +61,10 @@ bodies = /array
     vz = -9.51592254519715870e-05 * days-per-year
     mass = 5.15138902046611451e-05 * solar-mass
 
-index: (/address (/Array sz a), UInt) -> /address a
+index: (/Address (/Array sz a), UInt) -> /Address a
 # = index
 
-;; array-size: /address (/Array sz a) -> Int ;; BAL: should be array-count
+;; array-size: /Address (/Array sz a) -> Int ;; BAL: should be array-count
 
 advance-n: (Bodies, Double, Int) -> () = \(bodies, adv, n) =>
   ;; go(0)
@@ -147,7 +147,7 @@ offset_momentum: Bodies -> () = \bodies => /do
 ;;           vz = f pz
 ;;     f: Double -> Double = \a -> negate (a / solar-mass)
       
-store: (/address a, a) -> ()
+store: (/Address a, a) -> ()
 := = store
 
 putc: (Int, Handle) -> () = /extern "putc"
