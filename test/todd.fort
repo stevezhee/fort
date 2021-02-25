@@ -2,9 +2,9 @@
 ;;  │ └┬┘├─┘├┤ └─┐
 ;;  ┴  ┴ ┴  └─┘└─┘
 
-UInt32 = /unsigned 32
-Pointer = /Address (/unsigned 32)
-Bit = /unsigned 1
+UInt32 = /Unsigned 32
+Pointer = /Address (/Unsigned 32)
+Bit = /Unsigned 1
 Bool = /bool
 
 ;; ┌─┐┬─┐┬┌┬┐┬┌┬┐┬┬  ┬┌─┐┌─┐

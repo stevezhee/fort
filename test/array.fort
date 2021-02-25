@@ -1,6 +1,6 @@
 ;; types
 Int = /signed 32
-Idx = /unsigned 32
+Idx = /Unsigned 32
 
 ;; primitives
 * = multiply

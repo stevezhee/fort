@@ -4,7 +4,7 @@
 SInt8 = /signed 8 ;; 8 bit signed integer
 ;; keywords start with a '/'
 
-UInt64 = /unsigned 64
+UInt64 = /Unsigned 64
 Int = /signed 32
 
 ;; TODO: floating point

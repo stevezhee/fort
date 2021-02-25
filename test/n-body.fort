@@ -1,8 +1,8 @@
 Int = /signed 32
-UInt = /unsigned 32
+UInt = /Unsigned 32
 Double = /floating 64
 Bool = /bool
-Handle = /Address (/unsigned 64)
+Handle = /Address (/Unsigned 64)
 
 Body = /Record
   x: Double

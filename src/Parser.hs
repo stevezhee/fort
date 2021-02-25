@@ -59,7 +59,7 @@ reservedWords =
     , "/Record"
     , "/Enum"
     , "/signed"
-    , "/unsigned"
+    , "/Unsigned"
     , "/floating"
     , "/extern"
     , "/Address"
@@ -105,7 +105,7 @@ grammar = mdo
     pTy2 <- rule $ (TyFun <$> pTy1 <*> (reserved "->" *> pTy2)
                     <?> "function type") <|> pTy1
     pTy1 <- rule $ (TyApp <$> pTy0 <*> pTy1 <?> "type application") <|> pTy0
-    pTy0 <- rule $ (pure TyUnsigned <* reserved "/unsigned")
+    pTy0 <- rule $ (pure TyUnsigned <* reserved "/Unsigned")
         <|> (pure TyChar <* reserved "/char")
         <|> (pure TyString <* reserved "/string")
         <|> (pure TySigned <* reserved "/signed")
