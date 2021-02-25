@@ -1,7 +1,7 @@
 Float32 = /floating 32
 Float64 = /floating 64
 Bool = /bool
-Int = /signed 32
+Int = /Signed 32
 
 output : a -> ()
 

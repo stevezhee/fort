@@ -58,7 +58,7 @@ reservedWords =
     , "/record"
     , "/Record"
     , "/Enum"
-    , "/signed"
+    , "/Signed"
     , "/Unsigned"
     , "/floating"
     , "/extern"
@@ -108,7 +108,7 @@ grammar = mdo
     pTy0 <- rule $ (pure TyUnsigned <* reserved "/Unsigned")
         <|> (pure TyChar <* reserved "/char")
         <|> (pure TyString <* reserved "/string")
-        <|> (pure TySigned <* reserved "/signed")
+        <|> (pure TySigned <* reserved "/Signed")
         <|> (pure TyFloating <* reserved "/floating")
         <|> (pure TyBool <* reserved "/bool")
         <|> (pure TyAddress <* reserved "/Address")

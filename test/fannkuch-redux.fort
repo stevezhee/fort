@@ -1,6 +1,6 @@
 ;; types
 Int = /Unsigned 32 ;; BAL: make this signed
-SInt = /signed 32
+SInt = /Signed 32
 Perm = /Address (/Array 12 Int) ;; BAL: make this configurable
 Bool = /bool
 

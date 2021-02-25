@@ -1,5 +1,5 @@
 ;; types
-Int  = /signed 32
+Int  = /Signed 32
 Bool = /bool
 
 ;; primitives

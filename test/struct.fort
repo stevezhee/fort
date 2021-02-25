@@ -1,7 +1,7 @@
 ;; types
 Char = /char
-Int = /signed 32
-Int64 = /signed 64
+Int = /Signed 32
+Int64 = /Signed 64
 
 MyStruct = /Record
   x: Int

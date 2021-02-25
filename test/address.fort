@@ -1,6 +1,6 @@
 ;; types
 
-Int = /signed 64
+Int = /Signed 64
 
 ;; primitives
 

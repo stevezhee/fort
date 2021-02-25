@@ -1,11 +1,11 @@
 ;; types
 ;; <type name> '=' <type>
 
-SInt8 = /signed 8 ;; 8 bit signed integer
+SInt8 = /Signed 8 ;; 8 bit signed integer
 ;; keywords start with a '/'
 
 UInt64 = /Unsigned 64
-Int = /signed 32
+Int = /Signed 32
 
 ;; TODO: floating point
 
