@@ -5,6 +5,8 @@ fort.cabal
 *.o
 *.dot
 *.png
+*.exe
+*.ssa
 *.s
 *.out
 *.gz

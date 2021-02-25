@@ -1,0 +1,190 @@
+Int = /signed 32
+UInt = /unsigned 32
+Double = /floating 64
+Bool = /bool
+Handle = /address (/unsigned 64)
+
+Body = /Record
+  x: Double
+  y: Double
+  z: Double
+  vx: Double
+  vy: Double
+  vz: Double
+  mass: Double
+
+Bodies = /address (/Array 5 Body)
+
+pi: Double = 3.141592653589793
+solar-mass: Double = (4 * pi) * pi
+days-per-year: Double = 365.24
+
+bodies = /array
+  /record ;; sun
+    x = 0
+    y = 0
+    z = 0
+    vx = 0
+    vy = 0
+    vz = 0
+    mass = solar-mass
+  /record ;; jupiter
+    x = 4.84143144246472090e+00
+    y = -1.16032004402742839e+00
+    z = -1.03622044471123109e-01
+    vx = 1.66007664274403694e-03 * days-per-year
+    vy = 7.69901118419740425e-03 * days-per-year
+    vz = -6.90460016972063023e-05 * days-per-year
+    mass = 9.54791938424326609e-04 * solar-mass
+  /record ;; saturn
+    x = 8.34336671824457987e+00
+    y = 4.12479856412430479e+00
+    z = -4.03523417114321381e-01
+    vx = -2.76742510726862411e-03 * days-per-year
+    vy = 4.99852801234917238e-03 * days-per-year
+    vz = 2.30417297573763929e-05 * days-per-year
+    mass = 2.85885980666130812e-04 * solar-mass
+  /record ;; uranus
+    x = 1.28943695621391310e+01
+    y = -1.51111514016986312e+01
+    z = -2.23307578892655734e-01
+    vx = 2.96460137564761618e-03 * days-per-year
+    vy = 2.37847173959480950e-03 * days-per-year
+    vz = -2.96589568540237556e-05 * days-per-year
+    mass = 4.36624404335156298e-05 * solar-mass
+  /record ;; neptune
+    x = 1.53796971148509165e+01
+    y = -2.59193146099879641e+01
+    z = 1.79258772950371181e-01
+    vx = 2.68067772490389322e-03 * days-per-year
+    vy = 1.62824170038242295e-03 * days-per-year
+    vz = -9.51592254519715870e-05 * days-per-year
+    mass = 5.15138902046611451e-05 * solar-mass
+
+index: (/address (/Array sz a), UInt) -> /address a
+# = index
+
+;; array-size: /address (/Array sz a) -> Int ;; BAL: should be array-count
+
+advance-n: (Bodies, Double, Int) -> () = \(bodies, adv, n) =>
+  ;; go(0)
+  ()
+;;   /where
+;;     go: Int -> () = \i => /if
+;;       i < n = /do
+;;         advance(bodies, adv)
+;;         go(i + 1)
+;;       _ = ()
+
+;; sqr: Double -> Double = \x => x * x
+
+energy: Bodies -> Double = \bodies => /do
+  42 
+;;   goI(0, 0)
+;;   /where
+;;     goI: (Int, Double) -> Double = \(i, e) => /if
+;;       i < array-size bodies = /do
+;;         /let body = bodies # i
+;;         /let e' = goJ(i + 1, e + (0.5 * (mass body * (sqr(vx body) * (sqr(vy body) * sqr(vz body))))))
+;;         goI(i + 1, e')
+;;         /where
+;;           goJ: (Int, Double) -> Double = \(j, e) = /if
+;;             j <- array-size bodies = /do
+;;               /let body2 = bodies # j
+;;               /let dx = x body - x body2
+;;               /let dy = y body - y body2
+;;               /let dz = z body - z body2
+;;               /let distance = sqrt(sqr(dx) + sqr(dy) + sqr(dz))
+;;               goJ(j + 1, e - ((mass body * mass body2) / distance)
+;;             _ = e
+;;       _ = e
+
+;; advance: (Bodies, Double) -> () = \(bodies, dt) => /do
+;;   goI(0)
+;;   /where
+;;     goI: Int -> () = \i => /if
+;;       i < array-size bodies = /do
+;;         /let body = bodies # i
+;;         goJ(i + 1)
+;;         goI(i + 1)
+;;           /where
+;;             goJ: Int -> () = \j => /if
+;;               j < array-size bodies = /do
+;;                 /let body2 = bodies # j
+;;                 /let dx = x body - x body2
+;;                 /let dy = y body - y body2
+;;                 /let dz = z body - z body2
+;;                 /let distanced = (sqr(dx) + sqr(dy)) + sqr(dz)
+;;                 /let distance = sqrt(distanced)
+;;                 /let mag = dt / (distanced * distance)
+;;                 /set body
+;;                   vx = vx body - ((dx * mass body2) * mag)
+;;                   vy = vy body - ((dy * mass body2) * mag)
+;;                   vz = vz body - ((dz * mass body2) * mag)
+;;                 /set body2
+;;                   vx = vx body2 + ((dx * mass body) * mag)
+;;                   vy = vy body2 + ((dy * mass body) * mag)
+;;                   vz = vz body2 + ((dz * mass body) * mag)
+;;                 goJ(j + 1)
+;;               _ = ()
+;;       _ = ()
+
+;; negate: Double -> Double = \x => 0 - x ;; until the fneg instr is supported in llvm haskell
+
+offset_momentum: Bodies -> () = \bodies => /do
+  ()
+;;   go(0, 0, 0, 0)
+;;   /where
+;;     go: (Int, Double, Double, Double) -> () = \(i, px, py, pz) => /if
+;;       i < array-size bodies = /do
+;;         /let body = bodies # i
+;;         /let m = mass body
+;;         goI(i + 1, px + (vx body * m), py + (vy body * m), pz + (vz body * m))
+;;       _ = /do
+;;         /set (bodies # 0)
+;;           vx = f px
+;;           vy = f py
+;;           vz = f pz
+;;     f: Double -> Double = \a -> negate (a / solar-mass)
+      
+store: (/address a, a) -> ()
+:= = store
+
+putc: (Int, Handle) -> () = /extern "putc"
+
+stdout: Handle = /extern "g_stdout"
+
+add: (a, a) -> a
++ = add
+
+subtract: (a, a) -> a
+- = subtract
+
+multiply: (a, a) -> a
+* = multiply
+
+divide: (a, a) -> a
+/ = divide
+
+remainder: (a, a) -> a
+% = remainder
+
+equals: (a, a) -> Bool
+== = equals
+
+less-than: (a, a) -> Bool
+< = less-than
+
+less-than-or-equals: (a, a) -> Bool
+<= = less-than-or-equals
+
+shift-left: (a, a) -> a
+<< = shift-left
+
+bitwise-and: (a, a) -> a
+& = bitwise-and
+
+bitwise-or: (a, a) -> a
+| = bitwise-or
+
+cast: a -> b
