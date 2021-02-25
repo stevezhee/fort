@@ -1,7 +1,7 @@
 ;; types
 Char = /Char
 Handle = /Address (/Unsigned 64)
-String = /string
+String = /String
 
 ;; primitives
 stdin: Handle = /extern "g_stdin"
