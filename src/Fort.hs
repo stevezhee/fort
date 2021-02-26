@@ -231,8 +231,10 @@ isTyEnum :: [(Con, Maybe Type)] -> Bool
 isTyEnum = all ((==) Nothing . snd)
 
 ppInstance :: Doc ann -> [Doc ann] -> [Doc ann] -> Doc ann
-ppInstance a bs cs = "instance" <+> a <+> hcat (map parens bs) <+> "where"
-    <> line <> indent 2 (vcat cs)
+ppInstance a bs cs = "instance" <+> a <+> hcat (map parens bs) <+> vcatIndent "where" (vcat cs)
+
+vcatIndent :: Doc ann -> Doc ann -> Doc ann
+vcatIndent a b = vcat [ a, indent 2 b ]
 
 ppTopDecl :: Decl -> Doc ann
 ppTopDecl x = case x of
@@ -368,10 +370,10 @@ stringifyName :: L String -> Doc ann
 stringifyName = pretty . show . canonicalizeName . show . ppToken
 
 ppWhere :: [Doc ann] -> Doc ann -> Doc ann
-ppWhere ys x = parens $ vcat [ "let", indent 2 (vcat ys), "in", x ]
+ppWhere ys x = parens $ vcat [ vcatIndent "let" (vcat ys), "in", x ]
 
 ppLetIn :: Doc ann -> Doc ann -> Doc ann -> Doc ann
-ppLetIn x y z = vcat [ "let", indent 2 (x <+> "=" <+> y <+> "in"), indent 4 z ]
+ppLetIn x y z = vcatIndent "let" (x <+> "=" <+> y <+> vcatIndent "in" z)
 
 ppExprDecl :: Bool -> ExprDecl -> Doc ann
 ppExprDecl isTopLevel (ED (VarP v t) e) = case e of
@@ -405,7 +407,7 @@ ppLetBindLam x y = ppLam v $ letBind v x (ppExpr y)
     v :: Var = "v" `useLoc` x -- BAL: create a fresh variable
 
 ppLam :: Var -> Doc ann -> Doc ann
-ppLam x y = parens ("\\" <> ppVar x <+> "->" <> line <> indent 2 y)
+ppLam x y = parens ("\\" <> ppVar x <+> vcatIndent "->" y)
 
 floatingSizes :: [Int]
 floatingSizes = [32, 64]
@@ -456,8 +458,7 @@ ppExpr x = case x of
         [] -> error "empty if expression"
         [ (Prim (Var (L _ "_")), b) ] -> ppExpr b
         [ (_, b) ] -> ppExpr b -- BAL: error "expected last element of if/case to be the default case"
-        ((a, b) : xs) -> parens ("T.if_" <+> ppExpr a <> line
-                                 <> indent 2
+        ((a, b) : xs) -> parens ("T.if_" <+> vcatIndent (ppExpr a)
                                            (vcat [ parens (ppExpr b)
                                                  , parens (ppExpr $ If xs)
                                                  ]))
