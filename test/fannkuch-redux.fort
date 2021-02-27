@@ -54,7 +54,7 @@ dec: /Address Int -> () = \p => p := (load p - 1)
 
 ;; array: (Int -> a) -> /Address (/Array sz a)
 
-unsafe-array: /Address (/Array sz a)
+alloca: /Address a
 
 ;; linear: Int -> Int = \i => i + 1 ;; BAL: inline
 ;; zeros: Int -> Int = \_ => 0 ;; BAL: inline
@@ -82,8 +82,8 @@ init-copy: (Perm, Perm) -> () = \(a, b) => go 0
       _ = ()
 
 permutations: Int -> Int = \n => /do
-  /let perm: Perm = unsafe-array
-  /let count: Perm = unsafe-array
+  /let perm: Perm = alloca
+  /let count: Perm = alloca
   init-linear perm
 
   computePerms (n, 0, 0, 0)
@@ -134,7 +134,7 @@ permutations: Int -> Int = \n => /do
                 _ = (perm # r) := perm0
 
 num-flips: Perm -> Int = \perm => /do
-  /let arr: Perm = unsafe-array
+  /let arr: Perm = alloca 
   init-copy (arr, perm)
   go 0
     /where

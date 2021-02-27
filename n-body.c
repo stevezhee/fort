@@ -22,7 +22,13 @@ struct planet {
   double mass;
 };
 
+struct planet foo =
+  {                               /* sun */
+    0, 0, 0, 0, 0, 0, solar_mass
+  };
+
 struct planet bodies[NBODIES] = {
+  foo,
   {                               /* sun */
     0, 0, 0, 0, 0, 0, solar_mass
   },

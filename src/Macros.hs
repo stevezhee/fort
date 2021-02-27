@@ -22,11 +22,14 @@ import           Utils
 
 data T a = T { tyT :: Type, unT :: E a }
 
-getField :: String -> Integer -> Type -> T a -> T b
-getField = extractValue
+setField :: String -> Integer -> T b -> T (Addr a) -> T ()
+setField s i b a = store (indexField s i (tyAddress $ tyT b) a) b
 
-setField :: String -> Integer -> T b -> T a -> T a
-setField s i b a = insertValue s i a b
+setFieldValue :: String -> Integer -> T b -> T a -> T a
+setFieldValue s i b a = insertFieldValue s i a b
+
+indexField :: String -> Integer -> Type -> T a -> T b
+indexField _s i t a = trace (show t) $ gep t (uint 32 i) a
 
 record :: Type -> [(String, T a -> T a)] -> T a
 record ta xs = case filter ((1 /=) . length) groups of
@@ -52,7 +55,7 @@ let_ a@(T ta _) f = T tb $ U.let_ [ "v" ] (unT a) (unT . f . T ta) ta -- BAL: fr
 
 injectTag :: String -> Integer -> Integer -> Integer -> T a
 injectTag s tagsz valsz i =
-    insertValue s
+    insertFieldValue s
                 0
                 (undef $ TyRecord [ ("tag", tyUnsigned tagsz)
                                   , ("val", tyUnsigned valsz)
@@ -60,13 +63,13 @@ injectTag s tagsz valsz i =
                 (uint tagsz i)
 
 inject :: String -> Integer -> Integer -> Integer -> T b -> T a
-inject tag tagsz valsz i x = insertValue ("inject." ++ tag)
+inject tag tagsz valsz i x = insertFieldValue ("inject." ++ tag)
                                          1
                                          (injectTag tag tagsz valsz i)
                                          (cast (tyUnsigned valsz) x)
 
-insertValue :: String -> Integer -> T a -> T b -> T a
-insertValue s i a@(T ta _) b = T ta $ U.app (U.insertValue s i (ta, tyT b) ta) $
+insertFieldValue :: String -> Integer -> T a -> T b -> T a
+insertFieldValue s i a@(T ta _) b = T ta $ U.app (U.insertFieldValue s i (ta, tyT b) ta) $
     U.tuple2 (unT a, unT b)
 
 uint :: Integer -> Integer -> T a
@@ -74,9 +77,6 @@ uint sz i = T (tyUnsigned sz) $ U.intE sz i
 
 undef :: Type -> T a
 undef ta = T ta (U.undef ta)
-
-extractValue :: String -> Integer -> Type -> T a -> T b
-extractValue s i tb a = T tb (U.app (U.extractValue s i (tyT a) tb) $ unT a)
 
 cast :: Type -> T a -> T b
 cast tb a = T tb (U.app (U.cast (tyT a) tb) $ unT a)
@@ -90,7 +90,10 @@ stdout :: T Handle
 stdout = T tyHandle U.stdout
 
 unsafeCon :: Type -> (T b -> T c) -> T a -> T c
-unsafeCon tb f x = f (cast tb (getField "val" 1 tyUInt64 x))
+unsafeCon tb f x = f (cast tb (extractFieldValue "val" 1 tyUInt64 x))
+
+extractFieldValue :: String -> Integer -> Type -> T a -> T b
+extractFieldValue s i tb a = T tb (U.app (U.extractFieldValue s i (tyT a) tb) $ unT a)
 
 hOutput :: Type -> (T (a, Handle) -> T ())
 hOutput ty = case ty of
@@ -122,7 +125,7 @@ hOutput ty = case ty of
         seqs_ [ prefixS h "; " $
                   seqs_ [ putS fld h
                         , putS " = " h
-                        , hOutput t $ tuple2 (getField fld i t x) h
+                        , hOutput t $ tuple2 (extractFieldValue fld i t x) h
                         ]
               | (i, (fld, t)) <- zip [ 0 :: Integer .. ] bs
               ]
@@ -141,6 +144,14 @@ hOutput ty = case ty of
         TyString -> ok $ \x h -> delim h "\"" "\"" $
             hPutString (unsafeCast tyString x) h
         TyAddr -> case ta of
+            TyRecord bs -> ok $ \x h -> delim h "{" "}" $
+                seqs_ [ prefixS h "; " $
+                          seqs_ [ putS fld h
+                                , putS " = " h
+                                , hOutput (tyAddress t) $ tuple2 (indexField fld i (tyAddress t) x) h
+                                ]
+                      | (i, (fld, t)) <- zip [ 0 :: Integer .. ] bs
+                      ]
             TyArray sz t1 -> ok $ \x h -> delim h "[" "]" $
                 let go = callLocal "go" tyUnit
                 in
@@ -174,6 +185,7 @@ hOutput ty = case ty of
     ok :: (T a -> T Handle -> T ()) -> T (a, Handle) -> T ()
     ok f = classFunc tyUnit "hOutput" [ "a", "h" ] $ \v ->
         let (a, h) = argTuple2 v in f a h
+
 upTo :: Type -> (T UInt32 -> T ()) -> (T UInt32 -> T ())
 upTo ty f = func tyUnit ("upTo." ++ hashName ty) [ "n" ] $ \n ->
     let go = callLocal "go" tyUnit
@@ -213,7 +225,7 @@ seq u a = T (tyT a) $ U.seq (unT u) (unT a)
 tuple2 :: T a -> T b -> T (a, b)
 tuple2 a b = T (tyTuple [ tyT a, tyT b ]) $ U.tuple2 (unT a, unT b)
 
-gep :: Type -> T UInt32 -> T a -> T b
+gep :: Type -> T UInt32 -> T a -> T b -- BAL: should be T (Addr a) and T (Addr b)?
 gep tb i a = T tb (U.app (U.gep (tyT a, tyUInt32) tb) $ unT $ tuple2 a i)
 
 hPutString :: T String_ -> T Handle -> T ()

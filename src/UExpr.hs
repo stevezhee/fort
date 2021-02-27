@@ -56,7 +56,7 @@ case_ ty (E x) f ys = E $ do
         let tgE = case ty of
                 TyVariant tags -> let tagTy = tyEnum $ map fst tags
                                   in
-                                      app (extractValue "tag" 0 ty tagTy) ea
+                                      app (extractFieldValue "tag" 0 ty tagTy) ea
                 _ -> ea
         let mkAlt :: (E a -> E b) -> M Expr
             mkAlt g = unE $ g ea
@@ -337,7 +337,7 @@ zext ta tb = instr (TyFun ta tb) "zext" $ \[ a ] -> I.zext a (toTyLLVM tb)
 undef :: Type -> E a
 undef = atomE . Undef
 
-alloca :: Type -> E (Addr (Array sz a))
+alloca :: Type -> E (Addr a)
 alloca t = case t of
   TyAddress ta _ _ ->
     instr t "alloca" $ \[] -> I.alloca (toTyLLVM ta) Nothing 0
@@ -350,13 +350,17 @@ unaryInstr :: String
            -> E (a -> b)
 unaryInstr s f ta tb = instr (TyFun ta tb) s $ \[ a ] -> f a
 
-extractValue :: String -> Integer -> Type -> Type -> E (a -> b)
-extractValue s i = unaryInstr ("extractValue." ++ show i ++ "." ++ s)
-                              (flip I.extractValue $ fromInteger i)
-
-insertValue :: String -> Integer -> (Type, Type) -> Type -> E ((a, b) -> a)
-insertValue s i = binaryInstr ("insertValue." ++ show i ++ "." ++ s)
+insertValue :: Integer -> (Type, Type) -> Type -> E ((a, b) -> a)
+insertValue i = binaryInstr ("insertValue." ++ show i)
                               (\a b -> I.insertValue a b (fromInteger i))
+
+insertFieldValue :: String -> Integer -> (Type, Type) -> Type -> E ((a, b) -> a)
+insertFieldValue s i = binaryInstr ("insertFieldValue." ++ show i ++ "." ++ s)
+                              (\a b -> I.insertValue a b (fromInteger i))
+
+extractFieldValue :: String -> Integer -> Type -> Type -> E (a -> b)
+extractFieldValue s i = unaryInstr ("extractFieldValue." ++ show i ++ "." ++ s)
+                              (flip I.extractValue $ fromInteger i)
 
 binaryInstr :: String
             -> (AST.Operand -> AST.Operand -> AST.Instruction)

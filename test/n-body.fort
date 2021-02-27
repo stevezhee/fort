@@ -88,8 +88,11 @@ advance-n: (Bodies, Double, Int) -> () = \(bodies, adv, n) =>
 
 ;; sqr: Double -> Double = \x => x * x
 
+load : /Address a -> a
+
 energy: Bodies -> Double = \bodies => /do
-  42 
+  load (mass (bodies # 0))
+  
 ;;   goI(0, 0)
 ;;   /where
 ;;     goI: (Int, Double) -> Double = \(i, e) => /if

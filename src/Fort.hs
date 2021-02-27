@@ -236,6 +236,9 @@ ppInstance a bs cs = "instance" <+> a <+> hcat (map parens bs) <+> vcatIndent "w
 vcatIndent :: Doc ann -> Doc ann -> Doc ann
 vcatIndent a b = vcat [ a, indent 2 b ]
 
+tyAddress :: Type -> Type
+tyAddress = TyApp TyAddress
+
 ppTopDecl :: Decl -> Doc ann
 ppTopDecl x = case x of
     TyDecl a (TyRecord bs) -> vcat $
@@ -249,11 +252,15 @@ ppTopDecl x = case x of
                                        | (n, t) <- bs
                                        ]
                      ]
-        ] ++ [ vcat [ ppAscription (ppVar v) (Just $ TyFun (TyCon a) t)
-                          <+> "= T.getField" <+> stringifyName v <+> pretty i
-                    , ppAscription ("set_" <> ppVar v)
+        ] ++ [ vcat [ ppAscription (ppVar v) (Just $ TyFun (tyAddress $ TyCon a) (tyAddress t))
+                          <+> "= T.indexField" <+> stringifyName v <+> pretty i -- BAL: rename to field_index or index_field
+                    , ppAscription ("setFieldValue_" <> ppVar v)
                                    (Just $ TyFun (tyTuple [ t, TyCon a ])
-                                                 (TyCon a)) <+> "= T.setField"
+                                                 (TyCon a)) <+> "= T.setFieldValue"
+                          <+> stringifyName v <+> pretty i
+                    , ppAscription ("set_" <> ppVar v)
+                                   (Just $ TyFun (tyTuple [ t, tyAddress $ TyCon a ])
+                                                 tyUnit) <+> "= T.setField"
                           <+> stringifyName v <+> pretty i
                     ]
              | ((v, t), i) <- zip bs [ 0 :: Int .. ]
@@ -483,7 +490,7 @@ ppRecordField :: ((Var, Maybe Type), Expr) -> Doc ann
 ppRecordField ((x, mt), e) =
     ppTuple [ stringifyName x
             , "T.opapp" <+> ppExpr (maybe id (flip Ascription) mt e)
-                  <+> "set_" <> ppVar x
+                  <+> "setFieldValue_" <> ppVar x
             ]
 
 ppProxy :: Type -> Doc ann

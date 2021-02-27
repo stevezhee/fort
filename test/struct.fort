@@ -14,6 +14,8 @@ MyStruct2 = /Record
 
 ;; primitives
 
+alloca: /Address a
+load: /Address a -> a
 store: (/Address a, a) -> ()
 := = store
 
@@ -21,9 +23,15 @@ output: a -> ()
 
 ;; code
 
-get-y: MyStruct -> Char = \mystr => y mystr
+get-y: /Address MyStruct -> Char = \mystr => load (y mystr)
 
-bar: MyStruct -> MyStruct = \mystr => set-x (24, set-y (#"a", mystr))
+;; set-x: (Int, /Address MyStruct) -> () = \(i, mystr) => store (x mystr) i
+
+bar: /Address MyStruct -> () = \mystr => () ;; /set mystr
+  ;; x = 24
+  ;; y = #"a"
+
+blah: /Address MyStruct2 -> () = \mystr2 => set-a(42, mystr2)
 
 qux: MyStruct = /record
   x = 42
@@ -35,10 +43,16 @@ qux2: MyStruct2 = /record
   b = 0xdeadbeef
 
 foo: () -> () = \_ => /do
-  output qux
-  output qux2
-  output (bar qux)
-  output (get-y (bar qux))
+  /let quxp = alloca
+  store (quxp, qux)
+  /let qux2p = alloca
+  store (qux2p, qux2)
+  output quxp
+  output qux2p
+  bar quxp
+  blah qux2p
+  output (load quxp)
+  output (get-y quxp)
 
 ;; BAL: proposed syntax
 ;; baz: MyStruct -> MyStruct = /set

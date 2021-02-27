@@ -59,17 +59,14 @@ enum (x, i) = value $ \ty -> U.atomE $ Enum (x, (ty, i))
 index :: (Size sz, Ty a) => E ((Addr (Array sz a), UInt32) -> Addr a)
 index = gep
 
-unsafe_array :: (Size sz, Ty a) => E (Addr (Array sz a))
-unsafe_array = value U.alloca
+alloca :: Ty a => E (Addr a)
+alloca = value U.alloca
 
 -- array_linear :: (Size sz, Ty a) => E (Addr (Array sz a))
 -- array_linear = value U.alloca
 
 -- array_zeros :: (Size sz, Ty a) => E (Addr (Array sz a))
 -- array_zeros = value U.alloca
-
-array :: (Size sz, Ty a) => sz -> [E a] -> E (Array sz a)
-array = undefined
 
 array_size :: (Size sz, Ty a) => E (Addr (Array sz a) -> UInt32)
 array_size = unop $ \t _ -> case t of
@@ -288,11 +285,16 @@ unTFun2 n (f :: Type -> T.T a -> T.T b -> T.T c) = func n [ "a", "b" ] $ \v ->
 
     tc = tyFort (Proxy :: Proxy c)
 
-getField :: (Ty a, Ty b) => String -> Integer -> E (a -> b)
-getField s i = unTFun ("getField." ++ s) (T.getField s i) -- BAL: doesn't have to be a function
+indexField :: (Ty a, Ty b) => String -> Integer -> E (Addr a -> Addr b)
+indexField s i = unTFun ("indexField." ++ s) (T.indexField s i) -- BAL: doesn't have to be a function
 
-setField :: (Ty a, Ty b) => String -> Integer -> E ((b, a) -> a)
+-- getField s i = unTFun ("getField." ++ s) (T.getField s i) -- BAL: doesn't have to be a function
+
+setField :: (Ty a, Ty b) => String -> Integer -> E ((b, Addr a) -> ())
 setField s i = unTFun2 ("setField." ++ s) (\_ -> T.setField s i) -- BAL: doesn't have to be a function
+
+setFieldValue :: (Ty a, Ty b) => String -> Integer -> E ((b, a) -> a)
+setFieldValue s i = unTFun2 ("setFieldValue." ++ s) (\_ -> T.setFieldValue s i) -- BAL: doesn't have to be a function
 
 inject :: (Ty a, Ty b) => String -> Integer -> Integer -> Integer -> E (b -> a)
 inject s valsz tagsz i =
@@ -300,6 +302,9 @@ inject s valsz tagsz i =
 
 record :: Ty a => [(String, E (a -> a))] -> E a
 record xs = value $ \ta -> T.unT (T.record ta (map (second mkTFun) xs))
+
+array :: (Size sz, Ty a) => sz -> [E a] -> E (Array sz a)
+array = undefined
 
 unsafeCon :: (Ty a, Ty b, Ty c) => (E b -> E c) -> E a -> E c
 unsafeCon (f :: E b -> E c) a = T.unT (T.unsafeCon (tyFort (Proxy :: Proxy b))
