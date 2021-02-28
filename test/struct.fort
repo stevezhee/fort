@@ -42,7 +42,7 @@ qux2: MyStruct2 = /record
   a = 11
   b = 0xdeadbeef
 
-foo: () -> () = \_ => /do
+main: () -> () = \_ => /do
   /let quxp = alloca
   store (quxp, qux)
   /let qux2p = alloca

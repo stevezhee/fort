@@ -24,32 +24,10 @@ extern void enum_foo();
 extern void enum_enum_foo(int);
 extern void floating_test(float, double);
 
-void h_put_uint64(uint64_t x, FILE *h)
-{
-  fprintf(h, "%llu", x);
-}
-
-void h_put_sint64(int64_t x, FILE *h)
-{
-  fprintf(h, "%lld", x);
-}
-
-void h_put_f64(double x, FILE *h)
-{
-  fprintf(h, "%f", x);
-}
-
-FILE* g_stdin;
-FILE* g_stdout;
-FILE* g_stderr;
-
 int main(int argc, char**argv)
 {
   int n = argc > 1 ? atoi(argv[1]) : 7;
 
-  g_stdin = stdin;
-  g_stdout = stdout;
-  g_stderr = stderr;
 
   printf("sizeof int %lu\n", sizeof(int));
   printf("sizeof FILE* %lu\n", sizeof(FILE*));

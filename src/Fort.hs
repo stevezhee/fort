@@ -83,12 +83,32 @@ reportErrors fn s toks rpt = case unconsumed rpt of
         hPutStrLn stderr $ "expected: " ++ show (expected rpt)
 
 declsToHsFile :: FilePath -> [Decl] -> IO ()
-declsToHsFile fn ast = do
+declsToHsFile fn ast0 = do
     -- putStrLn $ unwords $ map unLoc toks
     putStrFlush "Haskell->"
     let oFile = fn ++ ".hs"
+    let ast = rewriteMain ast0
     writeFile oFile $ show (ppDecls fn ast) ++ "\n"
     putStrLn oFile
+    where
+      rewriteMain [] = []
+      rewriteMain (x : xs) = case x of
+        ExprDecl (ED (VarP v mt) e) | unLoc v == "main" ->
+          [ ExprDecl (ED (VarP (L (locOf v) "_main") mt) e0)
+          , ExprDecl (ED (VarP mn mt) e)
+          , ExprDecl (ED (VarP icv $ Just $ TyFun tyUnit tyUnit) $ App Extern $ Prim (StringL icl))
+          ]
+          ++ xs
+          where
+            ic = "init_cenv"
+            icl = L (locOf v) $ show ic
+            icv = L (locOf v) ic
+            mn = L (locOf v) $ modNameOf fn ++ "_main"
+            e0 = Lam (VarP arg Nothing) $
+                   Sequence [ App (Prim $ Var icv) unit
+                            , App (Prim $ Var mn) $ Prim $ Var arg ]
+            arg = L (locOf v) "x"
+        _ -> x : rewriteMain xs
 
 ppDecls :: FilePath -> [Decl] -> Doc ann
 ppDecls fn xs = vcat $

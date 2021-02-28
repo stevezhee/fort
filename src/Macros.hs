@@ -29,7 +29,7 @@ setFieldValue :: String -> Integer -> T b -> T a -> T a
 setFieldValue s i b a = insertFieldValue s i a b
 
 indexField :: String -> Integer -> Type -> T a -> T b
-indexField _s i t a = trace (show t) $ gep t (uint 32 i) a
+indexField _s i t a = gep t (uint 32 i) a
 
 record :: Type -> [(String, T a -> T a)] -> T a
 record ta xs = case filter ((1 /=) . length) groups of

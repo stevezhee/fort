@@ -42,7 +42,7 @@ OUT_FILE=a.out
 	# dot .obf.dot -Tpng > t.png
 
 .PHONY: all
-all: n-body.fort.exe mandelbrot.fort.exe a.out.actual # mandelbrot.fort.pbm mandelbrot.c.pbm # diff
+all: test/struct.fort.ll # n-body.fort.exe mandelbrot.fort.exe a.out.actual # mandelbrot.fort.pbm mandelbrot.c.pbm # diff
 
 mandelbrot.%.pbm: mandelbrot.%.exe
 	./$< > $@
