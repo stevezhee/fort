@@ -53,17 +53,17 @@ bitwise_xor: (UInt32, UInt32) -> UInt32
 ;; │  │ ││││└─┐ │ ├─┤││││ └─┐
 ;; └─┘└─┘┘└┘└─┘ ┴ ┴ ┴┘└┘┴ └─┘
 
-periph_base: UInt32 = 1073741824 ;; 0x40000000
+periph_base: UInt32 = 0x40000000
 
-cmu_base: UInt32 = periph_base + 209715200 ;; 0xc8000
-cmu_gpio: UInt32 = _reg_bit(68, 8) ;; 0x44
+cmu_base: UInt32 = periph_base + 0xc8000 ;; BAL: make hex work with capitals?
+cmu_gpio: UInt32 = _reg_bit(0x44, 8)
 
-wdog_base: UInt32 = periph_base + 142606336 ;; 0x88000
+wdog_base: UInt32 = periph_base + 0x88000
 wdog_ctrl: UInt32 = wdog_base
 
-ppbi_base: UInt32 = 3758096384 ;; 0xE0000000U
-scs_base: UInt32 = ppbi_base + 57344 ;; 0xE000
-sys_tick_base: UInt32 = scs_base + 16 ;; 0x0010
+ppbi_base: UInt32 = 0xe0000000
+scs_base: UInt32 = ppbi_base + 0xe000
+sys_tick_base: UInt32 = scs_base + 0x0010
 
 stk_csr_clksource_lsb: UInt32 = 2
 stk_csr_clksource: UInt32 = 1 << stk_csr_clksource_lsb
@@ -73,10 +73,10 @@ stk_csr: UInt32 = sys_tick_base
 stk_csr_tickint: UInt32 = 1 << 1
 stk_csr_enable: UInt32 = 1 << 0
 
-stk_rvr: UInt32 = sys_tick_base + 4 ;; 0x04
-stk_rvr_reload: UInt32 = 16777215 ;; 0x00FFFFFF
+stk_rvr: UInt32 = sys_tick_base + 0x04
+stk_rvr_reload: UInt32 = 0x00ffffff
 
-gpio_base: UInt32 = periph_base + 1536 ;; 0x06000
+gpio_base: UInt32 = periph_base + 0x06000
 gpio_pa: UInt32 = gpio_base
 gpio_pb: UInt32 = gpio_base + 36
 gpio0: UInt32 = 1 << 0

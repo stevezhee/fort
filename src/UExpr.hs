@@ -488,11 +488,13 @@ cmpop :: String
       -> (Type, Type)
       -> Type
       -> E ((a, a) -> Bool_)
-cmpop s p q r tab@(ta, _) tc = case ta of
-    TyInteger _ Unsigned _ -> binaryInstr s (I.icmp p) tab tc
-    TyInteger _ Signed _ -> binaryInstr s (I.icmp q) tab tc
-    TyFloat _ -> binaryInstr s (I.fcmp r) tab tc
-    _ -> error $ "unable to compare values of type:" ++ show ta
+cmpop s p q r tab@(ta, tb) tc
+    | ta == tb = case ta of
+        TyInteger _ Unsigned _ -> binaryInstr s (I.icmp p) tab tc
+        TyInteger _ Signed _ -> binaryInstr s (I.icmp q) tab tc
+        TyFloat _ -> binaryInstr s (I.fcmp r) tab tc
+        _ -> error $ "unable to compare values of type:" ++ show ta
+    | otherwise = impossible $ "comparison arguments must be of the same type:" ++ show (ta, tb)
 
 eq :: (Type, Type) -> Type -> E ((a, a) -> Bool_)
 eq = cmpop "eq" AST.EQ AST.EQ AST.OEQ

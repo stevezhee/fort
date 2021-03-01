@@ -15,7 +15,7 @@ ALL_FORT_FILES=$(wildcard $(TEST_DIR)/*.fort)
 # EXCLUDE_FILES += $(TEST_DIR)/address.fort
 # EXCLUDE_FILES += $(TEST_DIR)/powi.fort
 # EXCLUDE_FILES += $(TEST_DIR)/array.fort
-# EXCLUDE_FILES += $(TEST_DIR)/char.fort
+EXCLUDE_FILES += $(TEST_DIR)/char.fort
 # EXCLUDE_FILES += $(TEST_DIR)/nestedif.fort
 # EXCLUDE_FILES += $(TEST_DIR)/struct.fort
 # EXCLUDE_FILES += $(TEST_DIR)/primitives.fort
@@ -23,14 +23,14 @@ ALL_FORT_FILES=$(wildcard $(TEST_DIR)/*.fort)
 # EXCLUDE_FILES += $(TEST_DIR)/todd.fort
 # EXCLUDE_FILES += $(TEST_DIR)/fannkuch-redux.fort
 # EXCLUDE_FILES += $(TEST_DIR)/floating.fort
-EXCLUDE_FILES += $(TEST_DIR)/mandelbrot.fort
-EXCLUDE_FILES += $(TEST_DIR)/n-body.fort
+# EXCLUDE_FILES += $(TEST_DIR)/mandelbrot.fort
+# EXCLUDE_FILES += $(TEST_DIR)/n-body.fort
 
 FORT_FILES=$(filter-out $(EXCLUDE_FILES), $(ALL_FORT_FILES))
 # FORT_FILES=$(TEST_DIR)/powi.fort
 # FORT_FILES=$(TEST_DIR)/address.fort
 # FORT_FILES=$(TEST_DIR)/fannkuch-redux.fort
-# FORT_FILES=$(TEST_DIR)/floating.fort
+FORT_FILES=$(TEST_DIR)/floating.fort
 
 GEN_HS_FILES=$(addsuffix .hs, $(FORT_FILES))
 LL_FILES=$(addsuffix .ll, $(FORT_FILES))
@@ -41,8 +41,12 @@ OUT_FILE=a.out
 	# $(OPT) -O0 --dot-cfg test/fannkuch-redux.fort.ll
 	# dot .obf.dot -Tpng > t.png
 
+NO_MAIN=$(TEST_DIR)/empty.fort $(TEST_DIR)/todd.fort
+
+EXES=$(addsuffix .exe, $(filter-out $(NO_MAIN), $(FORT_FILES)))
+
 .PHONY: all
-all: struct.fort.exe # n-body.fort.exe mandelbrot.fort.exe a.out.actual # mandelbrot.fort.pbm mandelbrot.c.pbm # diff
+all: $(O_FILES) $(EXES)
 
 mandelbrot.%.pbm: mandelbrot.%.exe
 	./$< > $@
@@ -71,7 +75,7 @@ a.out.actual: $(OUT_FILE)
 	stack runghc -- -Wall -isrc $<
 
 %.fort.s: %.fort.ll
-	$(OPT) -S $(OPTLVL) -o $< $<
+	#$(OPT) -S $(OPTLVL) -o $< $<
 	$(LLC) $<
 
 %.fort.o: %.fort.s

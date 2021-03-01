@@ -34,7 +34,7 @@ io-test: () -> () = \w => /do
   output (get-char w)
 
 hello-world: () -> () = \_ => /do
-  output (s)
+  output s
   output ("hi, again")
 
 fst: (Char, Char) -> Char = \(x,_) => x

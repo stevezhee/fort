@@ -93,7 +93,11 @@ subst tbl (AFunc nm0 vs e) = AFunc nm0 vs $ go e
     goAtom x = case x of
         Var a -> case HMS.lookup a tbl of
           Nothing -> x
-          Just x' -> goAtom x'
+          Just x' | tyA == tyB -> goAtom x'
+                  | otherwise -> error $ "types don't match in substitution:" ++ show (tyA, tyB)
+            where
+              tyA = tyAtom x
+              tyB = tyAtom x'
         _ -> x
 
 fromAExpr :: AExpr -> Expr

@@ -19,7 +19,7 @@ pi: Double = 3.141592653589793
 solar-mass: Double = (4 * pi) * pi
 days-per-year: Double = 365.24
 
-bodies = /array
+init-bodies = /array
   sun
   jupiter
   saturn
@@ -92,7 +92,27 @@ load : /Address a -> a
 
 energy: Bodies -> Double = \bodies => /do
   load (mass (bodies # 0))
+
+atoi: /String -> Int = /extern "atoi"
+alloca: /Address a
+output: a -> ()
+
+main: (Int, /Address (/Array 2 /String)) -> Int = \(argc, argv) => /do
+  /let n = 1000
+
+  ;; /let n = /if
+  ;;   argc > 1 = atoi(load (argv # 1)) ;; BAL: should be error if no default
+  ;;   _ = 1000
+
+  /let bodies = alloca
+  bodies := init-bodies
   
+  offset-momentum bodies
+  output (energy bodies)
+  advance-n (bodies, 0.01, n)
+
+  0
+
 ;;   goI(0, 0)
 ;;   /where
 ;;     goI: (Int, Double) -> Double = \(i, e) => /if

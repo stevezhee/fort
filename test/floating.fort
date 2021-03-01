@@ -35,7 +35,7 @@ sqrt: a -> a
 sin: a -> a
 
 main: () -> Int = \_ => /do
-  /let x: Float32 = 3.2
+  /let x: Float32 = 3.25 ;; bug in llvm-hs-pretty s.t. 3.2 causes an error
   /let y: Float64 = 2.3
   output x
   output (add (1, y))
@@ -62,10 +62,14 @@ main: () -> Int = \_ => /do
         output (multiply(x, x)) ;; fmul
         output (divide(x, x)) ;; fdiv
         output (remainder(y, y)) ;; frem
+        0
       _ = /do
         output "x == y"
+        0
     _ = /do
       output "x < y"
+      0
+  ;; BAL: broken
   ;; /if
   ;;   y <= cast x = /if
   ;;     y < cast x = /do
@@ -84,4 +88,4 @@ main: () -> Int = \_ => /do
   ;;     output "x != y"
   ;;   _ = /do
   ;;     output "x == y"
-  0
+  ;; 0

@@ -101,6 +101,8 @@ data Atom = Int Integer Integer
           | Label Name Nm -- Label (function name) (label name)
     deriving (Show, Eq)
 
+instance HasType Atom where typeOf = tyAtom
+
 afName :: AFunc -> Name
 afName = nName . afNm
 
@@ -295,6 +297,9 @@ data Var = V { vScope :: Scope, vTy :: Type, vName :: Name }
 instance Show Var where
   show x = vName x
 
+instance HasType Var where
+  typeOf = vTy
+  
 instance Pretty Visibility where
   pretty = pretty . show
 
@@ -310,6 +315,9 @@ instance Hashable Var where
 data Nm = Nm { nTy :: Type, nName :: Name }
 --    deriving Show
 
+instance HasType Nm where
+  typeOf = nTy
+  
 instance Ord Nm where
   x <= y = nName x <= nName y
 
@@ -378,8 +386,18 @@ freshName v = do
     i <- nextUnique
     pure $ v ++ "." ++ show i
 
-mkSubst :: (Show a, Show b, Eq a, Hashable a) => [a] -> [b] -> HMS.HashMap a b
-mkSubst xs ys = HMS.fromList $ safeZip "mkSubst" xs ys
+class HasType a where
+  typeOf :: a -> Type
+
+mkSubst :: (HasType a, HasType b, Show a, Show b, Eq a, Hashable a) => [a] -> [b] -> HMS.HashMap a b
+mkSubst xs ys = HMS.fromList $ map f $ safeZip "mkSubst" xs ys
+  where
+    f t@(a, b)
+      | tyA == tyB = t
+      | otherwise = impossible $ "type mismatch in substitution:" ++ show (tyA, tyB)
+      where
+        tyA = typeOf a
+        tyB = typeOf b
 
 nextUnique :: M Integer
 nextUnique = do
@@ -416,7 +434,6 @@ type UInt64 = Unsigned Size64
 
 type SInt64 = Signed Size64
 
-type F32 = Floating Size32
 type F64 = Floating Size64
 
 data Size32 = Size32

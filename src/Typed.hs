@@ -6,7 +6,7 @@
 
 {-# LANGUAGE TupleSections #-}
 
-module Typed ( module IRTypes, module Expr, codegen ) where
+module Typed ( module IRTypes, module Expr, codegen, Expr.print ) where
 
 import           ANF
 
@@ -19,7 +19,8 @@ import           Data.List
 import qualified Data.Text.Lazy.IO          as T
 import           Data.Text.Prettyprint.Doc  hiding ( group )
 
-import           Expr
+import           Expr hiding (print)
+import           qualified Expr
 
 import           IRTypes
 
