@@ -38,11 +38,14 @@ record ta xs = case filter ((1 /=) . length) groups of
             [] -> reduce (map snd xs) (undef ta)
             lbls -> impossible $ "missing labels:" ++ show lbls -- BAL: user error
         _ -> impossible "record"
-    bs -> impossible $ "multiply defined labels:" ++ show (map head bs) -- BAL: user error
+    bs -> impossible $ "multiply defined labels:" ++ show (map (safeHead "Macros.hs: record") bs) -- BAL: user error
   where
     labels = map fst xs
 
     groups = group $ sort labels
+
+array :: sz -> Type -> [T a] -> T (Array sz a)
+array _ ta xs = reduce [ setFieldValue "arr" i x | (i, x) <- zip [0 ..] xs ] $ undef ta
 
 reduce :: [T a -> T a] -> T a -> T a
 reduce [] a = a
@@ -95,6 +98,21 @@ unsafeCon tb f x = f (cast tb (extractFieldValue "val" 1 tyUInt64 x))
 extractFieldValue :: String -> Integer -> Type -> T a -> T b
 extractFieldValue s i tb a = T tb (U.app (U.extractFieldValue s i (tyT a) tb) $ unT a)
 
+hPrint :: Type -> (T (a, Handle) -> T ())
+hPrint ty = case ty of
+  TyInteger _ _ TyChar -> ok hPrintChar
+  TyAddress _ _ TyString -> ok hPrintString
+  _ -> hOutput ty
+
+print :: T a -> T ()
+print a = hPrint (tyT a) $ tuple2 a stdout
+
+hPrintChar :: T a -> T Handle -> T ()
+hPrintChar x h = hPutChar (unsafeCast tyChar x) h
+
+hPrintString :: T a -> T Handle -> T ()
+hPrintString x h = hPutString (unsafeCast tyString x) h
+
 hOutput :: Type -> (T (a, Handle) -> T ())
 hOutput ty = case ty of
     TyFloat sz -> case sz of
@@ -102,8 +120,7 @@ hOutput ty = case ty of
                   in hPutF64 (unsafeCast tyF64 x) h
       _ -> ok $ \x h -> hOutput tyF64 $ tuple2 (cast tyF64 x) h
     TyInteger sz isSigned intTy -> case intTy of
-        TyChar -> ok $ \x h -> delim h "#\"" "\"" $
-            hPutChar (unsafeCast tyChar x) h
+        TyChar -> ok $ \x h -> delim h "#\"" "\"" $ hPrintChar x h
         TyEnum ss -> ok $ \x h ->
             let c : cs = [ (s, \_ -> putS s h) | s <- ss ]
             in
@@ -141,8 +158,7 @@ hOutput ty = case ty of
         in
             case_ tyUnit x (snd c) cs
     TyAddress ta _ addrTy -> case addrTy of
-        TyString -> ok $ \x h -> delim h "\"" "\"" $
-            hPutString (unsafeCast tyString x) h
+        TyString -> ok $ \x h -> delim h "\"" "\"" $ hPrintString x h
         TyAddr -> case ta of
             TyRecord bs -> ok $ \x h -> delim h "{" "}" $
                 seqs_ [ prefixS h "; " $
@@ -182,8 +198,9 @@ hOutput ty = case ty of
     prefixS :: T Handle -> String -> T () -> T ()
     prefixS h s = seq (putS s h)
 
-    ok :: (T a -> T Handle -> T ()) -> T (a, Handle) -> T ()
-    ok f = classFunc tyUnit "hOutput" [ "a", "h" ] $ \v ->
+-- BAL: better name for this ...
+ok :: (T a -> T Handle -> T ()) -> T (a, Handle) -> T ()
+ok f = classFunc tyUnit "hOutput" [ "a", "h" ] $ \v ->
         let (a, h) = argTuple2 v in f a h
 
 upTo :: Type -> (T UInt32 -> T ()) -> (T UInt32 -> T ())

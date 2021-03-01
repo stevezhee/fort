@@ -51,7 +51,7 @@ callSubst tbl x = case x of
       nms' <- sequence [ freshNm t n | Nm t n <- nms ]
       let tbl1 = mkSubst nms nms' `HMS.union` tbl
       LetRecE <$> mapM (callSubstFunc tbl1) bs <*> callSubst tbl1 c
-    ns -> impossible $ "multiply defined functions:" ++ show (map head ns) -- BAL: user error
+    ns -> impossible $ "multiply defined functions:" ++ show (map (safeHead "Renamer.hs: callSubst") ns) -- BAL: user error
     where
       nms = [ nm | Func nm _ _ <- bs ]
       groups = group $ sort $ map nName nms

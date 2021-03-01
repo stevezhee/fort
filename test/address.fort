@@ -8,6 +8,7 @@ load: /Address a -> a ;; where a is a primitive type
 store: (/Address a, a) -> () ;; where a is a primitive type
 
 add: (a, a) -> a ;; where a is a number type
+alloca: /Address a
 
 ;; functions
 
@@ -17,6 +18,18 @@ inc: /Address Int -> () = \p => store (p, add (1, load p))
 + = add
 inc-op: /Address Int -> () = \p => store (p, load p + 1)
 
-inc2: /Address Int -> () = \p => /do
+inc-op2: /Address Int -> () = \p => /do
   inc p
   inc-op p
+
+output: a -> ()
+
+main: () -> () = \p => /do
+  /let p = alloca
+  store (p, 0) 
+  inc p
+  output p
+  inc-op p
+  output p
+  inc-op2 p
+  output p

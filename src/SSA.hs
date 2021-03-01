@@ -242,7 +242,7 @@ mkPatchTbls = go (mempty, mempty)
 
         indirects :: [(Var, [Nm])]
         indirects =
-          [ (retId k, [ nm | (Label _ nm, _) <- head xs ]) | (k, xs) <- phiArgs ]
+          [ (retId k, [ nm | (Label _ nm, _) <- safeHead "SSA.hs: mkPatchTbls" xs ]) | (k, xs) <- phiArgs, not (null xs) ]
 
     go tbls@(args, indirectArgs) (blk:blks) = case ssaTerm blk of
       BrS nm bs -> go (concatInsert (nm, [zip bs $ repeat $ ssaNm blk]) args, indirectArgs) blks
@@ -327,7 +327,9 @@ toSSAFuncPublic p obfFn (i, AFunc nm vs _) =
     loads = [ loadInstr r (Var l) | (r, l) <- zip rs lVs ]
 
 qualifyName :: FilePath -> String -> String
-qualifyName a b = modNameOf a ++ "_" ++ b
+qualifyName a b = case b of
+  "_main" -> b
+  _ -> modNameOf a ++ "_" ++ b
 
 callInstr :: [Var] -> Nm -> [Atom] -> Instr
 callInstr vs nm bs = Instr vs nm (\cs -> I.call (toOperand $ Var (nmToGlobalVar nm)) $ map (,[]) cs) bs

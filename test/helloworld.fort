@@ -1,2 +1,6 @@
-;; BAL: implement main
+Int = /Signed 32
+print: a -> ()
 
+main: () -> Int = \_ => /do
+  print "Hello, World!\n" ;; BAL: use print
+  0

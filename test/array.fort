@@ -32,4 +32,12 @@ foo-2dim-array: /Address (/Array 2 (/Array 3 Int)) -> () = \arr => /do
   store (index (index (arr, 1), 2), 5)
   output arr
 
+alloca: /Address a
+
+main: () -> () = \_ => /do
+  /let arr = alloca
+  /let arr2 = alloca
+  foo_array arr
+  foo_2dim_array arr2
+
 ;; BAL: do array constants also... as long as the code evaluates to a constant at compile time then it's a constant

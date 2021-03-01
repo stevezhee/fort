@@ -42,7 +42,7 @@ qux2: MyStruct2 = /record
   a = 11
   b = 0xdeadbeef
 
-main: () -> () = \_ => /do
+main: () -> Int = \_ => /do
   /let quxp = alloca
   store (quxp, qux)
   /let qux2p = alloca
@@ -53,7 +53,8 @@ main: () -> () = \_ => /do
   blah qux2p
   output (load quxp)
   output (get-y quxp)
-
+  0
+  
 ;; BAL: proposed syntax
 ;; baz: MyStruct -> MyStruct = /set
 ;;   x = 24

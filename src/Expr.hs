@@ -53,6 +53,12 @@ int i = value $ \ty -> case ty of
 float :: Ty a => Double -> E a
 float d = value $ \ty -> U.floatE (sizeFort ty) d
 
+false :: E Bool_
+false = int 0
+
+true :: E Bool_
+true = int 1
+
 enum :: Ty a => (String, Integer) -> E a
 enum (x, i) = value $ \ty -> U.atomE $ Enum (x, (ty, i))
 
@@ -244,6 +250,12 @@ undef = value U.undef
 mkTFun :: (Ty a, Ty b) => E (a -> b) -> (T.T a -> T.T b)
 mkTFun f a = value $ \tb -> T.T tb $ app f (T.unT a)
 
+print :: Ty a => E (a -> ())
+print = output
+
+hPrint :: Ty a => E ((a, Handle) -> ())
+hPrint = hOutput
+
 output :: Ty a => E (a -> ())
 output = f Proxy
   where
@@ -255,7 +267,7 @@ hOutput :: Ty a => E ((a, Handle) -> ())
 hOutput = f Proxy
   where
     f :: Ty a => Proxy a -> E ((a, Handle) -> ())
-    f proxy = unTFun ("hhOutput." ++ hashName ta) (\_ -> T.hOutput ta)
+    f proxy = unTFun ("hOutput." ++ hashName ta) (\_ -> T.hOutput ta)
       where
         ta = tyFort proxy
 
@@ -304,7 +316,7 @@ record :: Ty a => [(String, E (a -> a))] -> E a
 record xs = value $ \ta -> T.unT (T.record ta (map (second mkTFun) xs))
 
 array :: (Size sz, Ty a) => sz -> [E a] -> E (Array sz a)
-array = undefined
+array sz xs = value $ \ta -> T.unT (T.array sz ta $ map mkT xs)
 
 unsafeCon :: (Ty a, Ty b, Ty c) => (E b -> E c) -> E a -> E c
 unsafeCon (f :: E b -> E c) a = T.unT (T.unsafeCon (tyFort (Proxy :: Proxy b))

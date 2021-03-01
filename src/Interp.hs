@@ -407,7 +407,7 @@ loadFunction :: String -> M Result
 loadFunction n = do
   modify' $ \st -> st{ currentFunc = n }
   SSAFunc _ _ _ blks <- lookupFunction n
-  setCurrentLabel (nName $ ssaNm $ head blks) 0
+  setCurrentLabel (nName $ ssaNm $ safeHead "Interp: loadFunction" blks) 0
 
 getCurrentBlocks :: M (HMS.HashMap String SSABlock)
 getCurrentBlocks = do

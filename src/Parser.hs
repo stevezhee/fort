@@ -181,7 +181,7 @@ mkApp x y = case y of
         Nothing ->
             go (tail fs) (VarP v Nothing : vs) (Just (Prim (Var v)) : es) ms
           where
-            v = head fs
+            v = safeHead "Parser.hs: mkApp" fs
 
 freshVars :: [Var]
 freshVars =

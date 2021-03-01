@@ -95,3 +95,8 @@ commaSep = hcat . intersperse ", "
 commaSepV :: [Doc x] -> Doc x
 commaSepV [] = mempty
 commaSepV (x : ys) = vcat (x : [ ", " <> y | y <- ys ])
+
+safeHead :: String -> [a] -> a
+safeHead s xs = case xs of
+  x : _ -> x
+  _ -> impossible $ "safeHead:" ++ s

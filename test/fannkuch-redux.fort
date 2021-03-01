@@ -158,3 +158,40 @@ swap: (/Address Int, /Address Int) -> () = \(p, q) => /do
   p := load q
   q := temp
 
+test-perm: /Array 12 Int = /array ;; BAL: should be able to write on one line with {} and ;
+  4
+  2
+  1
+  5
+  3
+  0
+  0
+  0
+  0
+  0
+  0
+  0
+
+atoi: /String -> Int = /extern "atoi"
+
+main: (Int, /Address (/Array 2 /String)) -> Int = \(argc, argv) => /do
+  /if
+    argc > 1 = /do
+      output (permutations (atoi (load (argv # 1))))
+      0
+    _ = /do
+      /let linear: Perm = alloca
+      init-linear linear
+      output linear
+
+      /let rev: Perm = alloca
+      rev := test-perm
+      output rev
+      reverse-n (5, rev)
+      output rev
+
+      rev := test-perm
+      output (num-flips rev)
+
+      output (permutations 7)
+      0

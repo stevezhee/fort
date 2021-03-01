@@ -57,3 +57,10 @@ add315AtLoc: /Address Int -> () = \p => /do ;; /do sequences operations
   store (p, 0o71 + load p)
   store (p, 0b11 + load p)
 
+alloca: /Address a
+
+main: () -> Int = \_ => /do
+  /let p = alloca
+  store(p, 4)
+  add315AtLoc p
+  0

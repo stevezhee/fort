@@ -3,44 +3,46 @@ Float64 = /Floating 64
 Bool = /Bool
 Int = /Signed 32
 
-output : a -> ()
+output: a -> ()
 
-add : (a, a) -> a
-subtract : (a, a) -> a
-multiply : (a, a) -> a
-divide : (a, a) -> a
-remainder : (a, a) -> a
-;; negate : a -> a ;; BAL:
+add: (a, a) -> a
+subtract: (a, a) -> a
+multiply: (a, a) -> a
+divide: (a, a) -> a
+remainder: (a, a) -> a
+;; negate: a -> a ;; BAL:
 
-equals : (a, a) -> Bool
+equals: (a, a) -> Bool
 == = equals
-not-equals : (a, a) -> Bool
+not-equals: (a, a) -> Bool
 != = not-equals
 
-greater-than-or-equals : (a, a) -> Bool
+greater-than-or-equals: (a, a) -> Bool
 >= = greater-than-or-equals
 
-greater-than : (a, a) -> Bool
+greater-than: (a, a) -> Bool
 > = greater-than
 
-less-than-or-equals : (a, a) -> Bool
+less-than-or-equals: (a, a) -> Bool
 <= = less-than-or-equals
 
-less-than : (a, a) -> Bool
+less-than: (a, a) -> Bool
 < = less-than
 
-cast : a -> b
+cast: a -> b
 
-sqrt : a -> a
-sin : a -> a
+sqrt: a -> a
+sin: a -> a
 
-test : (Float32, Float64) -> () = \(x, y) => /do
+main: () -> Int = \_ => /do
+  /let x: Float32 = 3.2
+  /let y: Float64 = 2.3
   output x
   output (add (1, y))
-  output (1.3 : Float64)
-  output (1.25 : Float32) ;; bug in llvm-hs-pretty s.t. 1.3 causes an error
+  output (1.3: Float64)
+  output (1.25: Float32) ;; bug in llvm-hs-pretty s.t. 1.3 causes an error
   output "sin is"
-  output (sin (3.0 : Float64))
+  output (sin (3.0: Float64))
   output "sqrt is"
   /let rt = sqrt x
   output rt
@@ -82,3 +84,4 @@ test : (Float32, Float64) -> () = \(x, y) => /do
   ;;     output "x != y"
   ;;   _ = /do
   ;;     output "x == y"
+  0

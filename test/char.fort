@@ -2,6 +2,8 @@
 Char = /Char
 Handle = /Address (/Unsigned 64)
 String = /String
+Int = /Signed 32
+Bool = /Bool
 
 ;; primitives
 stdin: Handle = /extern "g_stdin"
@@ -12,6 +14,9 @@ h-get-char: Handle -> Char = /extern "fgetc"
 
 output: a -> ()
 
+greater-than: (a, a) -> Bool
+> = greater-than
+
 ;; constants
 
 a = #"a"
@@ -21,7 +26,7 @@ s: String = "hello, world"
 ;; functions
 
 foo: Char -> Char = \_ => fst (#"z",#"a")
-bar: Char -> Char = \_ => fst (a,b : Char)
+bar: Char -> Char = \_ => fst (a, b : Char)
 
 get-char: () -> Char = \() => h-get-char stdin
 
@@ -38,3 +43,12 @@ qux: Char -> Char = \_ => fst (c,d)
   /where
     c = #"c"
     d: Char = #"d"
+
+main: (Int, /Address /String) -> Int = \(argc, argv) => /do
+  hello-world ()
+  output (foo #"a")
+  output (qux #"a")
+  /if
+    argc > 1 = io-test ()
+    _ = ()
+  0

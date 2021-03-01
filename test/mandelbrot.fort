@@ -1,4 +1,5 @@
 Int = /Signed 32
+UInt = /Unsigned 32
 Double = /Floating 64
 Bool = /Bool
 Handle = /Address (/Unsigned 64)
@@ -25,6 +26,9 @@ remainder: (a, a) -> a
 equals: (a, a) -> Bool
 == = equals
 
+greater-than: (a, a) -> Bool
+> = greater-than
+
 less-than: (a, a) -> Bool
 < = less-than
 
@@ -40,12 +44,26 @@ bitwise-and: (a, a) -> a
 bitwise-or: (a, a) -> a
 | = bitwise-or
 
+index: (/Address (/Array sz a), UInt) -> /Address a
+# = index
+
 cast: a -> b
+
+load: /Address a -> a
+
+atoi: /String -> Int = /extern "atoi"
+
+print: a -> ()
 
 write-pbm: Int -> () = \w => /do
   /let h = w
   /let limit2 = 4
   /let iter = 50
+  print "P4\n"
+  print w
+  print " "
+  print w
+  print "\n"
   goY(0)
     /where
       goY: Int -> () = \y => /if
@@ -78,3 +96,12 @@ write-pbm: Int -> () = \w => /do
                   _ = ()
           goY(y + 1)
         _ = ()
+
+main: (Int, /Address (/Array 2 /String)) -> Int = \(argc, argv) => /do
+  /if
+    argc > 1 = /do
+      write-pbm (atoi (load (argv # 1)))
+      0
+    _ = /do
+      write-pbm 200
+      0

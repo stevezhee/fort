@@ -71,3 +71,8 @@ optional-case: Optional -> () = \x => /case x /of
 foo: () -> () = \_ => /do
   either-case (left #"a")
   optional-case (some #"z")
+  
+main: () -> Int = \a => /do
+  enum-foo red
+  foo a ;; BAL: foo () should work(?)
+  0

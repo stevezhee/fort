@@ -16,6 +16,7 @@ multiply: (a, a) -> a
 divide: (a, a) -> a
 
 cast: a -> b
+output: a -> ()
 
 ;; code
 is-odd: Int -> Bool = cast
@@ -32,3 +33,14 @@ powi: (Int, Int) -> Int = \(x,y) => go (1,x,y)
 squared: Int -> Int = powi (,2)
 cubed: Int -> Int = powi (,3)
 pow2: Int -> Int = powi (2,)
+
+main: () -> Int = \_ => /do
+  output (powi(128, 0))
+  output (powi(3, 2))
+  output (powi(2, 3))
+  output (powi(128, 1))
+  output (squared(3))
+  output (cubed(2))
+  output (pow2(8))
+  0
+

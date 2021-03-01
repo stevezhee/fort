@@ -1,51 +1,73 @@
 ;; types
 Char = /Char
 Bool = /Bool
+Int = /Signed 32
+
+true: Bool
+false: Bool
 
 ;; primitives
 == = equals
 equals: (a, a) -> Bool
 output: a -> ()
 
-nested-if-foo: (Bool, Char) -> Char = \(p, c) => /if
+main: () -> Int = \_ => /do
+  output (foo (true, #"a"))
+  output (foo (true, #"b"))
+  output (foo (true, #"x"))
+  output (foo (false, #"x"))
+  output (bar (true, #"a"))
+  output (bar (true, #"b"))
+  output (bar (true, #"x"))
+  output (bar (false, #"x"))
+  qux #"d"
+  qux #"a"
+  baz #"c"
+  baz #"a"
+  baz #"x"
+  baz #"z"
+  0
+
+foo: (Bool, Char) -> Char = \(p, c) => /if
   c == #"a" = #"b"
   c == #"b" = #"c"
   p = c
   _ = #"z"
 
-;; nested-if-bar: (Bool, Char) -> Char = \(p, c) => /if
-;;   c == #"a" = #"b"
-;;   _ = /if
-;;     c == #"b" = #"c"
-;;     _ = /if
-;;       p = c
-;;       _ = #"z"
+bar: (Bool, Char) -> Char = \(p, c) => /if
+  c == #"a" = #"b"
+  _ = /if
+    c == #"b" = #"c"
+    _ = /if
+      p = c
+      _ = #"z"
 
-;; BAL: works
-;; foo: Char -> () = \c => /do
-;;   /if
-;;     c == #"d" = output "one"
-;;     _ = output "two"
+qux: Char -> () = \c => /do
+  /if
+    c == #"d" = output "one"
+    _ = output "two"
 
-;; nested-if-seq: Char -> () = \c => /do
-;;     /if
-;;       c == #"c" = output #"1"
-;;       _         = /if
-;;         c == #"a" = output #"2"
-;;         _         = output #"3"
-;;     /if
-;;       c == #"a" = output "four"
-;;       _         = /if
-;;         c == #"c" = output "five"
-;;         _         = output "six"
-;;     /let a = where-seq c
-;;     /let b = where-seq a
-;;     /let c = where-seq b
-;;     output "done"
-;;     /where
-;;       where-seq: Char -> Char = \c => /if
-;;         c == #"z" = where_seq c
-;;         _         = /do
-;;           output #"z"
-;;           c
+;; BAL: broken
+baz: Char -> () = \c => /do
+    /if
+      c == #"c" = output #"1"
+      _         = /if
+        c == #"a" = output #"2"
+        _         = output #"3"
+    ;; BAL: doesn't output anything after this
+    /if
+      c == #"a" = output "four"
+      _         = /if
+        c == #"c" = output "five"
+        _         = output "six"
+    /let a = where-baz c
+    /let b = where-baz a
+    /let c = where-baz b
+    output "done"
+    /where
+      where-baz: Char -> Char = \c => /if
+        c == #"z" = where-baz c
+        _         = /do
+          output #"z"
+          c
 

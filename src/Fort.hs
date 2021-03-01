@@ -84,7 +84,6 @@ reportErrors fn s toks rpt = case unconsumed rpt of
 
 declsToHsFile :: FilePath -> [Decl] -> IO ()
 declsToHsFile fn ast0 = do
-    -- putStrLn $ unwords $ map unLoc toks
     putStrFlush "Haskell->"
     let oFile = fn ++ ".hs"
     let ast = rewriteMain ast0
@@ -94,21 +93,33 @@ declsToHsFile fn ast0 = do
       rewriteMain [] = []
       rewriteMain (x : xs) = case x of
         ExprDecl (ED (VarP v mt) e) | unLoc v == "main" ->
-          [ ExprDecl (ED (VarP (L (locOf v) "_main") mt) e0)
-          , ExprDecl (ED (VarP mn mt) e)
-          , ExprDecl (ED (VarP icv $ Just $ TyFun tyUnit tyUnit) $ App Extern $ Prim (StringL icl))
-          ]
-          ++ xs
+          ExprDecl (ED (VarP (f "_main") mt) e) : xs
+          -- ExprDecl (ED (VarP (L (locOf v) "_main") mt) e0) : xs
+          -- , ExprDecl (ED (VarP mn mt) e)
+          -- , ExprDecl (ED (VarP icv $ Just $ TyFun tyUnit tyUnit) $ App Extern $ Prim (StringL icl))
+          -- ] ++ xs
           where
-            ic = "init_cenv"
-            icl = L (locOf v) $ show ic
-            icv = L (locOf v) ic
-            mn = L (locOf v) $ modNameOf fn ++ "_main"
-            e0 = Lam (VarP arg Nothing) $
-                   Sequence [ App (Prim $ Var icv) unit
-                            , App (Prim $ Var mn) $ Prim $ Var arg ]
-            arg = L (locOf v) "x"
+            f = L (locOf v)
+            -- ic = "init_cenv"
+            -- icl = f $ show ic
+            -- icv = f ic
+            -- mn = f $ modNameOf fn ++ "_main"
+            -- e0 = Lam (TupleP params Nothing) $
+            --        Sequence [ App (Prim $ Var icv) unit
+            --                 , App (Prim $ Var mn) $ Tuple $ map Just args ]
+            -- vs = [ f $ "v" ++ show i | i <- take (arity t) [ 0 :: Int .. ] ]
+            -- t = fromMaybe (TyFun tyUnit tyUnit) mt
+            -- params :: [Pat] = map (flip VarP Nothing) vs
+            -- args :: [Expr] = map (Prim . Var) vs
         _ -> x : rewriteMain xs
+
+-- arity :: Type -> Int
+-- arity x = case x of
+--   TyFun a _ -> case a of
+--     TyTuple [] -> 1
+--     TyTuple bs -> length bs
+--     _ -> 1
+--   _ -> 0
 
 ppDecls :: FilePath -> [Decl] -> Doc ann
 ppDecls fn xs = vcat $
@@ -408,7 +419,8 @@ ppExprDecl isTopLevel (ED (VarP v t) e) = case e of
         | isTopLevel -> lhs <+> "=" <+> "T.func" <+> rhs
         | otherwise -> lhs <+> "=" <+> "T.callLocal" <+> stringifyName v
       where
-        rhs = stringifyName v <+> stringifyPat a <+> ppLetBindLam a b
+        rhs = n <+> stringifyPat a <+> ppLetBindLam a b
+        n = stringifyName v
 
     _ -> lhs <+> "=" <+> ppExpr e
   where

@@ -42,7 +42,7 @@ OUT_FILE=a.out
 	# dot .obf.dot -Tpng > t.png
 
 .PHONY: all
-all: test/struct.fort.ll # n-body.fort.exe mandelbrot.fort.exe a.out.actual # mandelbrot.fort.pbm mandelbrot.c.pbm # diff
+all: struct.fort.exe # n-body.fort.exe mandelbrot.fort.exe a.out.actual # mandelbrot.fort.pbm mandelbrot.c.pbm # diff
 
 mandelbrot.%.pbm: mandelbrot.%.exe
 	./$< > $@
@@ -50,7 +50,7 @@ mandelbrot.%.pbm: mandelbrot.%.exe
 %.c.exe: %.c
 	clang $(OPTLVL) -o $@ $<
 
-%.fort.exe: %.main.c $(TEST_DIR)/%.fort.o
+%.fort.exe: main.c $(TEST_DIR)/%.fort.o
 	clang $(OPTLVL) -lc $^ -o $@
 
 .PHONY: diff
@@ -94,4 +94,6 @@ clean:
 	rm -f test/*.o
 	rm -f test/*.fort.hs
 	rm -f *.exe
+	rm -f test/*.exe
 	rm -f *.pbm
+	rm -f test/*.pbm
