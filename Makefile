@@ -50,7 +50,7 @@ mandelbrot.%.pbm: mandelbrot.%.exe
 %.c.exe: %.c
 	clang $(OPTLVL) -o $@ $<
 
-%.fort.exe: main.c $(TEST_DIR)/%.fort.o
+$(TEST_DIR)/%.fort.exe: main.c $(TEST_DIR)/%.fort.o
 	clang $(OPTLVL) -lc $^ -o $@
 
 .PHONY: diff
@@ -97,3 +97,5 @@ clean:
 	rm -f test/*.exe
 	rm -f *.pbm
 	rm -f test/*.pbm
+	rm -f test/*.ssa
+	rm -f test/*.dot
