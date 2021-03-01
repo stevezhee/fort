@@ -100,3 +100,6 @@ safeHead :: String -> [a] -> a
 safeHead s xs = case xs of
   x : _ -> x
   _ -> impossible $ "safeHead:" ++ s
+
+vcatIndent :: Doc ann -> Doc ann -> Doc ann
+vcatIndent a b = vcat [ a, indent 2 b ]

@@ -65,8 +65,8 @@ enum (x, i) = value $ \ty -> U.atomE $ Enum (x, (ty, i))
 index :: (Size sz, Ty a) => E ((Addr (Array sz a), UInt32) -> Addr a)
 index = gep
 
-alloca :: Ty a => E (Addr a)
-alloca = value U.alloca
+alloca :: Ty a => E (() -> Addr a)
+alloca = value $ \(TyFun (TyTuple []) ta) -> func "alloca" ["_"] $ \_ -> U.alloca ta
 
 -- array_linear :: (Size sz, Ty a) => E (Addr (Array sz a))
 -- array_linear = value U.alloca

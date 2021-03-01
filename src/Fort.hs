@@ -15,7 +15,7 @@ import           Lexer
 
 import           Parser
 
-import           SyntaxTypes
+import           SyntaxTypes hiding (ppAscription)
 
 import           System.Exit
 import           System.IO
@@ -87,6 +87,8 @@ declsToHsFile fn ast0 = do
     putStrFlush "Haskell->"
     let oFile = fn ++ ".hs"
     let ast = rewriteMain ast0
+    putStrLn ""
+    mapM_ (print . pretty) ast
     writeFile oFile $ show (ppDecls fn ast) ++ "\n"
     putStrLn oFile
     where
@@ -94,32 +96,9 @@ declsToHsFile fn ast0 = do
       rewriteMain (x : xs) = case x of
         ExprDecl (ED (VarP v mt) e) | unLoc v == "main" ->
           ExprDecl (ED (VarP (f "_main") mt) e) : xs
-          -- ExprDecl (ED (VarP (L (locOf v) "_main") mt) e0) : xs
-          -- , ExprDecl (ED (VarP mn mt) e)
-          -- , ExprDecl (ED (VarP icv $ Just $ TyFun tyUnit tyUnit) $ App Extern $ Prim (StringL icl))
-          -- ] ++ xs
           where
             f = L (locOf v)
-            -- ic = "init_cenv"
-            -- icl = f $ show ic
-            -- icv = f ic
-            -- mn = f $ modNameOf fn ++ "_main"
-            -- e0 = Lam (TupleP params Nothing) $
-            --        Sequence [ App (Prim $ Var icv) unit
-            --                 , App (Prim $ Var mn) $ Tuple $ map Just args ]
-            -- vs = [ f $ "v" ++ show i | i <- take (arity t) [ 0 :: Int .. ] ]
-            -- t = fromMaybe (TyFun tyUnit tyUnit) mt
-            -- params :: [Pat] = map (flip VarP Nothing) vs
-            -- args :: [Expr] = map (Prim . Var) vs
         _ -> x : rewriteMain xs
-
--- arity :: Type -> Int
--- arity x = case x of
---   TyFun a _ -> case a of
---     TyTuple [] -> 1
---     TyTuple bs -> length bs
---     _ -> 1
---   _ -> 0
 
 ppDecls :: FilePath -> [Decl] -> Doc ann
 ppDecls fn xs = vcat $
@@ -263,9 +242,6 @@ isTyEnum = all ((==) Nothing . snd)
 
 ppInstance :: Doc ann -> [Doc ann] -> [Doc ann] -> Doc ann
 ppInstance a bs cs = "instance" <+> a <+> hcat (map parens bs) <+> vcatIndent "where" (vcat cs)
-
-vcatIndent :: Doc ann -> Doc ann -> Doc ann
-vcatIndent a b = vcat [ a, indent 2 b ]
 
 tyAddress :: Type -> Type
 tyAddress = TyApp TyAddress
@@ -485,7 +461,7 @@ ppExpr x = case x of
     App a b
         | isOpExpr b -> parens (parens ("T.opapp" <+> ppExpr a) <+> ppExpr b)
         | otherwise -> parens (parens ("T.app" <+> ppExpr a) <+> ppExpr b)
-    Tuple [] -> "T.unit"
+    Tuple [] -> trace "unit" "T.unit"
     Tuple [ Nothing ] -> ppExpr $ Tuple []
     Tuple [ Just e ] -> ppExpr e
     Tuple bs -> parens ("T.tuple" <> pretty (length bs)

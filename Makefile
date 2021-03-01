@@ -30,7 +30,7 @@ FORT_FILES=$(filter-out $(EXCLUDE_FILES), $(ALL_FORT_FILES))
 # FORT_FILES=$(TEST_DIR)/powi.fort
 # FORT_FILES=$(TEST_DIR)/address.fort
 # FORT_FILES=$(TEST_DIR)/fannkuch-redux.fort
-FORT_FILES=$(TEST_DIR)/floating.fort
+# FORT_FILES=$(TEST_DIR)/floating.fort
 
 GEN_HS_FILES=$(addsuffix .hs, $(FORT_FILES))
 LL_FILES=$(addsuffix .ll, $(FORT_FILES))
@@ -75,7 +75,7 @@ a.out.actual: $(OUT_FILE)
 	stack runghc -- -Wall -isrc $<
 
 %.fort.s: %.fort.ll
-	#$(OPT) -S $(OPTLVL) -o $< $<
+	$(OPT) -S $(OPTLVL) -o $< $<
 	$(LLC) $<
 
 %.fort.o: %.fort.s

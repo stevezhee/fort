@@ -341,7 +341,7 @@ alloca :: Type -> E (Addr a)
 alloca t = case t of
   TyAddress ta _ _ ->
     instr t "alloca" $ \[] -> I.alloca (toTyLLVM ta) Nothing 0
-  _ -> impossible "unexpected alloca type"
+  _ -> impossible $ "unexpected alloca type:" ++ show t
 
 unaryInstr :: String
            -> (AST.Operand -> AST.Instruction)

@@ -36,7 +36,7 @@ import Renamer
 import Interp
 
 verbose :: Bool
-verbose = False
+verbose = True
 
 debugger :: Bool
 debugger = False

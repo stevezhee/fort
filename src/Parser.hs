@@ -165,9 +165,10 @@ grammar = mdo
 
 mkApp :: Expr -> Expr -> Expr
 mkApp x y = case y of
-    Tuple bs
-        | Just (ps, ts) <- go freshVars [] [] bs -> Lam (TupleP ps Nothing) $
-            App x (Tuple ts)
+    Tuple [me] -> case me of
+      Nothing -> mkApp x $ Tuple []
+      Just e -> mkApp x e
+    Tuple bs | Just (ps, ts) <- go freshVars [] [] bs -> Lam (TupleP ps Nothing) $ App x (Tuple ts)
     _ -> App x y
   where
     go :: [Var]
@@ -176,12 +177,12 @@ mkApp x y = case y of
        -> [Maybe Expr]
        -> Maybe ([Pat], [Maybe Expr])
     go _ vs es [] = if null vs then Nothing else Just (reverse vs, reverse es)
-    go fs vs es (m : ms) = case m of
-        Just{} -> go fs vs (m : es) ms
+    go fresh vs es (m : ms) = case m of
+        Just{} -> go fresh vs (m : es) ms
         Nothing ->
-            go (tail fs) (VarP v Nothing : vs) (Just (Prim (Var v)) : es) ms
+            go (tail fresh) (VarP v Nothing : vs) (Just (Prim (Var v)) : es) ms
           where
-            v = safeHead "Parser.hs: mkApp" fs
+            v = safeHead "Parser.hs: mkApp" fresh
 
 freshVars :: [Var]
 freshVars =

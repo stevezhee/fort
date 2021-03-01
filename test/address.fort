@@ -1,6 +1,6 @@
 ;; types
 
-Int = /Signed 64
+Int = /Signed 32
 
 ;; primitives
 
@@ -8,7 +8,7 @@ load: /Address a -> a ;; where a is a primitive type
 store: (/Address a, a) -> () ;; where a is a primitive type
 
 add: (a, a) -> a ;; where a is a number type
-alloca: /Address a
+alloca: () -> /Address a
 
 ;; functions
 
@@ -24,12 +24,13 @@ inc-op2: /Address Int -> () = \p => /do
 
 output: a -> ()
 
-main: () -> () = \p => /do
-  /let p = alloca
-  store (p, 0) 
+main: () -> Int = \u => /do
+  /let p: /Address Int = alloca ()
+  ;; store (p, 0) 
   inc p
-  output p
-  inc-op p
-  output p
-  inc-op2 p
-  output p
+  ;; output p
+  ;; inc-op p
+  ;; output p
+  ;; inc-op2 p
+  ;; output p
+  0
