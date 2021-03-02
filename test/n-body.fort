@@ -86,51 +86,55 @@ advance-n: (Bodies, Double, Int) -> () = \(bodies, adv, n) =>
 ;;         go(i + 1)
 ;;       _ = ()
 
-;; sqr: Double -> Double = \x => x * x
+sqr: Double -> Double = \x => x * x
 
 load : /Address a -> a
-
-energy: Bodies -> Double = \bodies => /do
-  load (mass (bodies # 0))
 
 atoi: /String -> Int = /extern "atoi"
 alloca: () -> /Address a
 output: a -> ()
 
 main: (Int, /Address (/Array 2 /String)) -> Int = \(argc, argv) => /do
-  /let n = 1000
-
-  ;; /let n = /if
-  ;;   argc > 1 = atoi(load (argv # 1)) ;; BAL: should be error if no default
-  ;;   _ = 1000
+  /let n = /if
+    argc > 1 = atoi(load (argv # 1)) ;; BAL: should be error if no default on the if
+    _ = 1000
 
   /let bodies = alloca ()
   bodies := init-bodies
   
+  output (energy bodies)
   offset-momentum bodies
   output (energy bodies)
   advance-n (bodies, 0.01, n)
+  output (energy bodies)
 
   0
 
-;;   goI(0, 0)
-;;   /where
-;;     goI: (Int, Double) -> Double = \(i, e) => /if
-;;       i < array-size bodies = /do
-;;         /let body = bodies # i
-;;         /let e' = goJ(i + 1, e + (0.5 * (mass body * (sqr(vx body) * (sqr(vy body) * sqr(vz body))))))
-;;         goI(i + 1, e')
-;;         /where
-;;           goJ: (Int, Double) -> Double = \(j, e) = /if
-;;             j <- array-size bodies = /do
-;;               /let body2 = bodies # j
-;;               /let dx = x body - x body2
-;;               /let dy = y body - y body2
-;;               /let dz = z body - z body2
-;;               /let distance = sqrt(sqr(dx) + sqr(dy) + sqr(dz))
-;;               goJ(j + 1, e - ((mass body * mass body2) / distance)
-;;             _ = e
-;;       _ = e
+sqrt: a -> a
+
+energy: Bodies -> Double = \bodies => /do
+  output "energy"
+  goI (0, 0)
+  /where
+    goI: (UInt, Double) -> Double = \(i, e) => /if
+      i < array-size bodies = /do
+        output e
+        /let body = bodies # i
+        /let temp1 = 0.5 * (load (mass body))
+        /let temp2 = (sqr (load (vx body)) + sqr (load (vy body))) + sqr (load (vz body))
+        /let e' = goJ(i + 1, e + (temp1 * temp2), body)
+        goI (i + 1, e')
+        /where
+          goJ: (UInt, Double, /Address Body) -> Double = \(j, e, body) => /if
+            j < array-size bodies = /do
+              /let body2 = bodies # j
+              /let dx = load (x body) - load (x body2)
+              /let dy = load (y body) - load (y body2)
+              /let dz = load (z body) - load (z body2)
+              /let distance = sqrt((sqr dx + sqr dy) + sqr dz)
+              goJ(j + 1, e - ((load (mass body) * load (mass body2)) / distance), body)
+            _ = e
+      _ = e
 
 ;; advance: (Bodies, Double) -> () = \(bodies, dt) => /do
 ;;   goI(0)
@@ -147,7 +151,7 @@ main: (Int, /Address (/Array 2 /String)) -> Int = \(argc, argv) => /do
 ;;                 /let dx = x body - x body2
 ;;                 /let dy = y body - y body2
 ;;                 /let dz = z body - z body2
-;;                 /let distanced = (sqr(dx) + sqr(dy)) + sqr(dz)
+;;                 /let distanced = (sqr dx + sqr dy) + sqr dz
 ;;                 /let distance = sqrt(distanced)
 ;;                 /let mag = dt / (distanced * distance)
 ;;                 /set body
@@ -162,23 +166,24 @@ main: (Int, /Address (/Array 2 /String)) -> Int = \(argc, argv) => /do
 ;;               _ = ()
 ;;       _ = ()
 
-;; negate: Double -> Double = \x => 0 - x ;; until the fneg instr is supported in llvm haskell
+array-size: /Address (/Array sz a) -> UInt
+
+negate: Double -> Double = \x => 0 - x ;; until the fneg instr is supported in llvm haskell
 
 offset_momentum: Bodies -> () = \bodies => /do
-  ()
-;;   go(0, 0, 0, 0)
-;;   /where
-;;     go: (Int, Double, Double, Double) -> () = \(i, px, py, pz) => /if
-;;       i < array-size bodies = /do
-;;         /let body = bodies # i
-;;         /let m = mass body
-;;         goI(i + 1, px + (vx body * m), py + (vy body * m), pz + (vz body * m))
-;;       _ = /do
-;;         /set (bodies # 0)
-;;           vx = f px
-;;           vy = f py
-;;           vz = f pz
-;;     f: Double -> Double = \a -> negate (a / solar-mass)
+  go(0, 0, 0, 0)
+  /where
+    go: (UInt, Double, Double, Double) -> () = \(i, px, py, pz) => /if
+      i < array-size bodies = /do
+        /let body = bodies # i
+        /let m = load (mass body)
+        go(i + 1, px + (load (vx body) * m), py + (load (vy body) * m), pz + (load (vz body) * m))
+      _ = /do
+        /let body0 = bodies # 0
+        (vx body0) := (f px)
+        (vy body0) := (f py)
+        (vz body0) := (f pz)
+    f: Double -> Double = \a => negate (a / solar-mass)
       
 store: (/Address a, a) -> ()
 := = store
@@ -204,6 +209,9 @@ remainder: (a, a) -> a
 
 equals: (a, a) -> Bool
 == = equals
+
+greater-than: (a, a) -> Bool
+> = greater-than
 
 less-than: (a, a) -> Bool
 < = less-than

@@ -98,11 +98,37 @@ double energy(struct planet * bodies)
 {
   double e;
   int i, j;
+  /* ./n-body.exe */
+  /*     0.000000 */
+  /*     -0.352753 */
+  /*     -0.196859 */
+  /*     -0.172286 */
+  /*     -0.170626 */
+  /*     -0.169289903 */
+  /*     0.000000 */
+  /*     -0.352538 */
+  /*     -0.196644 */
+  /*     -0.172071 */
+  /*     -0.170411 */
+  /*     -0.169075164 */
+  /*     0.000000 */
+  /*     -0.339529 */
+  /*     -0.196424 */
+  /*     -0.172056 */
+  /*     -0.170434 */
+  /*     -0.169087605 */
 
   e = 0.0;
+  printf("energy\n");
   for (i = 0; i < NBODIES; i++) {
+    printf("%f\n", e);
     struct planet * b = &(bodies[i]);
-    e += 0.5 * b->mass * (b->vx * b->vx + b->vy * b->vy + b->vz * b->vz);
+    double temp1 = 0.5 * b->mass;
+    double temp2 = (b -> vx * b -> vx);
+    double temp3 = temp2 + (b -> vy * b -> vy);
+    double temp4 = temp3 + (b -> vz * b -> vz);
+    e += temp1 * temp4;
+    //    e += 0.5 * b->mass * (b->vx * b->vx + b->vy * b->vy + b->vz * b->vz);
     for (j = i + 1; j < NBODIES; j++) {
       struct planet * b2 = &(bodies[j]);
       double dx = b->x - b2->x;
@@ -138,6 +164,14 @@ void advance_n(struct planet bodies[], double adv, int n)
 int main(int argc, char ** argv)
 {
   int n = argc > 1 ? atoi(argv[1]) : 1000;
+
+  // BAL: remove
+  /* ./n-body.exe */
+  /*     -0.169289903 */
+  /*     -0.169075164 */
+  /*     -0.169087605 */
+
+  printf ("%.9f\n", energy(bodies)); // BAL: remove
 
   offset_momentum(bodies);
   printf ("%.9f\n", energy(bodies));

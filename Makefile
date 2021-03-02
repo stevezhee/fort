@@ -34,6 +34,7 @@ FORT_FILES=$(filter-out $(EXCLUDE_FILES), $(ALL_FORT_FILES))
 # FORT_FILES=$(TEST_DIR)/fannkuch-redux.fort
 # FORT_FILES=$(TEST_DIR)/floating.fort
 # FORT_FILES=$(TEST_DIR)/mandelbrot.fort
+FORT_FILES=$(TEST_DIR)/n-body.fort
 
 GEN_HS_FILES=$(addsuffix .hs, $(FORT_FILES))
 LL_FILES=$(addsuffix .ll, $(FORT_FILES))
