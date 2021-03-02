@@ -147,7 +147,7 @@ ssaAExpr fn nm0 = go
           n0 <- ssaAlt aBlk e0
           ns <- mapM (ssaAlt aBlk) $ map snd alts
           addBlock blk{ ssaTerm = SwitchS a n0 $ zip (map fst alts) ns }
-          addBlock done{ ssaParams = vs }
+          go done{ ssaParams = vs } ae
 
       CExprA ce -> case ce of
         UnreachableA t -> unreachable t

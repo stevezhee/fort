@@ -62,6 +62,7 @@ codegen file ds = do
         else putStrFlush "ANF->"
 
     let (anfs :: [[AFunc]], st1) = runState (mapM toAFuncs fsR) stR
+
     if verbose
         then do
             print $ ppFuncs (vcat . ("---" :) . map ppAFunc) anfs

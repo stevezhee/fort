@@ -248,12 +248,12 @@ ppExpr x = case x of
     TupleE bs -> ppTuple $ map ppExpr bs
     CallE (a, _) bs -> pretty a <+> ppTuple (map ppExpr bs)
     SwitchE a b cs -> ppSwitch a b cs
-    LetE a b c -> vcat
-                           [ if null a
-                             then ppExpr b
-                             else "let" <+> ppPat a <+> "=" <+> ppExpr b <+> "in"
-                           , parens (ppExpr c)
-                           ]
+    LetE a b c -> "let" <+> ppPat a <+> vcatIndent "=" (ppExpr b <+> vcatIndent "in" (ppExpr c))
+                           -- [ if null a
+                           --   then ppExpr b
+                           --   else "let" <+> ppPat a <+> "=" <+> ppExpr b <+> "in"
+                           -- , parens (ppExpr c)
+                           -- ]
     LetRecE bs c -> vcat $ [ "fun" <+> ppFunc b | b <- bs ] ++ [ ppExpr c ]
     UnreachableE _ -> "unreachable"
 

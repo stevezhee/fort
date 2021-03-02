@@ -166,9 +166,9 @@ data Prim = Var Var | StringL (L String) | IntL Token | CharL (L Char) | FloatL 
 instance Pretty Prim where
   pretty x = case x of
     Var a -> pretty a
-    StringL a -> pretty a
+    StringL a -> pretty $ show a
     IntL a -> pretty a
-    CharL a -> pretty a
+    CharL a -> pretty $ show a
     FloatL a -> pretty a
     Op a -> pretty a
 

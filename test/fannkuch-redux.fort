@@ -175,10 +175,8 @@ test-perm: /Array 12 Int = /array ;; BAL: should be able to write on one line wi
 atoi: /String -> Int = /extern "atoi"
 
 main: (Int, /Address (/Array 2 /String)) -> Int = \(argc, argv) => /do
-  /if
-    argc > 1 = /do
-      output (permutations (atoi (load (argv # 1))))
-      0
+  /let n = /if
+    argc > 1 = atoi (load (argv # 1))
     _ = /do
       /let linear: Perm = alloca ()
       init-linear linear
@@ -192,6 +190,7 @@ main: (Int, /Address (/Array 2 /String)) -> Int = \(argc, argv) => /do
 
       rev := test-perm
       output (num-flips rev)
-
-      output (permutations 7)
-      0
+      7
+  
+  output (permutations n)
+  0

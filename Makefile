@@ -15,7 +15,7 @@ ALL_FORT_FILES=$(wildcard $(TEST_DIR)/*.fort)
 # EXCLUDE_FILES += $(TEST_DIR)/address.fort
 # EXCLUDE_FILES += $(TEST_DIR)/powi.fort
 # EXCLUDE_FILES += $(TEST_DIR)/array.fort
-EXCLUDE_FILES += $(TEST_DIR)/char.fort
+# EXCLUDE_FILES += $(TEST_DIR)/char.fort
 # EXCLUDE_FILES += $(TEST_DIR)/nestedif.fort
 # EXCLUDE_FILES += $(TEST_DIR)/struct.fort
 # EXCLUDE_FILES += $(TEST_DIR)/primitives.fort
@@ -27,6 +27,8 @@ EXCLUDE_FILES += $(TEST_DIR)/char.fort
 # EXCLUDE_FILES += $(TEST_DIR)/n-body.fort
 
 FORT_FILES=$(filter-out $(EXCLUDE_FILES), $(ALL_FORT_FILES))
+# FORT_FILES=$(TEST_DIR)/nestedif.fort
+# FORT_FILES=$(TEST_DIR)/char.fort
 # FORT_FILES=$(TEST_DIR)/powi.fort
 # FORT_FILES=$(TEST_DIR)/address.fort
 # FORT_FILES=$(TEST_DIR)/fannkuch-redux.fort

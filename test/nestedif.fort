@@ -12,6 +12,9 @@ equals: (a, a) -> Bool
 output: a -> ()
 
 main: () -> Int = \_ => /do
+  simple #"a"
+  simple #"b"
+  simple #"c"
   output (foo (true, #"a"))
   output (foo (true, #"b"))
   output (foo (true, #"x"))
@@ -28,6 +31,37 @@ main: () -> Int = \_ => /do
   baz #"z"
   0
 
+baz: Char -> () = \c => /do
+    /if
+      c == #"c" = output #"1"
+      _         = /if
+        c == #"a" = output #"2"
+        _         = output #"3"
+    /if
+      c == #"a" = output "four"
+      _         = /if
+        c == #"c" = output "five"
+        _         = output "six"
+    /let a = where-baz c
+    /let b = where-baz a
+    /let c = where-baz b
+    output "done"
+    /where
+      where-baz: Char -> Char = \c => /if
+        c == #"z" = where-baz #"a"
+        _         = /do
+          output c
+          c
+
+
+simple: Char -> () = \c => /do
+  /if
+    c == #"a" = output "one"
+    _ = output "two"
+  /if
+    c == #"b" = output "three"
+    _ = output "four"
+    
 foo: (Bool, Char) -> Char = \(p, c) => /if
   c == #"a" = #"b"
   c == #"b" = #"c"
@@ -46,28 +80,3 @@ qux: Char -> () = \c => /do
   /if
     c == #"d" = output "one"
     _ = output "two"
-
-;; BAL: broken
-baz: Char -> () = \c => /do
-    /if
-      c == #"c" = output #"1"
-      _         = /if
-        c == #"a" = output #"2"
-        _         = output #"3"
-    ;; BAL: doesn't output anything after this
-    /if
-      c == #"a" = output "four"
-      _         = /if
-        c == #"c" = output "five"
-        _         = output "six"
-    /let a = where-baz c
-    /let b = where-baz a
-    /let c = where-baz b
-    output "done"
-    /where
-      where-baz: Char -> Char = \c => /if
-        c == #"z" = where-baz c
-        _         = /do
-          output #"z"
-          c
-
