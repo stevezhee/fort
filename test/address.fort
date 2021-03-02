@@ -24,13 +24,13 @@ inc-op2: /Address Int -> () = \p => /do
 
 output: a -> ()
 
-main: () -> Int = \u => /do
-  /let p: /Address Int = alloca ()
-  ;; store (p, 0) 
+main: () -> Int = \_ => /do
+  /let p = alloca ()
+  store (p, 0) 
   inc p
-  ;; output p
-  ;; inc-op p
-  ;; output p
-  ;; inc-op2 p
-  ;; output p
+  output p
+  inc-op p
+  output p
+  inc-op2 p
+  output p
   0

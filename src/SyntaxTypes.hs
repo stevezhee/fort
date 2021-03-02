@@ -10,7 +10,7 @@ import           Data.Loc
 import           Text.Regex.Applicative
 
 import Data.Text.Prettyprint.Doc
-import Data.Maybe
+-- import Data.Maybe
 import Utils
 
 type Tok = RE Char String
@@ -65,10 +65,10 @@ data Type = TyApp Type Type
 instance Pretty Type where
   pretty x = case x of
     TyApp a b -> parens (pretty a <+> pretty b)
-    -- TyLam Var Type
+    TyLam a b -> "\\" <+> pretty a <+> "=>" <+> pretty b
     TyFun a b -> parens (pretty a <+> "->" <+> pretty b)
-    -- TyRecord [(Var, Type)]
-    -- TyVariant [(Con, Maybe Type)]
+    TyRecord bs -> vcatIndent "/Record" $ vcat [ pretty v <> ":" <+> pretty t | (v, t) <- bs ]
+    TyVariant bs -> vcatIndent "/Enum" $ vcat [ ppAscription (pretty c) mt | (c, mt) <- bs ]
     TyTuple bs -> ppTuple $ map pretty bs
     TyVar a -> pretty a
     TyCon a -> pretty a
@@ -113,16 +113,17 @@ instance Pretty Expr where
     Where a bs -> vcatIndent (pretty a) $ vcatIndent "/where" $ vcat (map pretty bs)
     Let a -> "/let" <+> pretty a
     If bs -> vcatIndent "/if" $ vcat [ pretty c <+> "=" <+> pretty d | (c, d) <- bs ]
-    Case a bs -> vcatIndent ("/case" <+> pretty a) $ vcat $ map ppAlt bs
+    Case a bs -> vcatIndent ("/case" <+> pretty a <+> "/of") $ vcat $ map ppAlt bs
     Sequence bs -> vcatIndent "/do" $ vcat $ map pretty bs
     Array bs -> vcatIndent "/array" $ vcat (map pretty bs)
-    -- Record [((Var, Maybe Type), Expr)]
+    Record bs -> vcatIndent "/record" $ vcat [ ppAscription (pretty v) mt <+> "=" <+> pretty e | ((v, mt), e) <- bs ]
+    Tuple [b] -> pretty b
     Tuple bs -> ppTuple $ map (maybe mempty pretty) bs
     Ascription a b -> pretty a <> ":" <+> pretty b
     Extern -> "/extern"
 
 ppAlt :: Alt -> Doc ann
-ppAlt = undefined
+ppAlt ((p, mt), e) = ppAscription (pretty p) mt <+> "=" <+> pretty e
 
 tuple :: [Expr] -> Expr
 tuple [ x ] = x
@@ -177,3 +178,12 @@ instance (Show a, Pretty a) => Pretty (L a) where
 data AltPat =
     DefaultP | ConP Con | IntP Token | CharP (L Char) | StringP (L String) | FloatP Token
     deriving Show
+
+instance Pretty AltPat where
+  pretty x = case x of
+    DefaultP -> "_"
+    ConP a -> pretty a
+    IntP a -> pretty a
+    CharP a -> pretty a
+    StringP a -> pretty a
+    FloatP a -> pretty a

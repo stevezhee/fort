@@ -337,11 +337,11 @@ zext ta tb = instr (TyFun ta tb) "zext" $ \[ a ] -> I.zext a (toTyLLVM tb)
 undef :: Type -> E a
 undef = atomE . Undef
 
-alloca :: Type -> E (Addr a)
-alloca t = case t of
-  TyAddress ta _ _ ->
-    instr t "alloca" $ \[] -> I.alloca (toTyLLVM ta) Nothing 0
-  _ -> impossible $ "unexpected alloca type:" ++ show t
+alloca :: Type -> Type -> E (() -> Addr a)
+alloca ta tb = case tb of
+  TyAddress t _ _ ->
+    instr (TyFun ta tb) "alloca" $ \[] -> I.alloca (toTyLLVM t) Nothing 0
+  _ -> impossible $ "unexpected alloca type:" ++ show ta
 
 unaryInstr :: String
            -> (AST.Operand -> AST.Instruction)

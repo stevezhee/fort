@@ -461,7 +461,7 @@ ppExpr x = case x of
     App a b
         | isOpExpr b -> parens (parens ("T.opapp" <+> ppExpr a) <+> ppExpr b)
         | otherwise -> parens (parens ("T.app" <+> ppExpr a) <+> ppExpr b)
-    Tuple [] -> trace "unit" "T.unit"
+    Tuple [] -> "T.unit"
     Tuple [ Nothing ] -> ppExpr $ Tuple []
     Tuple [ Just e ] -> ppExpr e
     Tuple bs -> parens ("T.tuple" <> pretty (length bs)

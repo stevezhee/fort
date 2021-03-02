@@ -394,7 +394,7 @@ mkSubst xs ys = HMS.fromList $ map f $ safeZip "mkSubst" xs ys
   where
     f t@(a, b)
       | tyA == tyB = t
-      | otherwise = impossible $ "type mismatch in substitution:" ++ show (tyA, tyB)
+      | otherwise = impossible $ "type mismatch in substitution:" ++ show (a, tyA, b, tyB)
       where
         tyA = typeOf a
         tyB = typeOf b

@@ -8,6 +8,7 @@ import           Control.Applicative
 import           Control.Monad.State
 
 import           Data.Char
+import           Data.Maybe
 import           Data.List
 import           Data.Loc
 import           Data.String
@@ -96,6 +97,11 @@ pTuple p = parens (sepMany (reserved ",") p)
 pSomeTuple :: P r a -> P r [a]
 pSomeTuple p = parens (sepSome (reserved ",") p)
 
+mkTuple :: [Maybe Expr] -> Expr
+mkTuple bs = case bs of
+  [mb] -> fromMaybe (Tuple []) mb
+  _ -> Tuple bs
+
 grammar :: Grammar r (P r [Decl])
 grammar = mdo
     pDecl <- rule $ TyDecl <$> pBind pCon <*> pType <|> ExprDecl <$> pExprDecl
@@ -151,8 +157,8 @@ grammar = mdo
         <|> (pure Extern <* reserved "/extern" <?> "/extern") <|> pAscriptionE
     pAscriptionE <- rule $ (Ascription <$> pE0 <*> pAscription) <|> pE0
     pE0 <- rule $ (Record <$> (reserved "/record" *> blockList pFieldDecl) <?> "record")
-        <|> (Tuple <$> pSomeTuple (optional pExpr) <?> "tuple")
-        -- ^ pSomeTuple is needed because the expr is optional (see SyntaxType.hs)
+        <|> (mkTuple <$> pSomeTuple (optional pExpr) <?> "tuple")
+        -- ^ pSomeTuple is needed because the expr is optional to support partial application
         <|> (Array <$> (reserved "/array" *> blockList pExpr) <?> "array")
         <|> (Prim <$> pPrimNotOp)
     pPat <- rule $ (VarP <$> pVar <*> optional pAscription <?> "var pattern")
@@ -165,9 +171,6 @@ grammar = mdo
 
 mkApp :: Expr -> Expr -> Expr
 mkApp x y = case y of
-    Tuple [me] -> case me of
-      Nothing -> mkApp x $ Tuple []
-      Just e -> mkApp x e
     Tuple bs | Just (ps, ts) <- go freshVars [] [] bs -> Lam (TupleP ps Nothing) $ App x (Tuple ts)
     _ -> App x y
   where
