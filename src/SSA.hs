@@ -311,7 +311,7 @@ patchTerm paramTbl blockIdTbl indirectBrTbl blk
     lookupBlockId nm = fromMaybe (impossible "unknown block id") $ HMS.lookup nm blockIdTbl
     labelToId :: Atom -> Atom
     labelToId x = case x of
-      Label _ nm -> Int 32 $ lookupBlockId nm
+      Label _ nm -> Int Unsigned 32 $ lookupBlockId nm
       _ -> x
 
 toSSAFuncPublic :: FilePath -> Nm -> (Integer, AFunc) -> (SSAFunc, [Var])
@@ -319,7 +319,7 @@ toSSAFuncPublic p obfFn (i, AFunc nm vs _) =
   (SSAFunc Public nm' vs [SSABlock (nName nm) (entryNm nm) [] ins $ RetS $ map Var $ outputs nm], sVs ++ lVs)
   where
     nm' = nm{ nName = qualifyName p $ nName nm }
-    ins = stores ++ [ callInstr [] obfFn [Int 32 i] ] ++ loads
+    ins = stores ++ [ callInstr [] obfFn [Int Unsigned 32 i] ] ++ loads
     sVs = map (globalArg $ nName nm) vs
     rs = outputs nm
     lVs = map globalOutput rs

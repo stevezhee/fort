@@ -76,7 +76,7 @@ insertFieldValue s i a@(T ta _) b = T ta $ U.app (U.insertFieldValue s i (ta, ty
     U.tuple2 (unT a, unT b)
 
 uint :: Integer -> Integer -> T a
-uint sz i = T (tyUnsigned sz) $ U.intE sz i
+uint sz i = T (tyUnsigned sz) $ U.intE Unsigned sz i
 
 undef :: Type -> T a
 undef ta = T ta (U.undef ta)
@@ -119,7 +119,7 @@ hOutput ty = case ty of
       64 -> \v -> let (x, h) = argTuple2 v
                   in hPutF64 (unsafeCast tyF64 x) h
       _ -> ok $ \x h -> hOutput tyF64 $ tuple2 (cast tyF64 x) h
-    TyInteger sz isSigned intTy -> case intTy of
+    TyInteger isSigned sz intTy -> case intTy of
         TyChar -> ok $ \x h -> delim h "#\"" "\"" $ hPrintChar x h
         TyEnum ss -> ok $ \x h ->
             let c : cs = [ (s, \_ -> putS s h) | s <- ss ]

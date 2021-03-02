@@ -14,7 +14,7 @@ MyStruct2 = /Record
 
 ;; primitives
 
-alloca: /Address a
+alloca: () -> /Address a
 load: /Address a -> a
 store: (/Address a, a) -> ()
 := = store
@@ -43,9 +43,9 @@ qux2: MyStruct2 = /record
   b = 0xdeadbeef
 
 main: () -> Int = \_ => /do
-  /let quxp = alloca
+  /let quxp = alloca ()
   store (quxp, qux)
-  /let qux2p = alloca
+  /let qux2p = alloca ()
   store (qux2p, qux2)
   output quxp
   output qux2p

@@ -94,7 +94,7 @@ energy: Bodies -> Double = \bodies => /do
   load (mass (bodies # 0))
 
 atoi: /String -> Int = /extern "atoi"
-alloca: /Address a
+alloca: () -> /Address a
 output: a -> ()
 
 main: (Int, /Address (/Array 2 /String)) -> Int = \(argc, argv) => /do
@@ -104,7 +104,7 @@ main: (Int, /Address (/Array 2 /String)) -> Int = \(argc, argv) => /do
   ;;   argc > 1 = atoi(load (argv # 1)) ;; BAL: should be error if no default
   ;;   _ = 1000
 
-  /let bodies = alloca
+  /let bodies = alloca ()
   bodies := init-bodies
   
   offset-momentum bodies

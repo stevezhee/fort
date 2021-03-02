@@ -209,19 +209,19 @@ allocaF = \[] -> do
 
 gepF :: [Val] -> M [Val]
 gepF = \[a, b] -> case (a, b) of
-  (AddrV p, IntV _ i) -> pure [GepV p i]
+  (AddrV p, IntV _ _ i) -> pure [GepV p i]
   x -> error $ "gep:" ++ show x
 
 cmpopF :: (Integer -> Integer -> Bool) -> [Val] -> M [Val]
 cmpopF f = \[a, b] -> case (a, b) of
-  (IntV _ x, IntV _ y) -> pure [ EnumV (show r, (tyBool, fromIntegral $ fromEnum r)) ]
+  (IntV _ _ x, IntV _ _ y) -> pure [ EnumV (show r, (tyBool, fromIntegral $ fromEnum r)) ]
     where
       r = f x y
   _ -> error $ "cmpop:" ++ show (a,b)
 
 binopF :: (Integer -> Integer -> Integer) -> [Val] -> M [Val]
 binopF f = \[a, b] -> case (a, b) of
-  (IntV sz x, IntV _ y) -> pure [ IntV sz $ f x y ]
+  (IntV s sz x, IntV _ _ y) -> pure [ IntV s sz $ f x y ]
   _ -> error $ "binop:" ++ show (a,b)
 
 storeF :: [Val] -> M [Val]
@@ -258,7 +258,7 @@ loadF = \[a] -> case a of
 evalAtom :: Atom -> M Val
 evalAtom x = case x of
   Var v -> getVarVal v
-  Int a b -> pure $ IntV a b
+  Int a b c -> pure $ IntV a b c
   Enum a -> pure $ EnumV a
   Char a -> pure $ CharV a
   String a b -> pure $ StringV a b
@@ -270,8 +270,8 @@ getAtomConstant :: Atom -> M Constant
 getAtomConstant x = do
   val <- evalAtom x
   case val of
-    IntV sz i -> pure $ Constant.Int (fromIntegral sz) i
-    EnumV (_, (TyInteger sz _ _, i)) -> pure $ Constant.Int (fromIntegral sz) i
+    IntV _ sz i -> pure $ Constant.Int (fromIntegral sz) i
+    EnumV (_, (TyInteger _ sz _, i)) -> pure $ Constant.Int (fromIntegral sz) i
     _ -> error "not currently handling non-integer constants"
 
 setVarVal :: (Var, Val) -> M ()
@@ -340,7 +340,7 @@ step = do
 data Val
   = GepV Integer Integer
   | AddrV Integer
-  | IntV Integer Integer
+  | IntV IsSigned Integer Integer
   | EnumV (String, (Type, Integer))
   | CharV Char
   | StringV String Var
@@ -353,7 +353,7 @@ instance Pretty Val where
   pretty x = case x of
     GepV a b -> "@" <> pretty a <> "#" <> pretty b
     AddrV a -> "@" <> pretty a
-    IntV _ b -> pretty b
+    IntV _ _ b -> pretty b
     EnumV (s, _) -> pretty s
     CharV a -> "#\"" <> pretty a <> "\""
     StringV a _ -> pretty $ show a

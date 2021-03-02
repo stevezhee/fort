@@ -46,7 +46,7 @@ store = binop U.store
 
 int :: Ty a => Integer -> E a
 int i = value $ \ty -> case ty of
-  TyInteger sz _ _ -> U.intE sz i
+  TyInteger s sz _ -> U.intE s sz i
   TyFloat sz -> U.floatE sz $ fromInteger i
   _ -> error $ "expected int or float type literal:" ++ show (i, ty)
 
@@ -76,7 +76,7 @@ alloca = unop U.alloca
 
 array_size :: (Size sz, Ty a) => E (Addr (Array sz a) -> UInt32)
 array_size = unop $ \t _ -> case t of
-  TyAddress (TyArray n _) _ _ -> value $ \_ -> U.intE 32 n
+  TyAddress (TyArray n _) _ _ -> value $ \_ -> U.intE Unsigned 32 n
   _ -> impossible "array_size"
 
 noDefault :: Ty b => E a -> E b

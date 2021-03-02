@@ -139,15 +139,15 @@ toOperand x = case x of
       32 -> AST.ConstantOperand $ AST.Float $ AST.Single $ realToFrac (realToFrac a :: Float)
       64 -> AST.ConstantOperand $ AST.Float $ AST.Double a
       _ -> impossible "unexpected float size"
-    Int sz i -> AST.ConstantOperand $ I.constInt sz i
-    Char a -> toOperand $ Int 8 $ fromIntegral $ fromEnum a
+    Int _ sz i -> AST.ConstantOperand $ I.constInt sz i
+    Char a -> toOperand $ Int Unsigned 8 $ fromIntegral $ fromEnum a
     String _ a -> toOperand $ Var a
     Undef t -> AST.ConstantOperand $ AST.Undef $ toTyLLVM t
     Var a
       | vScope a == Local -> AST.LocalReference (toTyLLVM $ vTy a) (AST.mkName $ vName a)
       | otherwise -> AST.ConstantOperand $
           AST.GlobalReference (toTyLLVM $ vTy a) (AST.mkName $ vName a)
-    Enum (_, (t, i)) -> toOperand $ Int (sizeFort t) i
+    Enum (_, (t, i)) -> toOperand $ Int Unsigned (sizeFort t) i
     Label a b -> AST.ConstantOperand $ AST.BlockAddress (AST.mkName a) (AST.mkName $ nName b)
 
 tyLLVM :: Ty a => Proxy a -> AST.Type
@@ -158,7 +158,7 @@ toTyLLVM = go
   where
     go :: Type -> AST.Type
     go x = case x of
-        TyInteger sz _ _ -> AST.IntegerType $ fromInteger sz
+        TyInteger _ sz _ -> AST.IntegerType $ fromInteger sz
         TyAddress a _ _ -> AST.ptr (go a)
         TyArray sz a -> AST.ArrayType (fromInteger sz) (go a)
         TyTuple [] -> AST.void

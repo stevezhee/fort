@@ -91,7 +91,7 @@ data CExpr = UnreachableA Type
            | SwitchA Atom AExpr [(Tag, AExpr)]
   deriving Show
 
-data Atom = Int Integer Integer
+data Atom = Int IsSigned Integer Integer
           | Enum (String, (Type, Integer))
           | Char Char
           | Var Var
@@ -149,7 +149,7 @@ data IntType = TyInt | TyChar | TyEnum [String]
 data AddrType = TyAddr | TyString
     deriving ( Show, Eq )
 
-data Type = TyInteger Integer IsSigned IntType
+data Type = TyInteger IsSigned Integer IntType
           | TyFloat Integer
           | TyAddress Type IsVolatile AddrType
           | TyArray Integer Type
@@ -169,9 +169,9 @@ instance Pretty Type where
     pretty x = case x of
         TyInteger a b c -> case c of
             TyChar -> "char"
-            _ -> case b of
-                Signed -> "s" <> pretty a
-                Unsigned -> "u" <> pretty a
+            _ -> case a of
+                Signed -> "s" <> pretty b
+                Unsigned -> "u" <> pretty b
         TyAddress _ b TyString -> "String" <+> pretty b
         TyAddress a b TyAddr -> "Addr" <+> pretty a <+> pretty b
         TyArray sz t -> "Array" <+> pretty sz <+> pretty t
@@ -190,7 +190,7 @@ tyBool :: Type
 tyBool = tyEnum [ "False", "True" ]
 
 tyEnum :: [String] -> Type
-tyEnum xs = TyInteger (neededBitsList xs) Unsigned (TyEnum xs)
+tyEnum xs = TyInteger Unsigned (neededBitsList xs) (TyEnum xs)
 -- ^ BAL: do something different with a total of 0 or 1 tags?
 
 tyUnit :: Type
@@ -281,7 +281,7 @@ instance Pretty Atom where pretty = ppAtom
 
 ppAtom :: Atom -> Doc ann
 ppAtom x = case x of
-    Int _ i -> pretty i
+    Int _ _ i -> pretty i
     Enum a -> pretty (fst a)
     Char c -> pretty (show c)
     Var v -> pretty v
@@ -350,7 +350,8 @@ tyExpr x = case x of
 
 tyAtom :: Atom -> Type
 tyAtom x = case x of
-    Int sz _ -> tyUnsigned sz
+    Int Unsigned sz _ -> tyUnsigned sz
+    Int Signed sz _ -> tySigned sz
     Char{} -> tyChar
     Var a -> vTy a
     String{} -> tyString
@@ -468,7 +469,7 @@ instance Size sz => Ty (Floating sz) where
     tyFort _ = tyFloating (size (Proxy :: Proxy sz))
 
 tyChar :: Type
-tyChar = TyInteger 8 Unsigned TyChar
+tyChar = TyInteger Unsigned 8 TyChar
 
 tyString :: Type
 tyString = TyAddress tyChar NonVolatile TyString
@@ -477,10 +478,10 @@ tyAddress :: Type -> Type
 tyAddress t = TyAddress t NonVolatile TyAddr
 
 tySigned :: Integer -> Type
-tySigned sz = TyInteger sz Signed TyInt
+tySigned sz = TyInteger Signed sz TyInt
 
 tyUnsigned :: Integer -> Type
-tyUnsigned sz = TyInteger sz Unsigned TyInt
+tyUnsigned sz = TyInteger Unsigned sz TyInt
 
 tyFloating :: Integer -> Type
 tyFloating sz = TyFloat sz
@@ -577,7 +578,7 @@ tyVariantToTyRecord bs =
 
 sizeFort :: Type -> Integer
 sizeFort x = case x of
-    TyInteger sz _ _ -> sz
+    TyInteger _ sz _ -> sz
     TyFloat sz -> sz
     TyAddress{} -> ptrSize
     TyArray sz a -> sz * sizeFort a

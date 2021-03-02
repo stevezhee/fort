@@ -130,8 +130,8 @@ unsafeCast (E a) = E a
 floatE :: Integer -> Double -> E a
 floatE sz = atomE . Float sz
 
-intE :: Integer -> Integer -> E a
-intE sz = atomE . Int sz
+intE :: IsSigned -> Integer -> Integer -> E a
+intE b sz = atomE . Int b sz
 
 string :: String -> E String_
 string s = app f str
@@ -233,7 +233,7 @@ readTag x s = (s, go x)
     go :: Type -> AST.Constant
     go t = case t of
         TyVariant bs -> go (tyEnum $ map fst bs)
-        TyInteger sz _ intTy -> I.constInt sz $ case intTy of
+        TyInteger _ sz intTy -> I.constInt sz $ case intTy of
             TyInt -> read s
             TyChar -> toInteger $ fromEnum (read s :: Char)
             TyEnum tags -> maybe err fromIntegral (elemIndex s tags)
@@ -273,16 +273,16 @@ instr t s f = callE (Nm t s) (External f)
 
 cast :: Type -> Type -> E (a -> b)
 cast tyA tyB = case (tyA, tyB) of
-    (TyInteger szA Unsigned _, TyInteger szB _ _) -> f zext szA szB
-    (TyInteger szA Signed _, TyInteger szB _ _) -> f sext szA szB
+    (TyInteger Unsigned szA _, TyInteger _ szB _) -> f zext szA szB
+    (TyInteger Signed szA _, TyInteger _ szB _) -> f sext szA szB
     (TyFloat szA, TyFloat szB)
       | szA > szB -> fptrunc tyA tyB
       | szA < szB -> fpext tyA tyB
       | otherwise -> bitcast "cast" tyA tyB
-    (TyFloat{}, TyInteger _ Unsigned _) -> fptoui tyA tyB
-    (TyFloat{}, TyInteger _ Signed _) -> fptosi tyA tyB
-    (TyInteger _ Unsigned _, TyFloat{}) -> uitofp tyA tyB
-    (TyInteger _ Signed _, TyFloat{}) -> sitofp tyA tyB
+    (TyFloat{}, TyInteger Unsigned _ _) -> fptoui tyA tyB
+    (TyFloat{}, TyInteger Signed _ _) -> fptosi tyA tyB
+    (TyInteger Unsigned _ _, TyFloat{}) -> uitofp tyA tyB
+    (TyInteger Signed _ _, TyFloat{}) -> sitofp tyA tyB
     (TyInteger{}, TyAddress{}) -> inttoptr tyA tyB
     (TyAddress{}, TyInteger{}) -> ptrtoint tyA tyB
     (TyAddress{}, TyAddress{}) -> bitcast "cast" tyA tyB
@@ -381,8 +381,8 @@ arithop :: String
         -> Type
         -> E ((a, a) -> a)
 arithop s f g h tab tc = case tc of
-    TyInteger _ Unsigned _ -> binaryInstr s f tab tc
-    TyInteger _ Signed _ -> binaryInstr s g tab tc
+    TyInteger Unsigned _ _ -> binaryInstr s f tab tc
+    TyInteger Signed _ _ -> binaryInstr s g tab tc
     TyFloat _ -> binaryInstr s h tab tc
     _ -> opTyErr s tc
 
@@ -393,8 +393,8 @@ bitop :: String
         -> Type
         -> E ((a, a) -> a)
 bitop s f g tab tc = case tc of
-    TyInteger _ Unsigned _ -> binaryInstr s f tab tc
-    TyInteger _ Signed _ -> binaryInstr s g tab tc
+    TyInteger Unsigned _ _ -> binaryInstr s f tab tc
+    TyInteger Signed _ _ -> binaryInstr s g tab tc
     _ -> opTyErr s tc
 
 floatIntrinsic :: String -> Type -> Type -> E (a -> b)
@@ -404,7 +404,7 @@ floatIntrinsic n tA tB = case tA of
 
 intIntrinsic :: String -> Type -> Type -> E (a -> b)
 intIntrinsic n tA tB = case tA of
-  TyInteger sz _ _ -> extern ("llvm." ++ n ++ ".i" ++ show sz) (TyFun tA tB)
+  TyInteger _ sz _ -> extern ("llvm." ++ n ++ ".i" ++ show sz) (TyFun tA tB)
   _ -> opTyErr n tA
 
 floor :: Type -> Type -> E (a -> a)
@@ -431,7 +431,7 @@ cos = floatIntrinsic "cos"
 abs :: Type -> Type -> E (a -> a)
 abs tA tB = case tA of
   TyFloat{} -> floatIntrinsic n tA tB
-  TyInteger _ Signed _ -> intIntrinsic n tA tB
+  TyInteger Signed _ _ -> intIntrinsic n tA tB
   _ -> opTyErr n tA
   where
     n = "abs"
@@ -449,8 +449,8 @@ pow (tA, tB) tC = case tA of
 min :: (Type, Type) -> Type -> E ((a, a) -> a)
 min (tA, tB) tC = case tA of
   TyFloat{} -> floatIntrinsic "minnum" tT tC
-  TyInteger _ Signed _ -> intIntrinsic "smin" tT tC
-  TyInteger _ Unsigned _ -> intIntrinsic "umin" tT tC
+  TyInteger Signed _ _ -> intIntrinsic "smin" tT tC
+  TyInteger Unsigned _ _ -> intIntrinsic "umin" tT tC
   _ -> opTyErr "min" tA
   where
     tT = tyTuple [tA, tB]
@@ -458,8 +458,8 @@ min (tA, tB) tC = case tA of
 max :: (Type, Type) -> Type -> E ((a, a) -> a)
 max (tA, tB) tC = case tA of
   TyFloat{} -> floatIntrinsic "maxnum" tT tC
-  TyInteger _ Signed _ -> intIntrinsic "smax" tT tC
-  TyInteger _ Unsigned _ -> intIntrinsic "umax" tT tC
+  TyInteger Signed _ _ -> intIntrinsic "smax" tT tC
+  TyInteger Unsigned _ _ -> intIntrinsic "umax" tT tC
   _ -> opTyErr "max" tA
   where
     tT = tyTuple [tA, tB]
@@ -490,8 +490,8 @@ cmpop :: String
       -> E ((a, a) -> Bool_)
 cmpop s p q r tab@(ta, tb) tc
     | ta == tb = case ta of
-        TyInteger _ Unsigned _ -> binaryInstr s (I.icmp p) tab tc
-        TyInteger _ Signed _ -> binaryInstr s (I.icmp q) tab tc
+        TyInteger Unsigned _ _ -> binaryInstr s (I.icmp p) tab tc
+        TyInteger Signed _ _ -> binaryInstr s (I.icmp q) tab tc
         TyFloat _ -> binaryInstr s (I.fcmp r) tab tc
         _ -> error $ "unable to compare values of type:" ++ show ta
     | otherwise = impossible $ "comparison arguments must be of the same type:" ++ show (ta, tb)

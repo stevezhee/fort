@@ -23,6 +23,7 @@ import           System.IO
 import           Text.Earley               hiding ( satisfy )
 
 import           Utils
+import Control.Monad
 
 parseAndCodeGen :: FilePath -> IO ()
 parseAndCodeGen fn = do
@@ -87,8 +88,9 @@ declsToHsFile fn ast0 = do
     putStrFlush "Haskell->"
     let oFile = fn ++ ".hs"
     let ast = rewriteMain ast0
-    putStrLn ""
-    mapM_ (print . pretty) ast
+    when verbose $ do
+      putStrLn ""
+      mapM_ (print . pretty) ast
     writeFile oFile $ show (ppDecls fn ast) ++ "\n"
     putStrLn oFile
     where

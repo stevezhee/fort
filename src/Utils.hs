@@ -18,6 +18,9 @@ import           System.IO
 import           Text.Read                 hiding ( parens )
 import Debug.Trace (trace)
 
+verbose :: Bool
+verbose = False
+
 useLoc :: Located b => a -> b -> L a
 useLoc a b = L (locOf b) a
 
