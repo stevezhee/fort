@@ -6,6 +6,7 @@ module Fort ( parseAndCodeGen ) where
 -- This file performs a syntax directed translation from the input .fort file to
 -- a corresponding .hs (Haskell) file. Executing the .hs file will generate a
 -- .ll (llvm) file
+import Prelude hiding (userError)
 import           Data.List
 import           Data.Loc
 import           Data.Maybe
@@ -494,7 +495,7 @@ ppExpr x = case x of
     Array [] -> error "arrays must contain at least one element"
     Array bs -> parens ("T.array" <+> ppSizeCon (length bs) <+> ppListV (map ppExpr bs))
     Extern{} -> impossible "ppExpr:Extern"
-    Let{} -> impossible "ppExpr:Let"
+    Let{} -> userError "unexpected let expression"
 
 ppRecordField :: ((Var, Maybe Type), Expr) -> Doc ann
 ppRecordField ((x, mt), e) =
@@ -567,5 +568,5 @@ ppPrim x = case x of
     StringL a -> parens ("T.string" <+> pretty (unLoc a))
     IntL a -> parens ("T.int" <+> parens (pretty (readIntLit (unLoc a))))
     CharL a -> parens ("T.char" <+> pretty (show (unLoc a)))
-    FloatL a -> parens ("T.float" <+> parens (pretty (read (unLoc a) :: Double)))
+    FloatL a -> parens ("T.floating" <+> parens (pretty (read (unLoc a) :: Double)))
 

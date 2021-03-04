@@ -1,3 +1,5 @@
+;; BAL: try all test suite with fastMath enabled
+
 Int = /Signed 32
 UInt = /Unsigned 32
 Double = /Floating 64
@@ -16,6 +18,7 @@ Body = /Record
 Bodies = /Address (/Array 5 Body)
 
 pi: Double = 3.141592653589793
+
 solar-mass: Double = (4 * pi) * pi
 days-per-year: Double = 365.24
 
@@ -76,16 +79,6 @@ index: (/Address (/Array sz a), UInt) -> /Address a
 
 ;; array-size: /Address (/Array sz a) -> Int ;; BAL: should be array-count
 
-advance-n: (Bodies, Double, Int) -> () = \(bodies, adv, n) =>
-  ;; go(0)
-  ()
-;;   /where
-;;     go: Int -> () = \i => /if
-;;       i < n = /do
-;;         advance(bodies, adv)
-;;         go(i + 1)
-;;       _ = ()
-
 sqr: Double -> Double = \x => x * x
 
 load : /Address a -> a
@@ -93,15 +86,33 @@ load : /Address a -> a
 atoi: /String -> Int = /extern "atoi"
 alloca: () -> /Address a
 output: a -> ()
+sqrt: a -> a
+
+;; foo: Bodies -> () = \bodies => /do
+;;   go 0
+;;   /where
+;;     go: UInt -> () = \i => /if
+;;       i >= array-size bodies = ()
+;;       _ = /do
+;;         /let b = bodies # i
+;;         output (load (x b))
+;;         output (load (y b))
+;;         output (load (z b))
+;;         output (load (vx b))
+;;         output (load (vy b))
+;;         output (load (vz b))
+;;         output (load (mass b))
+;;         go (i + 1)
 
 main: (Int, /Address (/Array 2 /String)) -> Int = \(argc, argv) => /do
+
   /let n = /if
     argc > 1 = atoi(load (argv # 1)) ;; BAL: should be error if no default on the if
     _ = 1000
 
   /let bodies = alloca ()
   bodies := init-bodies
-  
+
   output (energy bodies)
   offset-momentum bodies
   output (energy bodies)
@@ -110,61 +121,81 @@ main: (Int, /Address (/Array 2 /String)) -> Int = \(argc, argv) => /do
 
   0
 
-sqrt: a -> a
-
 energy: Bodies -> Double = \bodies => /do
-  output "energy"
-  goI (0, 0)
+  go (0, 0)
   /where
-    goI: (UInt, Double) -> Double = \(i, e) => /if
+    go: (UInt, Double) -> Double = \(i, e) => /if
       i < array-size bodies = /do
-        output e
-        /let body = bodies # i
-        /let temp1 = 0.5 * (load (mass body))
-        /let temp2 = (sqr (load (vx body)) + sqr (load (vy body))) + sqr (load (vz body))
-        /let e' = goJ(i + 1, e + (temp1 * temp2), body)
-        goI (i + 1, e')
+        /let temp = (sqr (load (vx body)) + sqr (load (vy body))) + sqr (load (vz body))
+        /let e' = goJ(i + 1, e + (0.5 * (load (mass body) * temp)))
+        go (i + 1, e')
         /where
-          goJ: (UInt, Double, /Address Body) -> Double = \(j, e, body) => /if
+          body = bodies # i
+          goJ: (UInt, Double) -> Double = \(j, e) => /if
             j < array-size bodies = /do
               /let body2 = bodies # j
               /let dx = load (x body) - load (x body2)
               /let dy = load (y body) - load (y body2)
               /let dz = load (z body) - load (z body2)
               /let distance = sqrt((sqr dx + sqr dy) + sqr dz)
-              goJ(j + 1, e - ((load (mass body) * load (mass body2)) / distance), body)
+              goJ(j + 1, e - ((load (mass body) * load (mass body2)) / distance))
             _ = e
       _ = e
 
-;; advance: (Bodies, Double) -> () = \(bodies, dt) => /do
-;;   goI(0)
-;;   /where
-;;     goI: Int -> () = \i => /if
-;;       i < array-size bodies = /do
-;;         /let body = bodies # i
-;;         goJ(i + 1)
-;;         goI(i + 1)
-;;           /where
-;;             goJ: Int -> () = \j => /if
-;;               j < array-size bodies = /do
-;;                 /let body2 = bodies # j
-;;                 /let dx = x body - x body2
-;;                 /let dy = y body - y body2
-;;                 /let dz = z body - z body2
-;;                 /let distanced = (sqr dx + sqr dy) + sqr dz
-;;                 /let distance = sqrt(distanced)
-;;                 /let mag = dt / (distanced * distance)
-;;                 /set body
-;;                   vx = vx body - ((dx * mass body2) * mag)
-;;                   vy = vy body - ((dy * mass body2) * mag)
-;;                   vz = vz body - ((dz * mass body2) * mag)
-;;                 /set body2
-;;                   vx = vx body2 + ((dx * mass body) * mag)
-;;                   vy = vy body2 + ((dy * mass body) * mag)
-;;                   vz = vz body2 + ((dz * mass body) * mag)
-;;                 goJ(j + 1)
-;;               _ = ()
-;;       _ = ()
+incN: (/Address Double, Double) -> () = \(p, x) => p := ((load p) + x)
++= = incN
+
+decN: (/Address Double, Double) -> () = \(p, x) => p := ((load p) - x)
+-= = decN
+
+advance-n: (Bodies, Double, Int) -> () = \(bodies, dt, n) => /do
+  go(0)
+  /where
+    go: Int -> () = \i => /if
+      i < n = /do
+        advance(bodies, dt)
+        go(i + 1)
+      _ = ()
+
+advance: (Bodies, Double) -> () = \(bodies, dt) => /do
+  go(0)
+  goDone(0)
+  /where
+    go: UInt -> () = \i => /if
+      i < array-size bodies = /do
+        /let body = bodies # i
+        /let i' = i + 1
+        goJ i'
+          /where
+            goJ: UInt -> () = \j => /if
+              j < array-size bodies = /do
+                /let body2 = bodies # j
+                /let dx = load (x body) - load (x body2)
+                /let dy = load (y body) - load (y body2)
+                /let dz = load (z body) - load (z body2)
+                /let distanced = (sqr dx + sqr dy) + sqr dz
+                /let distance = sqrt(distanced)
+                /let mag = dt / (distanced * distance)
+                /let mmag = load (mass body) * mag
+                /let mmag2 = load (mass body2) * mag
+                (vx body) -= (dx * mmag2)
+                (vy body) -= (dy * mmag2)
+                (vz body) -= (dz * mmag2)
+                (vx body2) += (dx * mmag)
+                (vy body2) += (dy * mmag)
+                (vz body2) += (dz * mmag)
+                goJ(j + 1)
+              _ = ()
+        go i'
+      _ = ()
+    goDone: UInt -> () = \i => /if
+      i < array-size bodies = /do
+        /let body = bodies # i
+        (x body) += (dt * load (vx body))
+        (y body) += (dt * load (vy body))
+        (z body) += (dt * load (vz body))
+        goDone(i + 1)
+      _ = ()
 
 array-size: /Address (/Array sz a) -> UInt
 
@@ -218,6 +249,9 @@ less-than: (a, a) -> Bool
 
 less-than-or-equals: (a, a) -> Bool
 <= = less-than-or-equals
+
+greater-than-or-equals: (a, a) -> Bool
+>= = greater-than-or-equals
 
 shift-left: (a, a) -> a
 << = shift-left

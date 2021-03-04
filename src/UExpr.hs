@@ -127,8 +127,8 @@ seq (E x) (E y) = E $ LetE [] <$> x <*> y
 unsafeCast :: E a -> E b
 unsafeCast (E a) = E a
 
-floatE :: Integer -> Double -> E a
-floatE sz = atomE . Float sz
+floatingE :: Integer -> Double -> E a
+floatingE sz = atomE . Float sz
 
 intE :: IsSigned -> Integer -> Integer -> E a
 intE b sz = atomE . Int b sz

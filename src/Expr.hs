@@ -47,11 +47,11 @@ store = binop U.store
 int :: Ty a => Integer -> E a
 int i = value $ \ty -> case ty of
   TyInteger s sz _ -> U.intE s sz i
-  TyFloat sz -> U.floatE sz $ fromInteger i
+  TyFloat sz -> U.floatingE sz $ fromInteger i
   _ -> error $ "expected int or float type literal:" ++ show (i, ty)
 
-float :: Ty a => Double -> E a
-float d = value $ \ty -> U.floatE (sizeFort ty) d
+floating :: Ty a => Double -> E a
+floating d = value $ \ty -> U.floatingE (sizeFort ty) d
 
 false :: E Bool_
 false = int 0

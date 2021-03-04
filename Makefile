@@ -6,7 +6,7 @@ TEST_DIR=test
 HS_FILES=$(shell find src -name \*.hs) $(shell find app -name \*.hs)
 LLC=llc-9
 OPT=opt-9
-OPTLVL=-O3
+OPTLVL=-O2
 
 ALL_FORT_FILES=$(wildcard $(TEST_DIR)/*.fort)
 
@@ -49,8 +49,16 @@ NO_MAIN=$(TEST_DIR)/empty.fort $(TEST_DIR)/todd.fort
 
 EXES=$(addsuffix .exe, $(filter-out $(NO_MAIN), $(FORT_FILES)))
 
-.PHONY: all
-all: $(O_FILES) $(EXES)
+.PHONY: all n-body
+all: n-body # $(O_FILES) $(EXES)
+
+n-body: $(TEST_DIR)/n-body.fort.exe n-body.exe
+	./n-body.exe | tee t.txt
+	./$(TEST_DIR)/n-body.fort.exe | tee tt.txt
+	diff t.txt tt.txt
+
+%.exe: %.c
+	clang $(OPTLVL) -o $@ $<
 
 mandelbrot.%.pbm: mandelbrot.%.exe
 	./$< > $@

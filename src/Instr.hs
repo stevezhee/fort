@@ -19,20 +19,23 @@ import           Prelude                         hiding ( and, or, pred )
 constInt :: Integer -> Integer -> C.Constant
 constInt bits = C.Int (fromInteger bits)
 
+fastMath:: FastMathFlags
+fastMath= noFastMathFlags
+
 fadd :: Operand -> Operand -> Instruction
-fadd a b = FAdd noFastMathFlags a b []
+fadd a b = FAdd fastMath a b []
 
 fmul :: Operand -> Operand -> Instruction
-fmul a b = FMul noFastMathFlags a b []
+fmul a b = FMul fastMath a b []
 
 fsub :: Operand -> Operand -> Instruction
-fsub a b = FSub noFastMathFlags a b []
+fsub a b = FSub fastMath a b []
 
 fdiv :: Operand -> Operand -> Instruction
-fdiv a b = FDiv noFastMathFlags a b []
+fdiv a b = FDiv fastMath a b []
 
 frem :: Operand -> Operand -> Instruction
-frem a b = FRem noFastMathFlags a b []
+frem a b = FRem fastMath a b []
 
 add :: Operand -> Operand -> Instruction
 add a b = Add False False a b []

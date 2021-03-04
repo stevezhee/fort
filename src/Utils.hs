@@ -79,8 +79,11 @@ safeZipWith msg f xs ys
         ++ map show xs ++ [ "" ] ++ map show ys
     | otherwise = zipWith f xs ys
 
+userError :: String -> a
+userError s = error $ "error: " ++ s
+
 impossible :: String -> a
-impossible s = error $ "the impossible happened:" ++ s
+impossible s = error $ "the impossible happened: " ++ s
 
 ppTuple :: [Doc x] -> Doc x
 ppTuple = parens . commaSep

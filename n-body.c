@@ -77,13 +77,16 @@ void advance(struct planet * bodies, double dt)
       double dz = b->z - b2->z;
       double distanced = dx * dx + dy * dy + dz * dz;
       double distance = sqrt(distanced);
+      // printf("%.15f\n", distance);
       double mag = dt / (distanced * distance);
-      b->vx -= dx * b2->mass * mag;
-      b->vy -= dy * b2->mass * mag;
-      b->vz -= dz * b2->mass * mag;
-      b2->vx += dx * b->mass * mag;
-      b2->vy += dy * b->mass * mag;
-      b2->vz += dz * b->mass * mag;
+      double mmag = b->mass * mag;
+      double mmag2 = b2->mass * mag;
+      b->vx -= dx * mmag2;
+      b->vy -= dy * mmag2;
+      b->vz -= dz * mmag2;
+      b2->vx += dx * mmag;
+      b2->vy += dy * mmag;
+      b2->vz += dz * mmag;
     }
   }
   for (i = 0; i < NBODIES; i++) {
@@ -98,37 +101,11 @@ double energy(struct planet * bodies)
 {
   double e;
   int i, j;
-  /* ./n-body.exe */
-  /*     0.000000 */
-  /*     -0.352753 */
-  /*     -0.196859 */
-  /*     -0.172286 */
-  /*     -0.170626 */
-  /*     -0.169289903 */
-  /*     0.000000 */
-  /*     -0.352538 */
-  /*     -0.196644 */
-  /*     -0.172071 */
-  /*     -0.170411 */
-  /*     -0.169075164 */
-  /*     0.000000 */
-  /*     -0.339529 */
-  /*     -0.196424 */
-  /*     -0.172056 */
-  /*     -0.170434 */
-  /*     -0.169087605 */
 
   e = 0.0;
-  printf("energy\n");
   for (i = 0; i < NBODIES; i++) {
-    printf("%f\n", e);
     struct planet * b = &(bodies[i]);
-    double temp1 = 0.5 * b->mass;
-    double temp2 = (b -> vx * b -> vx);
-    double temp3 = temp2 + (b -> vy * b -> vy);
-    double temp4 = temp3 + (b -> vz * b -> vz);
-    e += temp1 * temp4;
-    //    e += 0.5 * b->mass * (b->vx * b->vx + b->vy * b->vy + b->vz * b->vz);
+    e += 0.5 * (b->mass * ((b->vx * b->vx) + (b->vy * b->vy) + (b->vz * b->vz)));
     for (j = i + 1; j < NBODIES; j++) {
       struct planet * b2 = &(bodies[j]);
       double dx = b->x - b2->x;
@@ -150,15 +127,15 @@ void offset_momentum(struct planet * bodies)
     py += bodies[i].vy * bodies[i].mass;
     pz += bodies[i].vz * bodies[i].mass;
   }
-  bodies[0].vx = - px / solar_mass;
-  bodies[0].vy = - py / solar_mass;
-  bodies[0].vz = - pz / solar_mass;
+  bodies[0].vx = 0.0 - px / solar_mass;
+  bodies[0].vy = 0.0 - py / solar_mass;
+  bodies[0].vz = 0.0 - pz / solar_mass;
 }
 
-void advance_n(struct planet bodies[], double adv, int n)
+void advance_n(struct planet bodies[], double dt, int n)
 {
-  for (int i = 1; i <= n; i++)
-    advance(bodies, adv);
+  for (int i = 0; i < n; i++)
+    advance(bodies, dt);
 }
 
 int main(int argc, char ** argv)
@@ -171,8 +148,18 @@ int main(int argc, char ** argv)
   /*     -0.169075164 */
   /*     -0.169087605 */
 
-  printf ("%.9f\n", energy(bodies)); // BAL: remove
+  /* for(int i = 0; i < NBODIES; ++i) */
+  /*   { */
+  /*     printf("%.15f\n", bodies[i].x); */
+  /*     printf("%.15f\n", bodies[i].y); */
+  /*     printf("%.15f\n", bodies[i].z); */
+  /*     printf("%.15f\n", bodies[i].vx); */
+  /*     printf("%.15f\n", bodies[i].vy); */
+  /*     printf("%.15f\n", bodies[i].vz); */
+  /*     printf("%.15f\n", bodies[i].mass); */
+  /*   } */
 
+  /* printf ("%.9f\n", energy(bodies)); */
   offset_momentum(bodies);
   printf ("%.9f\n", energy(bodies));
   advance_n(bodies, 0.01, n);
