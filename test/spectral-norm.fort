@@ -1,0 +1,162 @@
+;; Types
+
+Int = /Signed 32
+UInt = /Unsigned 32
+Double = /Floating 64
+Bool = /Bool
+
+Arr = /Address (/Array 5500 Double)
+
+;; Builtins
+index: (/Address (/Array sz a), UInt) -> /Address a
+# = index
+
+add: (a, a) -> a
++ = add
+
+divide: (a, a) -> a
+/ = divide
+
+multiply: (a, a) -> a
+* = multiply
+
+greater-than-or-equals: (a, a) -> Bool
+>= = greater-than-or-equals
+
+greater-than: (a, a) -> Bool
+> = greater-than
+
+less-than: (a, a) -> Bool
+< = less-than
+
+store: (/Address a, a) -> ()
+:= = store
+
+load : /Address a -> a
+
+incN: (/Address Double, Double) -> () = \(p, x) => p := ((load p) + x)
++= = incN
+
+equals: (a, a) -> Bool
+== = equals
+
+sqrt: a -> a
+output: a -> ()
+atoi: /String -> Int = /extern "atoi"
+alloca: () -> /Address a
+cast: a -> b
+
+eval-a: (UInt, UInt) -> Double = \(i0, j0) => /do
+  /let i = cast i0
+  /let j = cast j0
+  1 / (((((i+j)*((i+j)+1))/2)+i)+1)
+
+eval-a-times-u: (UInt, Arr, Arr) -> () = \(n, u, au) => /do
+  go 0
+  /where
+    go: UInt -> () = \i => /do
+      /if
+        i >= n = ()
+        _ = /do
+          (au # i) := 0
+          goJ(0)
+            /where
+              goJ: UInt -> () = \j => /do
+                /if
+                  j >= n = ()
+                  _ = /do
+                    (au # i) += ((eval-a (i, j)) * (load (u # j)))
+                    goJ (j + 1)
+          go(i + 1)
+
+eval-at-times-u: (UInt, Arr, Arr) -> () = \(n, u, au) => /do
+  go 0
+  /where
+    go: UInt -> () = \i => /do
+      /if
+        i >= n = ()
+        _ = /do
+          (au # i) := 0
+          goJ(0)
+            /where
+              goJ: UInt -> () = \j => /do
+                /if
+                  j >= n = ()
+                  _ = /do
+                    (au # i) += ((eval-a (j, i)) * (load (u # j)))
+                    goJ (j + 1)
+          go(i + 1)
+
+eval-ata-times-u: (UInt, Arr, Arr) -> () = \(n, u, atAu) => /do
+  /let v = alloca ()
+  eval-a-times-u(n, u, v)
+  eval-at-times-u(n, v, atAu)
+
+;; new: Double -> /Address Double = \a => /do
+;;   /let x = alloca ()
+;;   x := a
+;;   x
+
+;; BAL: calls to 'alloca' can only happen at the top level.  How to enforce this?
+;; Only allow alloca in main/macros with no functions between?  Disallow alloca all together and
+;; require memory is initialized with literals/helper functions?
+
+replicate: (UInt, Double, Arr) -> () = \(n, x, arr) => /do
+  go 0
+    /where
+      go: UInt -> () = \i => /do
+        /if
+          i >= n = ()
+          _ = /do
+            (arr # i) := x
+            go (i + 1)
+
+main: (UInt, /Address (/Array 2 /String)) -> Int = \(argc, argv) => /do
+  /let n = /if
+    argc > 1 = cast (atoi(load (argv # 1)))
+    _ = 2000
+
+  /let u = alloca ()
+  replicate (n, 1, u)
+
+  /let v = alloca ()
+
+  go 0
+    /where
+      go: UInt -> () = \i => /do
+        /if
+          i >= 10 = ()
+          _ = /do
+            eval-ata-times-u (n, u, v)
+            eval-ata-times-u (n, v, u)
+            go (i + 1)
+
+  /let vBv = alloca ()
+  /let vv = alloca ()
+  vBv := 0
+  vv := 0
+
+  done 0
+    /where
+      done: UInt -> () = \i => /do
+        /if
+          i >= n = ()
+          _ = /do
+            /let ui = load (u # i)
+            /let vi = load (v # i)
+            vBv += (ui * vi)
+            vv += (vi * vi)
+            done (i + 1)
+
+  output (load vBv)
+  output (load vv)
+
+  output (sqrt (load vBv / load vv))
+
+  0
+
+
+;; command line:
+;; ./spectral-norm.fort.exe 5500
+;; output:
+;; 1.274224153
