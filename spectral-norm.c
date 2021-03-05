@@ -44,8 +44,18 @@ int main(int argc, char *argv[])
       eval_AtA_times_u(N,u,v);
       eval_AtA_times_u(N,v,u);
     }
+
   vBv=vv=0;
-  for(i=0;i<N;i++) { vBv+=u[i]*v[i]; vv+=v[i]*v[i]; }
+  for(i=0;i<N;i++) {
+
+    vBv += u[i]*v[i];
+    vv  += v[i]*v[i];
+
+  }
+
+  printf("%0.9f\n",vBv);
+  printf("%0.9f\n",vv);
+
   printf("%0.9f\n",sqrt(vBv/vv));
   return 0;
 }

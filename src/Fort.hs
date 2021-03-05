@@ -422,7 +422,10 @@ ascribeLetFunc x d = case x of
 ppLetBindLam :: Pat -> Expr -> Doc ann
 ppLetBindLam x y = ppLam v $ letBind v x (ppExpr y)
   where
-    v :: Var = "v" `useLoc` x -- BAL: create a fresh variable
+    v :: Var = ("v'" ++ show i) `useLoc` x
+    i = case locOf x of
+      Loc a _ -> posCoff a
+      _ -> 0
 
 ppLam :: Var -> Doc ann -> Doc ann
 ppLam x y = parens ("\\" <> ppVar x <+> vcatIndent "->" y)

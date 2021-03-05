@@ -4,7 +4,6 @@ Int = /Signed 32
 UInt = /Unsigned 32
 Double = /Floating 64
 Bool = /Bool
-Handle = /Address (/Unsigned 64)
 
 Body = /Record
   x: Double
@@ -76,8 +75,6 @@ neptune = /record
 
 index: (/Address (/Array sz a), UInt) -> /Address a
 # = index
-
-;; array-size: /Address (/Array sz a) -> Int ;; BAL: should be array-count
 
 sqr: Double -> Double = \x => x * x
 
@@ -197,7 +194,7 @@ advance: (Bodies, Double) -> () = \(bodies, dt) => /do
         goDone(i + 1)
       _ = ()
 
-array-size: /Address (/Array sz a) -> UInt
+array-size: /Address (/Array sz a) -> UInt ;; BAL: should be array-count
 
 negate: Double -> Double = \x => 0 - x ;; until the fneg instr is supported in llvm haskell
 
@@ -218,10 +215,6 @@ offset_momentum: Bodies -> () = \bodies => /do
       
 store: (/Address a, a) -> ()
 := = store
-
-putc: (Int, Handle) -> () = /extern "putc"
-
-stdout: Handle = /extern "g_stdout"
 
 add: (a, a) -> a
 + = add
