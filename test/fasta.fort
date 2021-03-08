@@ -1,0 +1,339 @@
+Int = /Signed 32
+Int64 = /Signed 64
+UInt = /Unsigned 32
+Double = /Floating 64
+Bool = /Bool
+Char = /Char
+Seed = Int64
+GeneList = /Address (/Array 15 AminoAcid)
+LineBuf = /Address (/Array 61 Char)
+
+alu =
+  "GGCCGGGCGCGGTGGCTCACGCCTGTAATCCCAGCACTTTGGGAGGCCGAGGCGGGCGGATCACCTGAGGTCAGGAGTTCGAGACCAGCCTGGCCAACATGGTGAAACCCCGTCTCTACTAAAAATACAAAAATTAGCCGGGCGTGGTGGCGCGCGCCTGTAATCCCAGCTACTCGGGAGGCTGAGGCAGGAGAATCGCTTGAACCCGGGAGGCGGAGGTTGCAGTGAGCCGAGATCGCGCCACTGCACTCCAGCCTGGGCGACAGAGCGAGACTCCGTCTCAAAAA"
+
+main: (UInt, /Address (/Array 2 /String)) -> Int = \(argc, argv) => /do
+  /let n:UInt = /if
+    argc > 1 = cast (atoi(load (argv # 1)))
+    _ = 1000
+
+  /let iub = alloca ()
+  iub := init-iub
+
+  /let homosapiens = alloca ()
+  homosapiens := init-homosapiens
+
+  make-cumulative (iub, array-size iub)
+
+  ;; output iub
+
+  make-cumulative (cast homosapiens, array-size homosapiens)
+
+  ;; output homosapiens
+
+  make-repeat-fasta ("ONE", "Homo sapiens alu", alu, n * 2)
+  /let seed = make-random-fasta ("TWO", "IUB ambiguity codes", iub, array-size iub, n * 3, 42)
+  /let _ = make-random-fasta ("THREE", "Homo sapiens frequency", cast homosapiens, array-size homosapiens, n * 5, seed)
+
+  0
+
+min: (UInt, UInt) -> UInt = \(x, y) => /if
+  x <= y = x
+  _ = y
+
+strlen: /String -> UInt = /extern "strlen"
+strcpy: (/String, /String) -> () = /extern "strcpy"
+
+StringBuf = /Address (/Array 288 Char)
+
+make-repeat-fasta: (/String, /String, /String, UInt) -> () = \(id, desc, s, n0) => /do
+  output id
+  output desc
+  /let ss: StringBuf  = alloca ()
+  /let kn = strlen s
+
+  strcpy (cast ss, s)
+
+  output ss
+
+  /let buf: LineBuf = alloca () ;; BAL: shouldn't need this - should be able to get line-length from just the type
+  /let line-length = array-size buf - 1
+
+  go n0?????
+    /where
+      go:??? = \(n, k) => /if
+        n == 0 = ()
+        _ = /do
+          /let m = min (n, line-length)
+          /let (k', m') = loop (k, m)
+            /where
+              while: (UInt, UInt) -> (UInt, UInt) = \(k, m) => /if
+                m < kn - k = (k, m)
+                _ = /do
+                  ;; printf ...
+                  while (0, m - (kn - k))
+          (ss # (k + m)) = #"\0"
+          ;; puts (ss + k)
+          (ss # (k + m)) = (s # (k + m))
+          go (n - m, k + m)
+
+
+;; void makeRepeatFasta (const char * id, const char * desc, const char * 
+;; s, int n) {
+;;    char * ss;
+;;    int todo = n, k = 0, kn = strlen (s);
+;;    int m;
+
+;;    ss = (char *) malloc (kn + 1);
+;;    memcpy (ss, s, kn+1);
+
+;;    printf (">%s %s\n", id, desc);
+
+;;    for (; todo > 0; todo -= line-length) {
+;;        if (todo < line-length) m = todo; else m = line-length;
+
+;;        while (m >= kn - k) {
+;;            printf ("%s", s+k);
+;;            m -= kn - k;
+;;            k = 0;
+;;        }
+
+;;        ss[k + m] = '\0';
+;;        puts (ss+k);
+;;        ss[k + m] = s[m+k];
+;;        k += m;
+;;    }
+
+;;    free (ss);
+;; }
+
+
+im = 139968
+ia = 3877
+ic = 29573
+
+;; double gen_random (double max) {
+;;     static long last = 42;
+;;     return max * (last = (last * IA + IC) % IM) / IM;
+;; }
+
+;; /* Weighted selection from alphabet */
+
+;; void makeCumulative (struct aminoacids * genelist, int count) {
+;;     double cp = 0.0;
+;;     int i;
+
+;;     for (i=0; i < count; i++) {
+;;         cp += genelist[i].p;
+;;         genelist[i].p = cp;
+;;     }
+;; }
+
+make-cumulative: (GeneList, UInt) -> () = \(gene-list, count) => /do
+  go (0, 0)
+  /where
+    go: (UInt, Double) -> () = \(i, cp0) => /if
+      i >= count = ()
+      _ = /do
+        /let a = p (gene-list # i)
+        /let cp = cp0 + load a
+        a := cp
+        go (i + 1, cp)
+
+;; char selectRandom (const struct aminoacids * genelist, int count) {
+;;     double r = gen_random (1);
+;;     int i, lo, hi;
+
+;;     if (r < genelist[0].p) return genelist[0].c;
+
+;;     lo = 0;
+;;     hi = count-1;
+
+;;     while (hi > lo+1) {
+;;         i = (hi + lo) / 2;
+;;         if (r < genelist[i].p) hi = i; else lo = i;
+;;     }
+;;     return genelist[hi].c;
+;; }
+
+select-random: (GeneList, UInt, Double) -> Char = \(gene-list, count, r) => /do
+  /if
+    r < load (p (gene-list # 0)) = load (c (gene-list # 0))
+    _ = go (0, count - 1)
+      /where
+        go: (UInt, UInt) -> Char = \(lo, hi) => /if
+          hi <= (lo + 1) = load (c (gene-list # hi))
+          _ = /do
+            /let i = (hi + lo) / 2
+            /if
+              r < (load (p (gene-list # i))) = go (lo, i)
+              _ = go (i, hi)
+
+;; /* Generate and write FASTA format */
+
+;; void makeRandomFasta (const char * id, const char * desc, const struct 
+;; aminoacids * genelist, int count, int n) {
+;;    int todo = n;
+;;    int i, m;
+
+;;    printf (">%s %s\n", id, desc);
+
+;;    for (; todo > 0; todo -= line-length) {
+;;        char pick[line-length+1];
+;;        if (todo < line-length) m = todo; else m = line-length;
+;;        for (i=0; i < m; i++) pick[i] = selectRandom (genelist, count);
+;;        pick[m] = '\0';
+;;        puts (pick);
+;;    }
+;; }
+
+array-size: /Address (/Array sz a) -> UInt
+
+puts: /String -> () = /extern "puts"
+exit: Int -> () = /extern "exit"
+
+make-random-fasta: (/String, /String, GeneList, UInt, UInt, Seed) -> Seed =
+  \(id, desc, gene-list, count, n0, seed0) => /do
+    /let pick: LineBuf  = alloca ()
+    /let line-length = array-size pick - 1
+    output id
+    output desc
+    go (n0, seed0)
+      /where
+        go: (UInt, Seed) -> Seed = \(n, seed0) => /if
+          n == 0 = seed0
+          _ = /do
+            /let m = min (n, line-length)
+            /let seed = randomize (0, seed0)
+                /where
+                  randomize: (UInt, Seed) -> Seed = \(i, seed0) => /if
+                    i < m = /do
+                      /let (r, seed) = gen-random seed0
+                      output r
+                      (pick # i) := select-random (gene-list, count, r)
+                      randomize (i + 1, seed)
+                    _ = seed0
+            (pick # m) := #"\0"
+            ;; BAL: puts (cast pick)
+            go (n - m, seed)
+        
+        gen-random: Seed -> (Double, Seed) = \seed0 => /do ;; BAL: can't be top level because it returns two values
+          /let seed = ((seed0 * ia) + ic) % im
+          (cast seed / cast (im: Double), seed) ;; BAL: shouldn't need this type annotation(?)
+
+
+;; /* Main -- define alphabets, make 3 fragments */
+
+;; #define IUB_LEN (sizeof (iub) / sizeof (struct aminoacids))
+
+;; #define HOMOSAPIENS_LEN (sizeof (homosapiens) / sizeof (struct aminoacids))
+
+AminoAcid = /Record
+  c: Char
+  p: Double
+
+init-iub = /array
+  /record
+    c = #"a"
+    p = 0.27
+  /record
+    c = #"c"
+    p = 0.12
+  /record
+    c = #"g"
+    p = 0.12
+  /record
+    c = #"t"
+    p = 0.12
+  /record
+    c = #"B"
+    p = 0.02
+  /record
+    c = #"D"
+    p = 0.02
+  /record
+    c = #"H"
+    p = 0.02
+  /record
+    c = #"K"
+    p = 0.02
+  /record
+    c = #"M"
+    p = 0.02
+  /record
+    c = #"N"
+    p = 0.02
+  /record
+    c = #"R"
+    p = 0.02
+  /record
+    c = #"S"
+    p = 0.02
+  /record
+    c = #"V"
+    p = 0.02
+  /record
+    c = #"W"
+    p = 0.02
+  /record
+    c = #"Y"
+    p = 0.02
+
+init-homosapiens = /array
+  /record
+    c = #"a"
+    p = 0.3029549426680
+  /record
+    c = #"c"
+    p = 0.1979883004921
+  /record
+    c = #"g"
+    p = 0.1975473066391
+  /record
+    c = #"t"
+    p = 0.3015094502008
+
+;; Builtins
+index: (/Address (/Array sz a), UInt) -> /Address a
+# = index
+
+add: (a, a) -> a
++ = add
+
+subtract: (a, a) -> a
+- = subtract
+
+divide: (a, a) -> a
+/ = divide
+
+multiply: (a, a) -> a
+* = multiply
+
+remainder: (a, a) -> a
+% = remainder
+
+less-than-or-equals: (a, a) -> Bool
+<= = less-than-or-equals
+
+greater-than-or-equals: (a, a) -> Bool
+>= = greater-than-or-equals
+
+greater-than: (a, a) -> Bool
+> = greater-than
+
+less-than: (a, a) -> Bool
+< = less-than
+
+store: (/Address a, a) -> ()
+:= = store
+
+load : /Address a -> a
+
+equals: (a, a) -> Bool
+== = equals
+
+sqrt: a -> a
+output: a -> ()
+atoi: /String -> Int = /extern "atoi"
+alloca: () -> /Address a
+cast: a -> b
+
