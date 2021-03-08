@@ -7,6 +7,7 @@ module Parser ( grammar, readIntLit ) where
 import           Control.Applicative
 import           Control.Monad.State
 
+import Text.Read hiding (parens)
 import           Data.Char
 import           Data.Maybe
 import           Data.List
@@ -130,33 +131,42 @@ grammar = mdo
     pAscription <- rule $ reserved ":" *> pType <?> "type ascription"
     pVarOptionalAscription <- rule ((,) <$> pVar <*> optional pAscription)
     pConOptionalAscription <- rule ((,) <$> pCon <*> optional pAscription)
-    pAltPatOptionalAscription <- rule ((,) <$> pAltPat <*> optional pAscription)
+    pLitPatOptionalAscription <- rule ((,) <$> pLitPat <*> optional pAscription)
     pFieldDecl <- rule $ (,) <$> pBind pVarOptionalAscription <*> pExpr
     pExprDecl <- rule $ ED <$> pBind pPat <*> pExpr
     pDefaultPat <- rule $ ((DefaultP, Nothing), )
         <$> (Lam <$> pLam pPat <*> pLamE <?> "default pattern")
-    pAlt <- rule $ ((,) <$> pBind pAltPatOptionalAscription <*> pExpr)
+    pAlt <- rule $ ((,) <$> pBind pLitPatOptionalAscription <*> pExpr)
         <|> pDefaultPat
     let pIfAlt = (,) <$> pExpr <*> (reserved "=" *> pExpr)
+    pStmt :: P r Stmt <- rule $
+        (Stmt <$> pExpr <?> "statement")
+        <|> (Let <$> (reserved "/let" *> pExprDecl) <?> "let binding")
     pExpr :: P r Expr <- rule $
         (mkWhere <$> pLamE <*> (reserved "/where" *> blockList pExprDecl)
          <?> "where clause") <|> pLamE
-    pLamE <- rule $ (Lam <$> pLam pPat <*> pLamE <?> "lambda expression")
-        <|> (Let <$> (reserved "/let" *> pExprDecl) <?> "let binding")
+    pLamE <- rule $
+        (Lam <$> pLam pPat <*> pLamE <?> "lambda expression")
         <|> pOpAppE
-    pOpAppE <- rule $ (App <$> (App <$> pAppE <*> pOpE) <*> pAppE)
-        <|> (App <$> pAppE <*> pOpE) <|> (App <$> pOpE <*> pAppE) <|> pOpE
+    pOpAppE <- rule $
+        (App <$> (App <$> pAppE <*> pOpE) <*> pAppE)
+        <|> (App <$> pAppE <*> pOpE)
+        <|> (App <$> pOpE <*> pAppE)
+        <|> pOpE
         <|> pAppE
-    pAppE <- rule $ (mkApp <$> pAppE <*> pKeywordE <?> "application")
+    pAppE <- rule $
+        (mkApp <$> pAppE <*> pKeywordE <?> "application")
         <|> pKeywordE
     pKeywordE <- rule $
-        (Sequence <$> (reserved "/do" *> blockList pExpr) <?> "do block")
+        (Sequence <$> (reserved "/do" *> blockList pStmt) <?> "do block")
         <|> (Case <$> (reserved "/case" *> pExpr <* reserved "/of")
              <*> blockList pAlt <?> "case expression")
         <|> (If <$> (reserved "/if" *> blockList pIfAlt) <?> "if expression")
-        <|> (pure Extern <* reserved "/extern" <?> "/extern") <|> pAscriptionE
+        <|> (Extern <$> (reserved "/extern" *> pStringLit) <?> "/extern")
+        <|> pAscriptionE
     pAscriptionE <- rule $ (Ascription <$> pE0 <*> pAscription) <|> pE0
-    pE0 <- rule $ (Record <$> (reserved "/record" *> blockList pFieldDecl) <?> "record")
+    pE0 <- rule $
+        (Record <$> (reserved "/record" *> blockList pFieldDecl) <?> "record")
         <|> (mkTuple <$> pSomeTuple (optional pExpr) <?> "tuple")
         -- ^ pSomeTuple is needed because the expr is optional to support partial application
         <|> (Array <$> (reserved "/array" *> blockList pExpr) <?> "array")
@@ -222,7 +232,9 @@ pCharLit :: P r (L Char)
 pCharLit = f <$> satisfy hasCharLitPrefix <?> "character literal"
   where
     f s = case unLoc s of
-        [ '#', '"', c, '"' ] -> c `useLoc` s
+        '#' : str@('"' : cs) | last cs == '"' -> case readMaybe str :: Maybe String of
+          Just [c] -> c `useLoc` s
+          _ -> error $ "unable to parse character literal:" ++ show s
         _ -> error $ "unexpected character literal syntax:" ++ show s
 
 pStringLit :: P r Token
@@ -250,8 +262,8 @@ readFloatLitErrMsg = "float literal"
 readBin :: String -> Int
 readBin = foldl' (\acc x -> acc * 2 + digitToInt x) 0
 
-pAltPat :: P r AltPat
-pAltPat = ConP <$> pCon <|> IntP <$> pIntLit <|> CharP <$> pCharLit
+pLitPat :: P r AltPat
+pLitPat = ConP <$> pCon <|> IntP <$> pIntLit <|> CharP <$> pCharLit
     <|> StringP <$> pStringLit
 
 startsWith :: (Char -> Bool) -> String -> Bool

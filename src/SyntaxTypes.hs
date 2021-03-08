@@ -94,16 +94,25 @@ data Expr -- BAL: pass locations through to all constructs
     | Lam Pat Expr
     | App Expr Expr
     | Where Expr [ExprDecl]
-    | Let ExprDecl
     | If [(Expr, Expr)]
     | Case Expr [Alt]
-    | Sequence [Expr]
+    | Sequence [Stmt]
     | Array [Expr]
     | Record [((Var, Maybe Type), Expr)]
     | Tuple [Maybe Expr]
     | Ascription Expr Type
-    | Extern
+    | Extern (L String)
     deriving Show
+
+data Stmt
+  = Stmt Expr
+  | Let ExprDecl
+  deriving Show
+
+instance Pretty Stmt where
+  pretty x = case x of
+    Stmt a -> pretty a
+    Let a -> "/let" <+> pretty a
 
 instance Pretty Expr where
   pretty x = case x of
@@ -111,7 +120,6 @@ instance Pretty Expr where
     Lam a b -> "\\" <> pretty a <+> "=>" <+> pretty b
     App a b -> parens (pretty a <+> pretty b)
     Where a bs -> vcatIndent (pretty a) $ vcatIndent "/where" $ vcat (map pretty bs)
-    Let a -> "/let" <+> pretty a
     If bs -> vcatIndent "/if" $ vcat [ pretty c <+> "=" <+> pretty d | (c, d) <- bs ]
     Case a bs -> vcatIndent ("/case" <+> pretty a <+> "/of") $ vcat $ map ppAlt bs
     Sequence bs -> vcatIndent "/do" $ vcat $ map pretty bs
@@ -120,7 +128,7 @@ instance Pretty Expr where
     Tuple [b] -> pretty b
     Tuple bs -> ppTuple $ map (maybe mempty pretty) bs
     Ascription a b -> pretty a <> ":" <+> pretty b
-    Extern -> "/extern"
+    Extern a -> "/extern" <+> pretty (show a)
 
 ppAlt :: Alt -> Doc ann
 ppAlt ((p, mt), e) = ppAscription (pretty p) mt <+> "=" <+> pretty e

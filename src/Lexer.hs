@@ -169,9 +169,8 @@ octLit = (:) <$> sym '0' <*> ((:) <$> sym 'o' <*> some (psym octDigit))
 binLit :: Tok
 binLit = (:) <$> sym '0' <*> ((:) <$> sym 'b' <*> some (psym binDigit))
 
-stringLit :: Tok
-stringLit = (\a bs c -> a : concat bs ++ [ c ]) <$> sym '"' <*> many p
-    <*> sym '"'
+stringLit :: Tok -- BAL: this is implementation doesn't handle things, e.g. "\123"
+stringLit = (\a bs c -> a : concat bs ++ [ c ]) <$> sym '"' <*> many p <*> sym '"'
   where
     p = esc <|> ((: []) <$> psym (\c -> c /= '"' && c /= '\n'))
 

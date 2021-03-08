@@ -32,6 +32,7 @@ int main(int argc, char**argv)
 
   /* printf("sizeof int %lu\n", sizeof(int)); */
   /* printf("sizeof FILE* %lu\n", sizeof(FILE*)); */
+  /* printf("sizeof long %lu\n", sizeof(long)); */
 
   return _main(argc, argv);
 

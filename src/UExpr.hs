@@ -397,41 +397,49 @@ bitop s f g tab tc = case tc of
     TyInteger Signed _ _ -> binaryInstr s g tab tc
     _ -> opTyErr s tc
 
-floatIntrinsic :: String -> Type -> Type -> E (a -> b)
-floatIntrinsic n tA tB = case tA of
-  TyFloat sz -> extern ("llvm." ++ n ++ ".f" ++ show sz) (TyFun tA tB)
-  _ -> opTyErr n tA
+floatIntrinsic :: Type -> String -> Type -> Type -> E (a -> b)
+floatIntrinsic ty n tA tB = extern ("llvm." ++ n ++ ".f" ++ show (sizeFort ty)) (TyFun tA tB)
 
-intIntrinsic :: String -> Type -> Type -> E (a -> b)
-intIntrinsic n tA tB = case tA of
-  TyInteger _ sz _ -> extern ("llvm." ++ n ++ ".i" ++ show sz) (TyFun tA tB)
-  _ -> opTyErr n tA
+unopFloatIntrinsic :: String -> Type -> Type -> E (a -> b)
+unopFloatIntrinsic n tA tB = floatIntrinsic tA n tA tB
+
+binopFloatIntrinsic :: String -> Type -> Type -> Type -> E (a -> b)
+binopFloatIntrinsic n tA tB tC = floatIntrinsic tA n (tyTuple [tA, tB]) tC
+
+intIntrinsic :: Type -> String -> Type -> Type -> E (a -> b)
+intIntrinsic ty n tA tB = extern ("llvm." ++ n ++ ".i" ++ show (sizeFort ty)) (TyFun tA tB)
+
+unopIntIntrinsic :: String -> Type -> Type -> E (a -> b)
+unopIntIntrinsic n tA tB = intIntrinsic tA n tA tB
+
+binopIntIntrinsic :: String -> Type -> Type -> Type -> E (a -> b)
+binopIntIntrinsic n tA tB tC = intIntrinsic tA n (tyTuple [tA, tB]) tC
 
 floor :: Type -> Type -> E (a -> a)
-floor = floatIntrinsic "floor"
+floor = unopFloatIntrinsic "floor"
 
 ceiling :: Type -> Type -> E (a -> a)
-ceiling = floatIntrinsic "ceil"
+ceiling = unopFloatIntrinsic "ceil"
 
 truncate :: Type -> Type -> E (a -> a)
-truncate = floatIntrinsic "trunc"
+truncate = unopFloatIntrinsic "trunc"
 
 round :: Type -> Type -> E (a -> a)
-round = floatIntrinsic "round"
+round = unopFloatIntrinsic "round"
 
 sqrt :: Type -> Type -> E (a -> a)
-sqrt = floatIntrinsic "sqrt"
+sqrt = unopFloatIntrinsic "sqrt"
 
 sin :: Type -> Type -> E (a -> a)
-sin = floatIntrinsic "sin"
+sin = unopFloatIntrinsic "sin"
 
 cos :: Type -> Type -> E (a -> a)
-cos = floatIntrinsic "cos"
+cos = unopFloatIntrinsic "cos"
 
 abs :: Type -> Type -> E (a -> a)
 abs tA tB = case tA of
-  TyFloat{} -> floatIntrinsic n tA tB
-  TyInteger Signed _ _ -> intIntrinsic n tA tB
+  TyFloat{} -> unopFloatIntrinsic n tA tB
+  TyInteger Signed _ _ -> unopIntIntrinsic n tA tB
   _ -> opTyErr n tA
   where
     n = "abs"
@@ -439,30 +447,25 @@ abs tA tB = case tA of
 pow :: (Type, Type) -> Type -> E ((a, b) -> a)
 pow (tA, tB) tC = case tA of
   TyFloat{} -> case tB of
-    TyFloat{} -> floatIntrinsic "pow" tT tC
-    TyInteger{} -> floatIntrinsic "powi" tT tC
+    TyFloat{} -> binopFloatIntrinsic "pow" tA tB tC
+    TyInteger{} -> binopFloatIntrinsic "powi" tA tB tC
     _ -> opTyErr "pow" tB
   _ -> opTyErr "pow" tA
-  where
-    tT = tyTuple [tA, tB]
 
-min :: (Type, Type) -> Type -> E ((a, a) -> a)
-min (tA, tB) tC = case tA of
-  TyFloat{} -> floatIntrinsic "minnum" tT tC
-  TyInteger Signed _ _ -> intIntrinsic "smin" tT tC
-  TyInteger Unsigned _ _ -> intIntrinsic "umin" tT tC
-  _ -> opTyErr "min" tA
-  where
-    tT = tyTuple [tA, tB]
+-- BAL: these aren't available in llvm 9
+-- min :: (Type, Type) -> Type -> E ((a, a) -> a)
+-- min (tA, tB) tC = case tA of
+--   TyFloat{} -> binopFloatIntrinsic "minnum" tA tB tC
+--   TyInteger Signed _ _ -> binopIntIntrinsic "smin" tA tB tC
+--   TyInteger Unsigned _ _ -> binopIntIntrinsic "umin" tA tB tC
+--   _ -> opTyErr "min" tA
 
-max :: (Type, Type) -> Type -> E ((a, a) -> a)
-max (tA, tB) tC = case tA of
-  TyFloat{} -> floatIntrinsic "maxnum" tT tC
-  TyInteger Signed _ _ -> intIntrinsic "smax" tT tC
-  TyInteger Unsigned _ _ -> intIntrinsic "umax" tT tC
-  _ -> opTyErr "max" tA
-  where
-    tT = tyTuple [tA, tB]
+-- max :: (Type, Type) -> Type -> E ((a, a) -> a)
+-- max (tA, tB) tC = case tA of
+--   TyFloat{} -> binopFloatIntrinsic "maxnum" tA tB tC
+--   TyInteger Signed _ _ -> binopIntIntrinsic "smax" tA tB tC
+--   TyInteger Unsigned _ _ -> binopIntIntrinsic "umax" tA tB tC
+--   _ -> opTyErr "max" tA
 
 -- BAL: memcpy, memcpy.inline, memset, memmove
 

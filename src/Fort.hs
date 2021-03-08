@@ -58,7 +58,9 @@ parse toks = case toks of
     _ -> case (asts, unconsumed rpt) of
         ([ ast ], []) -> Right ast
         ([], _) -> Left rpt
-        _ -> error $ unlines $ map show asts
+        -- (asts, _) -> error $ unlines $ map (show . pretty) asts
+        (bs, _) -> error $ unlines $ map (show) bs
+        -- error "ambiguous parse" -- error $ unlines $ map show asts
   where
     (asts, rpt) = fullParses (parser grammar) toks
 
@@ -67,7 +69,7 @@ reportErrors fn s toks rpt = case unconsumed rpt of
     [] -> do
         putStrLn ""
         hPutStrLn stderr (fn ++ ":ambiguous parse")
-        hPutStrLn stderr $ show toks
+        -- hPutStrLn stderr $ show toks
         -- mapM_ (\z -> hPutStrLn stderr "" >> mapM_ (hPrint stderr . show) z) asts
     _ -> do
         putStrLn ""
@@ -191,19 +193,23 @@ declTypes x = case x of
 exprTypes :: Expr -> [Type]
 exprTypes x = case x of
     Prim{} -> []
-    Extern -> []
+    Extern{} -> []
     Lam a b -> patTypes a ++ exprTypes b
     App a b -> exprTypes a ++ exprTypes b
     Where a b -> exprTypes a ++ concatMap exprDeclTypes b
     If ds -> concatMap (exprTypes . fst) ds ++ concatMap (exprTypes . snd) ds
-    Sequence bs -> concatMap exprTypes bs
+    Sequence bs -> concatMap stmtTypes bs
     Record bs -> concat [ maybeToList mt ++ exprTypes e | ((_, mt), e) <- bs ]
     Tuple bs -> concatMap exprTypes $ catMaybes bs
     Case a bs -> exprTypes a
         ++ concat [ maybeToList mt ++ exprTypes e | ((_, mt), e) <- bs ]
-    Let a -> exprDeclTypes a
     Ascription a b -> b : exprTypes a
     Array bs -> TySize (L NoLoc $ length bs) : concatMap exprTypes bs
+
+stmtTypes :: Stmt -> [Type]
+stmtTypes x = case x of
+  Stmt a -> exprTypes a
+  Let a -> exprDeclTypes a
 
 ppToken :: Token -> Doc ann
 ppToken = ppLoc
@@ -461,9 +467,7 @@ ppType x = case x of
 ppExpr :: Expr -> Doc ann
 ppExpr x = case x of
     Prim a -> ppPrim a
-    App Extern b -> case b of
-        Prim (StringL s) -> parens ("T.extern" <+> pretty (unLoc s))
-        _ -> error "/extern can only be applied to a constant string"
+    Extern s -> parens ("T.extern" <+> pretty (unLoc s))
     App a b
         | isOpExpr b -> parens (parens ("T.opapp" <+> ppExpr a) <+> ppExpr b)
         | otherwise -> parens (parens ("T.app" <+> ppExpr a) <+> ppExpr b)
@@ -497,8 +501,6 @@ ppExpr x = case x of
     Record bs -> parens ("T.record" <> ppListV (map ppRecordField bs))
     Array [] -> error "arrays must contain at least one element"
     Array bs -> parens ("T.array" <+> ppSizeCon (length bs) <+> ppListV (map ppExpr bs))
-    Extern{} -> impossible "ppExpr:Extern"
-    Let{} -> userError "unexpected let expression"
 
 ppRecordField :: ((Var, Maybe Type), Expr) -> Doc ann
 ppRecordField ((x, mt), e) =
@@ -530,16 +532,18 @@ ppAltCon x e = case x of
     DefaultP -> parens (ppExpr e)
     _ -> "T.const" <+> parens (ppExpr e)
 
-ppSequence :: [Expr] -> Doc ann
+ppSequence :: [Stmt] -> Doc ann
 ppSequence = go []
   where
     go _ [] = error "ppSequence"
-    go rs [ b ] = f rs (ppExpr b)
+    go rs [ b ] = case b of
+      Stmt e -> f rs (ppExpr e)
+      Let{} -> error "last statement in a sequence can't be a let binding"
     go rs (b : bs) = case b of
         Let (ED v e) -> f rs
                           ("T.let_" <+> stringifyPat v <+> parens (ppExpr e)
                            <+> ppLetBindLam v (Sequence bs))
-        _ -> go (b : rs) bs
+        Stmt e -> go (e : rs) bs
 
     f rs d = parens ("T.seqs" <> ppListV (map ppExpr $ reverse rs) <+> parens d)
 

@@ -211,11 +211,12 @@ abs = unop U.abs
 pow :: (Ty a, Ty b) => E ((a, b) -> a)
 pow = binop U.pow
 
-min :: Ty a => E ((a, a) -> a)
-min = binop U.min
+-- BAL: min/max not available in llvm 9
+-- min :: Ty a => E ((a, a) -> a)
+-- min = binop U.min
 
-max :: Ty a => E ((a, a) -> a)
-max = binop U.max
+-- max :: Ty a => E ((a, a) -> a)
+-- max = binop U.max
 
 value :: Ty a => (Type -> e a) -> e a
 value (f :: Type -> e a) = go Proxy

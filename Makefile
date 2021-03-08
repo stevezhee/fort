@@ -35,7 +35,8 @@ FORT_FILES=$(filter-out $(EXCLUDE_FILES), $(ALL_FORT_FILES))
 # FORT_FILES=$(TEST_DIR)/floating.fort
 # FORT_FILES=$(TEST_DIR)/mandelbrot.fort
 # FORT_FILES=$(TEST_DIR)/n-body.fort
-FORT_FILES=$(TEST_DIR)/spectral-norm.fort
+# FORT_FILES=$(TEST_DIR)/spectral-norm.fort
+FORT_FILES=$(TEST_DIR)/fasta.fort
 
 GEN_HS_FILES=$(addsuffix .hs, $(FORT_FILES))
 LL_FILES=$(addsuffix .ll, $(FORT_FILES))
@@ -46,9 +47,14 @@ NO_MAIN=$(TEST_DIR)/empty.fort $(TEST_DIR)/todd.fort
 
 EXES=$(addsuffix .exe, $(filter-out $(NO_MAIN), $(FORT_FILES)))
 
-.PHONY: all n-body spectral-norm
+.PHONY: all n-body spectral-norm fasta
 
-all: spectral-norm $(O_FILES) $(EXES)
+all: fasta $(O_FILES) $(EXES)
+
+fasta: $(TEST_DIR)/fasta.fort.exe fasta.exe
+	./fasta.exe | head -n 50 | tee t.txt
+	./$(TEST_DIR)/fasta.fort.exe | head -n 50 | tee tt.txt
+#	diff t.txt tt.txt
 
 spectral-norm: $(TEST_DIR)/spectral-norm.fort.exe spectral-norm.exe
 	./spectral-norm.exe | tee t.txt
@@ -90,7 +96,7 @@ a.out.actual: $(OUT_FILE)
 	stack runghc -- -Wall -isrc $<
 
 %.fort.s: %.fort.ll
-	$(OPT) -S $(OPTLVL) -o $< $<
+	#$(OPT) -S $(OPTLVL) -o $< $<
 	$(LLC) $<
 
 %.fort.o: %.fort.s
