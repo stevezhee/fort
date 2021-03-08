@@ -72,7 +72,7 @@ make-repeat-fasta: (/String, /String, /String, UInt) -> () = \(id, desc, s, n0) 
                   ;; printf ...
                   while (0, m - (kn - k))
           (ss # (k + m)) = #"\0"
-          ;; puts (ss + k)
+          ;; ;; puts (ss + k)
           (ss # (k + m)) = (s # (k + m))
           go (n - m, k + m)
 
