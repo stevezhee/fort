@@ -32,12 +32,13 @@ void makeCumulative (struct aminoacids * genelist, int count) {
     for (i=0; i < count; i++) {
         cp += genelist[i].p;
         genelist[i].p = cp;
+        // printf("%c %f\n", genelist[i].c, genelist[i].p);
     }
 }
 
 char selectRandom (const struct aminoacids * genelist, int count) {
   double r = gen_random (); // BAL: why pass in a 1?
-  printf("%f\n", r);
+  // printf("%f\n", r);
     int i, lo, hi;
 
     if (r < genelist[0].p) return genelist[0].c;
@@ -79,22 +80,27 @@ s, int n) {
    int m;
 
    ss = (char *) malloc (kn + 1);
+   // printf("malloc %d\n", kn + 1);
    memcpy (ss, s, kn+1);
 
    printf (">%s %s\n", id, desc);
 
    for (; todo > 0; todo -= LINE_LENGTH) {
-       if (todo < LINE_LENGTH) m = todo; else m = LINE_LENGTH;
+       if (todo < LINE_LENGTH) m = todo;
+       else m = LINE_LENGTH;
 
        while (m >= kn - k) {
-           printf ("%s", s+k);
+         // printf ("%d\n", m);
            m -= kn - k;
+           // printf ("%d\n", m);
            k = 0;
        }
+       // printf ("%d\n", m);
 
        ss[k + m] = '\0';
-       // BAL: puts (ss+k);
+       puts (ss+k);
        ss[k + m] = s[m+k];
+       //      printf("%d\n", m);
        k += m;
    }
 
@@ -152,8 +158,7 @@ int main (int argc, char * argv[]) {
 
     makeRepeatFasta ("ONE", "Homo sapiens alu", alu, n*2);
     makeRandomFasta ("TWO", "IUB ambiguity codes", iub, IUB_LEN, n*3);
-    makeRandomFasta ("THREE", "Homo sapiens frequency", homosapiens, 
-HOMOSAPIENS_LEN, n*5);
+    makeRandomFasta ("THREE", "Homo sapiens frequency", homosapiens, HOMOSAPIENS_LEN, n*5);
 
     return 0;
 }

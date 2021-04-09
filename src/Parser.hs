@@ -140,11 +140,12 @@ grammar = mdo
         <|> pDefaultPat
     let pIfAlt = (,) <$> pExpr <*> (reserved "=" *> pExpr)
     pStmt :: P r Stmt <- rule $
-        (Stmt <$> pExpr <?> "statement")
+        (Stmt <$> pExpr <?> "expression")
         <|> (Let <$> (reserved "/let" *> pExprDecl) <?> "let binding")
     pExpr :: P r Expr <- rule $
+        pLamE <|>
         (mkWhere <$> pLamE <*> (reserved "/where" *> blockList pExprDecl)
-         <?> "where clause") <|> pLamE
+         <?> "where clause")
     pLamE <- rule $
         (Lam <$> pLam pPat <*> pLamE <?> "lambda expression")
         <|> pOpAppE
@@ -171,7 +172,8 @@ grammar = mdo
         -- ^ pSomeTuple is needed because the expr is optional to support partial application
         <|> (Array <$> (reserved "/array" *> blockList pExpr) <?> "array")
         <|> (Prim <$> pPrimNotOp)
-    pPat <- rule $ (VarP <$> pVar <*> optional pAscription <?> "var pattern")
+    pPat <- rule $
+        (VarP <$> pVar <*> optional pAscription <?> "var pattern")
         <|> (TupleP <$> pTuple pPat <*> optional pAscription <?> "tuple pattern")
     return (listItems pDecl)
   where

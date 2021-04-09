@@ -49,12 +49,12 @@ EXES=$(addsuffix .exe, $(filter-out $(NO_MAIN), $(FORT_FILES)))
 
 .PHONY: all n-body spectral-norm fasta
 
-all: fasta $(O_FILES) $(EXES)
+all: fasta n-body spectral-norm $(O_FILES) $(EXES)
 
 fasta: $(TEST_DIR)/fasta.fort.exe fasta.exe
-	./fasta.exe | head -n 50 | tee t.txt
-	./$(TEST_DIR)/fasta.fort.exe | head -n 50 | tee tt.txt
-#	diff t.txt tt.txt
+	./fasta.exe > t.txt
+	./$(TEST_DIR)/fasta.fort.exe > tt.txt
+	-diff t.txt tt.txt
 
 spectral-norm: $(TEST_DIR)/spectral-norm.fort.exe spectral-norm.exe
 	./spectral-norm.exe | tee t.txt

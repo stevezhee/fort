@@ -8,6 +8,9 @@ Seed = Int64
 GeneList = /Address (/Array 15 AminoAcid)
 LineBuf = /Address (/Array 61 Char)
 
+;; alu =
+  ;; "GGCCGGGCGCGGTGGCTCACGCCTGTAATCCCAGCACTTTGGGAGGCCGAGGCGGGCGGATCACCTGAGGTCAGGAGTTCGAGACCAGCCTGGCCAACATGGTGAAACCCCGTCTCTACTAAAAATACAAAAATTAGCCGGGCGTGGTGGCGCGCGCCTGTAATCCCAGCTACTCGGGAGGCTGAGGCAGGAGAATCGCTTGAACCCGGGAGGCGGAGGTTGCAGTGAGCCGAGATCGCGCCACTGCACTCCAGCCTGGGCGACAGAGCGAGACTCCGTCTCAAAAA"
+
 alu =
   "GGCCGGGCGCGGTGGCTCACGCCTGTAATCCCAGCACTTTGGGAGGCCGAGGCGGGCGGATCACCTGAGGTCAGGAGTTCGAGACCAGCCTGGCCAACATGGTGAAACCCCGTCTCTACTAAAAATACAAAAATTAGCCGGGCGTGGTGGCGCGCGCCTGTAATCCCAGCTACTCGGGAGGCTGAGGCAGGAGAATCGCTTGAACCCGGGAGGCGGAGGTTGCAGTGAGCCGAGATCGCGCCACTGCACTCCAGCCTGGGCGACAGAGCGAGACTCCGTCTCAAAAA"
 
@@ -45,36 +48,39 @@ strcpy: (/String, /String) -> () = /extern "strcpy"
 
 StringBuf = /Address (/Array 288 Char)
 
-make-repeat-fasta: (/String, /String, /String, UInt) -> () = \(id, desc, s, n0) => /do
+make-repeat-fasta: (/String, /String, /String, UInt) -> () = \(id, desc, s0, n0) => /do
   output id
   output desc
-  /let ss: StringBuf  = alloca ()
-  /let kn = strlen s
+  /let kn = strlen s0
+  /let s: StringBuf = cast s0
+  /let ss: StringBuf = alloca ()
+  strcpy (cast ss, s0)
 
-  strcpy (cast ss, s)
-
-  output ss
+  ;; output ss
 
   /let buf: LineBuf = alloca () ;; BAL: shouldn't need this - should be able to get line-length from just the type
   /let line-length = array-size buf - 1
 
-  go n0?????
+  go (n0, 0)
     /where
-      go:??? = \(n, k) => /if
+      go: (UInt, UInt) -> () = \(n, k0) => /if
         n == 0 = ()
         _ = /do
-          /let m = min (n, line-length)
-          /let (k', m') = loop (k, m)
+          /let todo = min (n, line-length)
+          /let (k, m) = while (k0, todo)
             /where
               while: (UInt, UInt) -> (UInt, UInt) = \(k, m) => /if
-                m < kn - k = (k, m)
+                m < (kn - k) = (k, m)
                 _ = /do
-                  ;; printf ...
+                  ;; output (s # k)
+                  ;; output m
+                  ;; output (m - (kn - k))
                   while (0, m - (kn - k))
-          (ss # (k + m)) = #"\0"
-          ;; ;; puts (ss + k)
-          (ss # (k + m)) = (s # (k + m))
-          go (n - m, k + m)
+          ;; output m
+          (ss # (k + m)) := #"\0"
+          puts (cast (ss # k))
+          (ss # (k + m)) := (load (s # (k + m)))
+          go (n - todo, k + m)
 
 
 ;; void makeRepeatFasta (const char * id, const char * desc, const char * 
@@ -137,6 +143,7 @@ make-cumulative: (GeneList, UInt) -> () = \(gene-list, count) => /do
         /let a = p (gene-list # i)
         /let cp = cp0 + load a
         a := cp
+        ;; output (load a)
         go (i + 1, cp)
 
 ;; char selectRandom (const struct aminoacids * genelist, int count) {
@@ -206,14 +213,14 @@ make-random-fasta: (/String, /String, GeneList, UInt, UInt, Seed) -> Seed =
             /let seed = randomize (0, seed0)
                 /where
                   randomize: (UInt, Seed) -> Seed = \(i, seed0) => /if
-                    i < m = /do
+                    i >= m = seed0
+                    _ = /do
                       /let (r, seed) = gen-random seed0
-                      output r
+                      ;; output r
                       (pick # i) := select-random (gene-list, count, r)
                       randomize (i + 1, seed)
-                    _ = seed0
             (pick # m) := #"\0"
-            ;; BAL: puts (cast pick)
+            puts (cast pick)
             go (n - m, seed)
         
         gen-random: Seed -> (Double, Seed) = \seed0 => /do ;; BAL: can't be top level because it returns two values
@@ -243,7 +250,7 @@ init-iub = /array
     p = 0.12
   /record
     c = #"t"
-    p = 0.12
+    p = 0.27
   /record
     c = #"B"
     p = 0.02

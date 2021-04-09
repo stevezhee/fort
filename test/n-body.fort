@@ -110,7 +110,7 @@ main: (Int, /Address (/Array 2 /String)) -> Int = \(argc, argv) => /do
   /let bodies = alloca ()
   bodies := init-bodies
 
-  output (energy bodies)
+  ;; output (energy bodies)
   offset-momentum bodies
   output (energy bodies)
   advance-n (bodies, 0.01, n)
