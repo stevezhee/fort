@@ -180,16 +180,16 @@ main: (Int, /Address (/Array 2 /String)) -> Int = \(argc, argv) => /do
     _ = /do
       /let linear: Perm = alloca ()
       init-linear linear
-      output linear
+      ;; output linear
 
       /let rev: Perm = alloca ()
       rev := test-perm
-      output rev
+      ;; output rev
       reverse-n (5, rev)
-      output rev
+      ;; output rev
 
       rev := test-perm
-      output (num-flips rev)
+      ;; output (num-flips rev)
       7
   
   output (permutations n)

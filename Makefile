@@ -36,7 +36,7 @@ FORT_FILES=$(filter-out $(EXCLUDE_FILES), $(ALL_FORT_FILES))
 # FORT_FILES=$(TEST_DIR)/mandelbrot.fort
 # FORT_FILES=$(TEST_DIR)/n-body.fort
 # FORT_FILES=$(TEST_DIR)/spectral-norm.fort
-FORT_FILES=$(TEST_DIR)/fasta.fort
+# FORT_FILES=$(TEST_DIR)/fasta.fort
 
 GEN_HS_FILES=$(addsuffix .hs, $(FORT_FILES))
 LL_FILES=$(addsuffix .ll, $(FORT_FILES))
@@ -47,9 +47,19 @@ NO_MAIN=$(TEST_DIR)/empty.fort $(TEST_DIR)/todd.fort
 
 EXES=$(addsuffix .exe, $(filter-out $(NO_MAIN), $(FORT_FILES)))
 
-.PHONY: all n-body spectral-norm fasta
+.PHONY: all n-body spectral-norm fasta fannkuch-redux mandelbrot
 
-all: fasta n-body spectral-norm $(O_FILES) $(EXES)
+all: fannkuch-redux fasta n-body spectral-norm $(O_FILES) $(EXES)
+
+mandelbrot: mandelbrot.exe $(TEST_DIR)/mandelbrot.fort.exe
+	./mandelbrot.exe > t.pbm
+	./$(TEST_DIR)/mandelbrot.fort.exe > tt.pbm
+	diff t.pbm tt.pbm
+
+fannkuch-redux: $(TEST_DIR)/fannkuch-redux.fort.exe fannkuch-redux.exe
+	./fannkuch-redux.exe > t.txt
+	./$(TEST_DIR)/fannkuch-redux.fort.exe > tt.txt
+	-diff t.txt tt.txt
 
 fasta: $(TEST_DIR)/fasta.fort.exe fasta.exe
 	./fasta.exe > t.txt
