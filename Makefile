@@ -59,12 +59,12 @@ mandelbrot: mandelbrot.exe $(TEST_DIR)/mandelbrot.fort.exe
 fannkuch-redux: $(TEST_DIR)/fannkuch-redux.fort.exe fannkuch-redux.exe
 	./fannkuch-redux.exe > t.txt
 	./$(TEST_DIR)/fannkuch-redux.fort.exe > tt.txt
-	-diff t.txt tt.txt
+	diff t.txt tt.txt
 
 fasta: $(TEST_DIR)/fasta.fort.exe fasta.exe
 	./fasta.exe > t.txt
 	./$(TEST_DIR)/fasta.fort.exe > tt.txt
-	-diff t.txt tt.txt
+	diff t.txt tt.txt
 
 spectral-norm: $(TEST_DIR)/spectral-norm.fort.exe spectral-norm.exe
 	./spectral-norm.exe | tee t.txt

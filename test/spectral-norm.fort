@@ -149,9 +149,12 @@ main: (UInt, /Address (/Array 2 /String)) -> Int = \(argc, argv) => /do
             done (i + 1)
 
   output (load vBv)
+  output "\n"
   output (load vv)
+  output "\n"
 
   output (sqrt (load vBv / load vv))
+  output "\n"
 
   0
 

@@ -113,8 +113,10 @@ main: (Int, /Address (/Array 2 /String)) -> Int = \(argc, argv) => /do
   ;; output (energy bodies)
   offset-momentum bodies
   output (energy bodies)
+  output "\n"
   advance-n (bodies, 0.01, n)
   output (energy bodies)
+  output "\n"
 
   0
 

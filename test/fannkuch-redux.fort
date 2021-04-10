@@ -104,6 +104,7 @@ permutations: Int -> Int = \n => /do
           r < n = computePerms (r, idx + 1, mx, csum)
           _ = /do
             output csum
+            output "\n"
             mx
 
       updateCounts: Int -> () = \r0 =>
@@ -191,6 +192,10 @@ main: (Int, /Address (/Array 2 /String)) -> Int = \(argc, argv) => /do
       rev := test-perm
       ;; output (num-flips rev)
       7
-  
-  output (permutations n)
+  /let r = permutations n  
+  output "Pfannkuchen("
+  output n
+  output ") = "
+  output r
+  output "\n"
   0

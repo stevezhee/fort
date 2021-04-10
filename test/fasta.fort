@@ -49,8 +49,12 @@ strcpy: (/String, /String) -> () = /extern "strcpy"
 StringBuf = /Address (/Array 288 Char)
 
 make-repeat-fasta: (/String, /String, /String, UInt) -> () = \(id, desc, s0, n0) => /do
+  output ">"
   output id
+  output " "
   output desc
+  output "\n"
+
   /let kn = strlen s0
   /let s: StringBuf = cast s0
   /let ss: StringBuf = alloca ()
@@ -202,8 +206,11 @@ make-random-fasta: (/String, /String, GeneList, UInt, UInt, Seed) -> Seed =
   \(id, desc, gene-list, count, n0, seed0) => /do
     /let pick: LineBuf  = alloca ()
     /let line-length = array-size pick - 1
+    output ">"
     output id
+    output " "
     output desc
+    output "\n"
     go (n0, seed0)
       /where
         go: (UInt, Seed) -> Seed = \(n, seed0) => /if

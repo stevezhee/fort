@@ -86,7 +86,7 @@ cast tb a = T tb (U.app (U.cast (tyT a) tb) $ unT a)
 
 output :: T a -> T ()
 output a = seqs_ [ hOutput (tyT a) $ tuple2 a stdout
-                 , hPutString (string "\n") stdout
+                 -- BAL: , hPutString (string "\n") stdout
                  ]
 
 stdout :: T Handle
@@ -120,7 +120,8 @@ hOutput ty = case ty of
                   in hPutF64 (unsafeCast tyF64 x) h
       _ -> ok $ \x h -> hOutput tyF64 $ tuple2 (cast tyF64 x) h
     TyInteger isSigned sz intTy -> case intTy of
-        TyChar -> ok $ \x h -> delim h "#\"" "\"" $ hPrintChar x h
+        -- BAL: TyChar -> ok $ \x h -> delim h "#\"" "\"" $ hPrintChar x h
+        TyChar -> ok hPrintChar
         TyEnum ss -> ok $ \x h ->
             let c : cs = [ (s, \_ -> putS s h) | s <- ss ]
             in
@@ -158,7 +159,8 @@ hOutput ty = case ty of
         in
             case_ tyUnit x (snd c) cs
     TyAddress ta _ addrTy -> case addrTy of
-        TyString -> ok $ \x h -> delim h "\"" "\"" $ hPrintString x h
+        TyString -> ok hPrintString
+        -- BAL: TyString -> ok $ \x h -> delim h "\"" "\"" $ hPrintString x h
         TyAddr -> case ta of
             TyRecord bs -> ok $ \x h -> delim h "{" "}" $
                 seqs_ [ prefixS h "; " $
