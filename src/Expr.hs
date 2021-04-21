@@ -272,13 +272,13 @@ hOutput = f Proxy
       where
         ta = tyFort proxy
 
-func :: (Ty a, Ty b) => Name -> U.UPat -> (E a -> E b) -> E (a -> b)
-func n pat = unop . U.func n pat
+func :: (Ty a, Ty b) => Bool -> Name -> U.UPat -> (E a -> E b) -> E (a -> b)
+func isMono n pat = unop . U.func isMono n pat
 
 -- BAL: unTLam?
 unTFun :: (Ty a, Ty b) => Name -> (Type -> T.T a -> T.T b) -> E (a -> b)
 unTFun n (f :: Type -> T.T a -> T.T b) =
-    func n [ "v" ] (\a -> T.unT $ f tb $ T.T ta a)
+    func False n [ "v" ] (\a -> T.unT $ f tb $ T.T ta a) -- BAL: isMono param needed?
   where
     ta = tyFort (Proxy :: Proxy a)
 
@@ -289,7 +289,7 @@ unTFun2 :: (Ty a, Ty b, Ty c)
         => Name
         -> (Type -> T.T a -> T.T b -> T.T c)
         -> E ((a, b) -> c)
-unTFun2 n (f :: Type -> T.T a -> T.T b -> T.T c) = func n [ "a", "b" ] $ \v ->
+unTFun2 n (f :: Type -> T.T a -> T.T b -> T.T c) = func True n [ "a", "b" ] $ \v -> -- BAL: make this polymorphic?  or take isMono param?
     let (a, b) = argTuple2 v in T.unT $ f tc (T.T ta a) (T.T tb b)
   where
     ta = tyFort (Proxy :: Proxy a)

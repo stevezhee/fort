@@ -126,7 +126,7 @@ ppDecls fn xs = vcat $
     , "main :: Prelude.IO ()"
     , "main = T.codegen" <+> pretty (show fn)
           <> ppListV [ "T.unE" <+> ppVar v
-                     | ExprDecl (ED (VarP v _) Lam{}) <- xs
+                     | ExprDecl (ED (VarP v mt) Lam{}) <- xs, isMonomorphic mt
                      ] -- BAL: process pattern, not just variable
     , ""
     ] ++ map ppTopDecl xs ++ map ppSize userSizes
@@ -134,6 +134,21 @@ ppDecls fn xs = vcat $
     userTypes = concatMap declTypes xs
 
     userSizes = sort $ nub $ concatMap typeSizes userTypes
+
+isMonomorphic :: Maybe Type -> Bool
+isMonomorphic mt = case mt of
+  Nothing -> True
+  Just t -> go t
+  where
+    go x = case x of
+      TyLam{} -> False
+      TyApp a b -> go a && go b
+      TyFun a b -> go a && go b
+      TyRecord bs -> and $ map (go . snd) bs
+      TyVariant bs -> and $ map (isMonomorphic . snd) bs
+      TyTuple bs -> and $ map go bs
+      TyVar _ -> False
+      _ -> True
 
 isOpExpr :: Expr -> Bool
 isOpExpr x = case x of
@@ -237,7 +252,7 @@ ppSize i
     | i `elem` [ 32, 64 ] = "type" <+> ppSizeCon i <+> "= T." <> ppSizeCon i
     | otherwise =
         vcat [ "data" <+> ppSizeCon i <+> "=" <+> ppSizeCon i
-             , ppInstance "T.Size" [ ppSizeCon i ] [ "size _ =" <+> pretty i ]
+             , ppInstance [] "T.Size" (ppSizeCon i) [ "size _ =" <+> pretty i ]
              ]
 
 ppSizeCon :: Int -> Doc ann
@@ -249,71 +264,101 @@ conToVarName = canonicalizeName . lowercase . unLoc
 isTyEnum :: [(Con, Maybe Type)] -> Bool
 isTyEnum = all ((==) Nothing . snd)
 
-ppInstance :: Doc ann -> [Doc ann] -> [Doc ann] -> Doc ann
-ppInstance a bs cs = "instance" <+> a <+> hcat (map parens bs) <+> vcatIndent "where" (vcat cs)
+ppInstance :: [Var] -> Doc ann -> Doc ann -> [Doc ann] -> Doc ann
+ppInstance vs a b cs =
+  ppConstraints "instance" (map ppVar vs) <+> a <+> b <+> vcatIndent "where" (vcat cs)
+
+ppConstraints :: Doc ann -> [Doc ann] -> Doc ann
+ppConstraints d vs = case vs of
+  [] -> d
+  _ -> d <+> ppTuple (map f vs) <+> "=>"
+  where
+    f v
+        | isSizeTyVar (show v) = "T.Size" <+> v
+        | otherwise = "T.Ty" <+> v
 
 tyAddress :: Type -> Type
-tyAddress = TyApp TyAddress
+tyAddress t = TyApp TyAddress $ TyTuple [t]
 
-ppTopDecl :: Decl -> Doc ann
-ppTopDecl x = case x of
-    TyDecl a (TyRecord bs) -> vcat $
-        [ "data" <+> ppCon a
-        , ppInstance "T.Ty"
-                     [ ppCon a ]
-                     [ "tyFort _ = T.TyRecord"
-                           <+> ppListV [ ppTuple [ stringifyName n
-                                                 , "T.tyFort" <+> ppProxy t
-                                                 ]
-                                       | (n, t) <- bs
-                                       ]
-                     ]
-        ] ++ [ vcat [ ppAscription (ppVar v) (Just $ TyFun (tyAddress $ TyCon a) (tyAddress t))
+tyCon :: Con -> [Var] -> Type
+tyCon x vs = foldl' TyApp (TyCon x) $ map TyVar vs
+
+-- BAL: check that no free variables exist in type
+ppTyDecl :: Con -> Type -> Doc ann
+ppTyDecl a = go []
+  where
+    go vs x = case x of
+      TyLam v t -> go (v : vs) t
+      TyRecord bs -> vcat $
+        [ "data" <+> ppConTyDecl a vs
+        , ppInstance vs "T.Ty"
+                      (ppConTy a vs)
+                      [ "tyFort _ = T.TyRecord"
+                            <+> ppListV [ ppTuple [ stringifyName n
+                                                  , "T.tyFort" <+> ppProxy t
+                                                  ]
+                                        | (n, t) <- bs
+                                        ]
+                      ]
+        ] ++ [ vcat [ ppAscriptionLines (ppVar v) (Just $ TyFun (tyAddress tc) (tyAddress t))
                           <+> "= T.indexField" <+> stringifyName v <+> pretty i -- BAL: rename to field_index or index_field
-                    , ppAscription ("setFieldValue_" <> ppVar v)
-                                   (Just $ TyFun (tyTuple [ t, TyCon a ])
-                                                 (TyCon a)) <+> "= T.setFieldValue"
+                    , ppAscriptionLines ("setFieldValue_" <> ppVar v)
+                                    (Just $ TyFun (tyTuple [ t, tc ]) tc) <+> "= T.setFieldValue"
                           <+> stringifyName v <+> pretty i
-                    , ppAscription ("set_" <> ppVar v)
-                                   (Just $ TyFun (tyTuple [ t, tyAddress $ TyCon a ])
-                                                 tyUnit) <+> "= T.setField"
+                    , ppAscriptionLines ("set_" <> ppVar v)
+                                    (Just $ TyFun (tyTuple [ t, tyAddress tc ])
+                                                  tyUnit) <+> "= T.setField"
                           <+> stringifyName v <+> pretty i
                     ]
-             | ((v, t), i) <- zip bs [ 0 :: Int .. ]
-             ]
-    TyDecl a (TyVariant bs)
+              | ((v, t), i) <- zip bs [ 0 :: Int .. ]
+              ]
+      TyVariant bs
         | isTyEnum bs -> vcat $
-            [ "data" <+> ppCon a
-            , ppInstance "T.Ty"
-                         [ ppCon a ]
-                         [ "tyFort _ = T.tyEnum" <+> constrs ]
-            ] ++ [ vcat [ pretty (conToVarName c) <+> ":: T.E" <+> ppCon a
+            [ "data" <+> ppConTyDecl a vs
+            , ppInstance vs "T.Ty"
+                          (ppConTy a vs)
+                          [ "tyFort _ = T.tyEnum" <+> constrs ]
+            ] ++ [ vcat [ pretty (conToVarName c) <+> ":: T.E" <+> ppConTy a vs
                         , pretty (conToVarName c) <+> "= T.enum"
                               <+> ppTuple [ stringifyName c, pretty i ]
                         , ppUnsafeCon a (c, t)
                         ]
-                 | ((c, t), i) <- alts
-                 ]
+                  | ((c, t), i) <- alts
+                  ]
 
         | otherwise -> vcat $
-            [ "data" <+> ppCon a
-            , ppInstance "T.Ty"
-                         [ ppCon a ]
-                         [ "tyFort _ = T.TyVariant"
-                               <> ppListV [ ppTuple [ stringifyName n
+            [ "data" <+> ppConTyDecl a vs
+            , ppInstance vs "T.Ty"
+                          (ppConTy a vs)
+                          [ "tyFort _ = T.TyVariant"
+                                <> ppListV [ ppTuple [ stringifyName n
                                                     , "T.tyFort" <+> ppProxy (fromMaybe tyUnit
                                                                                         mt)
                                                     ]
                                           | (n, mt) <- bs
                                           ]
-                         ]
+                          ]
             ] ++ map (ppInject (neededBitsList bs) a) alts
             ++ map (ppUnsafeCon a) bs
-      where
-        alts = zip bs [ 0 :: Int .. ]
+        where
+          alts = zip bs [ 0 :: Int .. ]
 
-        constrs = ppList (map (pretty . show . fst) bs)
-    TyDecl a b -> "type" <+> ppCon a <+> "=" <+> ppType b
+          constrs = ppList (map (pretty . show . fst) bs)
+      _ -> "type" <+> ppConTyDecl a vs <+> "=" <+> ppType x
+      where
+        tc = tyCon a $ reverse vs
+
+ppConTyDecl :: Con -> [Var] -> Doc ann
+ppConTyDecl x vs = hsep (ppCon x : map ppVar vs)
+
+ppConTy :: Con -> [Var] -> Doc ann
+ppConTy x vs = case vs of
+  [] -> ppCon x
+  _ -> parens $ ppConTyDecl x vs
+
+ppTopDecl :: Decl -> Doc ann
+ppTopDecl x = case x of
+    TyDecl a t -> ppTyDecl a t
     PrimDecl a b -> vcat [ ppAscription (ppVar a) $ Just b
                          , ppVar a <+> "=" <+> "T." <> pretty (show (ppVar a))
                          ]
@@ -356,13 +401,7 @@ ppAscriptionF f d mx = case mx of
     Nothing -> d
     Just x -> d <+> classes <+> "T.E" <+> parens (f x)
       where
-        classes = case tyVars x of
-            [] -> "::"
-            vs -> "::" <+> ppTuple (map g vs) <+> "=>"
-              where
-                g v
-                    | isSizeTyVar v = "T.Size" <+> pretty v
-                    | otherwise = "T.Ty" <+> pretty v
+        classes = ppConstraints "::" $ map pretty $ tyVars x
 
 isSizeTyVar :: String -> Bool
 isSizeTyVar v = take 2 v == "sz" -- BAL: hacky way to determine that it's a Size TyVar
@@ -399,18 +438,22 @@ ppLetIn :: Doc ann -> Doc ann -> Doc ann -> Doc ann
 ppLetIn x y z = vcatIndent "let" (x <+> "=" <+> y <+> vcatIndent "in" z)
 
 ppExprDecl :: Bool -> ExprDecl -> Doc ann
-ppExprDecl isTopLevel (ED (VarP v t) e) = case e of
+ppExprDecl isTopLevel (ED (VarP v mt) e) = case e of
     Lam a b
-        | isTopLevel -> lhs <+> "=" <+> "T.func" <+> rhs
-        | otherwise -> lhs <+> "=" <+> "T.callLocal" <+> stringifyName v
+        | isTopLevel -> lhs <+> "=" <+> "T.func" <+> "Prelude." <> pretty (isMonomorphic mt) <+> rhs
+        | otherwise -> lhs <+> "=" <+> "T.callLocal" <+> stringifyName v -- BAL: add polymorphic boolean here too(?)
       where
         rhs = n <+> stringifyPat a <+> ppLetBindLam a b
         n = stringifyName v
 
     _ -> lhs <+> "=" <+> ppExpr e
   where
-    lhs = ppAscription (ppVar v) t
+    lhs = ppAscriptionLines (ppVar v) mt
 ppExprDecl _ _ = impossible "ppExprDecl"
+
+ppAscriptionLines :: Doc ann -> Maybe Type -> Doc ann
+ppAscriptionLines x Nothing = x
+ppAscriptionLines x t = vcat [ppAscription x t, x]
 
 ppExprDeclLabelBody :: ExprDecl -> Maybe (Doc ann)
 ppExprDeclLabelBody x = case x of

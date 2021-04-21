@@ -206,7 +206,7 @@ ok f = classFunc tyUnit "hOutput" [ "a", "h" ] $ \v ->
         let (a, h) = argTuple2 v in f a h
 
 upTo :: Type -> (T UInt32 -> T ()) -> (T UInt32 -> T ())
-upTo ty f = func tyUnit ("upTo." ++ hashName ty) [ "n" ] $ \n ->
+upTo ty f = func tyUnit ("upTo." ++ hashName ty) [ "n" ] $ \n -> -- BAL: just make this polymorphic?
     let go = callLocal "go" tyUnit
     in
         where_ (go (uint 32 0))
@@ -215,7 +215,7 @@ upTo ty f = func tyUnit ("upTo." ++ hashName ty) [ "n" ] $ \n ->
                ]
 
 classFunc :: Type -> Name -> U.UPat -> (T a -> T b) -> (T a -> T b)
-classFunc tb n upat t a@(T ta _) =
+classFunc tb n upat t a@(T ta _) = -- BAL: account for polymorphic class functions?
     func tb (n ++ "." ++ hashName (TyFun ta tb)) upat t a
 
 argTuple2 :: T (a, b) -> (T a, T b)
@@ -276,7 +276,7 @@ string = T tyString . U.string
 
 func :: Type -> Name -> U.UPat -> (T a -> T b) -> (T a -> T b)
 func tb n upat f a@(T ta _) = T tb $
-    U.app (U.func n upat (unTLam ta f) ta tb) (unT a)
+    U.app (U.func True n upat (unTLam ta f) ta tb) (unT a) -- BAL: isMono?
 
 callLocal :: Name -> Type -> T a -> T b
 callLocal n tb a = T tb $ U.app (U.callLocal n (tyT a) tb) (unT a)

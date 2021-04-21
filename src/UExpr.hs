@@ -256,17 +256,21 @@ let_ upat x f ty = E $ LetE pat <$> unE x <*> unE (f $ patToExpr pat)
   where
     pat = fromUPat ty upat
 
-func :: Name -> UPat -> (E a -> E b) -> Type -> Type -> E (a -> b)
-func n pat f ta tb = E $ do
+func :: Bool -> Name -> UPat -> (E a -> E b) -> Type -> Type -> E (a -> b)
+func isMono n0 pat f ta tb = E $ do
     tbl <- gets funcs
     let nm = Nm (TyFun ta tb) n
     case HMS.lookup n tbl of
         Just _ -> pure ()
         Nothing -> do
-            lbl <- letFunc ta tb n pat f
-            modify' $ \st -> st { funcs = HMS.insert n lbl $ funcs st }
+            x <- letFunc ta tb n pat f
+            modify' $ \st -> st { funcs = HMS.insert n x $ funcs st }
     -- BAL: remove? unE (callE nm (Defn g) :: E (a -> b))
     unE (callE nm $ Internal Public)
+  where
+    n
+      | isMono = n0
+      | otherwise = n0 ++ "." ++ hashName (TyFun ta tb)
 
 instr :: Type -> Name -> ([Operand] -> Instruction) -> E a
 instr t s f = callE (Nm t s) (External f)

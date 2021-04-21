@@ -1,0 +1,95 @@
+Int = /Unsigned 32
+Double = /Floating 64
+Bool = /Bool
+  
+;; primitives
+add: (a, a) -> a
++ = add
+
+subtract: (a, a) -> a
+- = subtract
+
+greater-than-or-equals: (a, a) -> Bool
+>= = greater-than-or-equals
+
+output: a -> ()
+
+;; foo: a = (44 + 3) - 5
+
+alloca: () -> /Address a
+
+store: (/Address a, a) -> ()
+:= = store
+
+load: /Address a -> a
+
+index: (/Address (/Array sz a), Int) -> /Address a
+# = index
+
+Stack = \sz => \a => /Record
+  top: Int
+  contents: /Array sz a
+
+;; BAL: make sure and do for any parameterized types (/Record, /Enum, etc.) and for type synonyms (will this work?)
+;; BAL: check local functions to make sure polymorphism works (it probably doesn't but just change it like the top level functions i think)
+
+initStack: /Address (Stack sz a) -> () = \stck => /do
+  top stck := 0
+
+outputStack: /Address (Stack sz a) -> () = \stck => /do
+;; BAL: scope problem ... should be in scope in go ...  /let n = load (top stck)
+  output "["
+  go 0
+  /where
+    go: Int -> () = \i => /if
+      i >= load (top stck) = output "]\n"
+      _ = /do
+        output "; "
+        output (load ((contents stck) # i))
+        go (i + 1)
+
+push: (a, /Address (Stack sz a)) -> () = \(x, stck) => /do
+  ;; BAL: check for overflow
+  /let i = load (top stck)
+  (contents stck # i) := x
+  top stck := (i + 1)
+
+pop: /Address (Stack sz a) -> a = \stck => /do
+  ;; BAL: check for underflow
+  /let i = load (top stck) - 1
+  top stck := i
+  load (contents stck # i)
+
+main: () -> Int = \_ => /do
+  /let stckA: /Address (Stack 5 Int) = alloca ()
+  /let stckB: /Address (Stack 7 Double) = alloca ()
+  initStack stckA
+  outputStack stckA
+
+  push (42, stckA)
+  outputStack stckA
+
+  push (22, stckA)
+  outputStack stckA
+
+  /let x = pop stckA
+  output x
+  output "\n"
+  outputStack stckA
+
+  /let x = pop stckA
+  output x
+  output "\n"
+  outputStack stckA
+
+  initStack stckB
+  outputStack stckB
+
+  push (42, stckB)
+  outputStack stckB
+
+  ;; output (foo: Int)
+  ;; output "\n"
+  ;; output (foo: Double)
+  ;; output "\n"
+  0

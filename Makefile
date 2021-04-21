@@ -49,7 +49,7 @@ EXES=$(addsuffix .exe, $(filter-out $(NO_MAIN), $(FORT_FILES)))
 
 .PHONY: all n-body spectral-norm fasta fannkuch-redux mandelbrot
 
-all: mandelbrot fannkuch-redux fasta n-body spectral-norm $(O_FILES) $(EXES)
+all: test/poly.fort.exe # mandelbrot fannkuch-redux fasta n-body spectral-norm $(O_FILES) $(EXES)
 
 mandelbrot: mandelbrot.exe $(TEST_DIR)/mandelbrot.fort.exe
 	./mandelbrot.exe > t.pbm
