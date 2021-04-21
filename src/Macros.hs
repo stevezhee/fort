@@ -276,7 +276,7 @@ string = T tyString . U.string
 
 func :: Type -> Name -> U.UPat -> (T a -> T b) -> (T a -> T b)
 func tb n upat f a@(T ta _) = T tb $
-    U.app (U.func True n upat (unTLam ta f) ta tb) (unT a) -- BAL: isMono?
+    U.app (U.func n upat (unTLam ta f) ta tb) (unT a) -- BAL: isMono?
 
 callLocal :: Name -> Type -> T a -> T b
 callLocal n tb a = T tb $ U.app (U.callLocal n (tyT a) tb) (unT a)

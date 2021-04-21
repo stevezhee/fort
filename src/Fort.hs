@@ -287,8 +287,8 @@ tyCon x vs = foldl' TyApp (TyCon x) $ map TyVar vs
 ppTyDecl :: Con -> Type -> Doc ann
 ppTyDecl a = go []
   where
-    go vs x = case x of
-      TyLam v t -> go (v : vs) t
+    go vsr x = case x of
+      TyLam v t -> go (v : vsr) t
       TyRecord bs -> vcat $
         [ "data" <+> ppConTyDecl a vs
         , ppInstance vs "T.Ty"
@@ -346,7 +346,8 @@ ppTyDecl a = go []
           constrs = ppList (map (pretty . show . fst) bs)
       _ -> "type" <+> ppConTyDecl a vs <+> "=" <+> ppType x
       where
-        tc = tyCon a $ reverse vs
+        vs = reverse vsr
+        tc = tyCon a vs
 
 ppConTyDecl :: Con -> [Var] -> Doc ann
 ppConTyDecl x vs = hsep (ppCon x : map ppVar vs)
@@ -440,8 +441,8 @@ ppLetIn x y z = vcatIndent "let" (x <+> "=" <+> y <+> vcatIndent "in" z)
 ppExprDecl :: Bool -> ExprDecl -> Doc ann
 ppExprDecl isTopLevel (ED (VarP v mt) e) = case e of
     Lam a b
-        | isTopLevel -> lhs <+> "=" <+> "T.func" <+> "Prelude." <> pretty (isMonomorphic mt) <+> rhs
-        | otherwise -> lhs <+> "=" <+> "T.callLocal" <+> stringifyName v -- BAL: add polymorphic boolean here too(?)
+        | isTopLevel -> lhs <+> "=" <+> "T.func" <+> rhs
+        | otherwise -> lhs <+> "=" <+> "T.callLocal" <+> stringifyName v
       where
         rhs = n <+> stringifyPat a <+> ppLetBindLam a b
         n = stringifyName v
