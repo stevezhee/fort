@@ -258,27 +258,28 @@ hPrint :: Ty a => E ((a, Handle) -> ())
 hPrint = hOutput
 
 output :: Ty a => E (a -> ())
-output = f Proxy
-  where
-    f :: Ty a => Proxy a -> E (a -> ())
-    f proxy = unTFun ("aOutput." ++ hashName (tyFort proxy))
-                     (Prelude.const T.output)
+output = unTFun "aOutput" (Prelude.const T.output)
+-- output = f Proxy
+--   where
+--     f :: Ty a => Proxy a -> E (a -> ())
+--     f proxy = unTFun ("aOutput." ++ hashName (tyFort proxy))
 
 hOutput :: Ty a => E ((a, Handle) -> ())
 hOutput = f Proxy
   where
     f :: Ty a => Proxy a -> E ((a, Handle) -> ())
-    f proxy = unTFun ("hOutput." ++ hashName ta) (\_ -> T.hOutput ta)
+    -- f proxy = unTFun ("hOutput." ++ hashName ta) (\_ -> T.hOutput ta)
+    f proxy = unTFun "hOutput" (\_ -> T.hOutput ta)
       where
         ta = tyFort proxy
 
-func :: (Ty a, Ty b) => Name -> U.UPat -> (E a -> E b) -> E (a -> b)
-func n pat = unop . U.func n pat
+func :: (Ty a, Ty b) => Bool -> Name -> U.UPat -> (E a -> E b) -> E (a -> b)
+func noMangle n pat = unop . U.func noMangle n pat
 
 -- BAL: unTLam?
 unTFun :: (Ty a, Ty b) => Name -> (Type -> T.T a -> T.T b) -> E (a -> b)
 unTFun n (f :: Type -> T.T a -> T.T b) =
-    func n [ "v" ] (\a -> T.unT $ f tb $ T.T ta a)
+    func False n [ "v" ] (\a -> T.unT $ f tb $ T.T ta a)
   where
     ta = tyFort (Proxy :: Proxy a)
 
@@ -289,7 +290,7 @@ unTFun2 :: (Ty a, Ty b, Ty c)
         => Name
         -> (Type -> T.T a -> T.T b -> T.T c)
         -> E ((a, b) -> c)
-unTFun2 n (f :: Type -> T.T a -> T.T b -> T.T c) = func n [ "a", "b" ] $ \v ->
+unTFun2 n (f :: Type -> T.T a -> T.T b -> T.T c) = func False n [ "a", "b" ] $ \v ->
     let (a, b) = argTuple2 v in T.unT $ f tc (T.T ta a) (T.T tb b)
   where
     ta = tyFort (Proxy :: Proxy a)

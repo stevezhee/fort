@@ -82,6 +82,19 @@ instance Pretty Type where
     TyUnsigned -> "/Unsigned"
     TyFloating -> "/Floating"
 
+isMonomorphic :: Type -> Bool
+isMonomorphic x = case x of
+      TyLam{} -> False
+      TyApp a b -> go a && go b
+      TyFun a b -> go a && go b
+      TyRecord bs -> and $ map (go . snd) bs
+      TyVariant bs -> and $ map (maybe True isMonomorphic . snd) bs
+      TyTuple bs -> and $ map go bs
+      TyVar _ -> False
+      _ -> True
+  where
+    go = isMonomorphic
+
 tyUnit :: Type
 tyUnit = tyTuple []
 

@@ -205,18 +205,20 @@ ok :: (T a -> T Handle -> T ()) -> T (a, Handle) -> T ()
 ok f = classFunc tyUnit "hOutput" [ "a", "h" ] $ \v ->
         let (a, h) = argTuple2 v in f a h
 
-upTo :: Type -> (T UInt32 -> T ()) -> (T UInt32 -> T ())
-upTo ty f = func tyUnit ("upTo." ++ hashName ty) [ "n" ] $ \n -> -- BAL: just make this polymorphic?
-    let go = callLocal "go" tyUnit
-    in
-        where_ (go (uint 32 0))
-               [ letFunc tyUInt32 tyUnit "go" [ "i" ] $ \i ->
-                     if_ (i >= n) unit (seq (f i) (go (i + uint 32 1)))
-               ]
+-- upTo :: Type -> (T UInt32 -> T ()) -> (T UInt32 -> T ())
+-- upTo ty f = func tyUnit ("upTo." ++ hashName ty) [ "n" ] $ \n ->
+-- upTo ty f = func tyUnit "upTo" [ "n" ] $ \n ->
+--     let go = callLocal "go" tyUnit
+--     in
+--         where_ (go (uint 32 0))
+--                [ letFunc tyUInt32 tyUnit "go" [ "i" ] $ \i ->
+--                      if_ (i >= n) unit (seq (f i) (go (i + uint 32 1)))
+--                ]
 
 classFunc :: Type -> Name -> U.UPat -> (T a -> T b) -> (T a -> T b)
-classFunc tb n upat t a@(T ta _) = -- BAL: account for polymorphic class functions?
-    func tb (n ++ "." ++ hashName (TyFun ta tb)) upat t a
+classFunc tb n upat t a = func tb n upat t a
+-- classFunc tb n upat t a@(T ta _) = -- BAL: account for polymorphic class functions?
+    -- func tb (n ++ "." ++ hashName (TyFun ta tb)) upat t a
 
 argTuple2 :: T (a, b) -> (T a, T b)
 argTuple2 (T (TyTuple [ ta, tb ]) x) =
@@ -276,7 +278,7 @@ string = T tyString . U.string
 
 func :: Type -> Name -> U.UPat -> (T a -> T b) -> (T a -> T b)
 func tb n upat f a@(T ta _) = T tb $
-    U.app (U.func n upat (unTLam ta f) ta tb) (unT a) -- BAL: isMono?
+    U.app (U.func False n upat (unTLam ta f) ta tb) (unT a)
 
 callLocal :: Name -> Type -> T a -> T b
 callLocal n tb a = T tb $ U.app (U.callLocal n (tyT a) tb) (unT a)

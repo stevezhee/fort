@@ -126,7 +126,7 @@ ppDecls fn xs = vcat $
     , "main :: Prelude.IO ()"
     , "main = T.codegen" <+> pretty (show fn)
           <> ppListV [ "T.unE" <+> ppVar v
-                     | ExprDecl (ED (VarP v mt) Lam{}) <- xs, isMonomorphic mt
+                     | ExprDecl (ED (VarP v mt) Lam{}) <- xs, isNoMangle mt
                      ] -- BAL: process pattern, not just variable
     , ""
     ] ++ map ppTopDecl xs ++ map ppSize userSizes
@@ -135,20 +135,8 @@ ppDecls fn xs = vcat $
 
     userSizes = sort $ nub $ concatMap typeSizes userTypes
 
-isMonomorphic :: Maybe Type -> Bool
-isMonomorphic mt = case mt of
-  Nothing -> True
-  Just t -> go t
-  where
-    go x = case x of
-      TyLam{} -> False
-      TyApp a b -> go a && go b
-      TyFun a b -> go a && go b
-      TyRecord bs -> and $ map (go . snd) bs
-      TyVariant bs -> and $ map (isMonomorphic . snd) bs
-      TyTuple bs -> and $ map go bs
-      TyVar _ -> False
-      _ -> True
+isNoMangle :: Maybe Type -> Bool
+isNoMangle = maybe True isMonomorphic
 
 isOpExpr :: Expr -> Bool
 isOpExpr x = case x of
@@ -444,7 +432,7 @@ ppExprDecl isTopLevel (ED (VarP v mt) e) = case e of
         | isTopLevel -> lhs <+> "=" <+> "T.func" <+> rhs
         | otherwise -> lhs <+> "=" <+> "T.callLocal" <+> stringifyName v
       where
-        rhs = n <+> stringifyPat a <+> ppLetBindLam a b
+        rhs = "Prelude." <> pretty (isNoMangle mt) <+> n <+> stringifyPat a <+> ppLetBindLam a b
         n = stringifyName v
 
     _ -> lhs <+> "=" <+> ppExpr e

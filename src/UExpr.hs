@@ -256,8 +256,8 @@ let_ upat x f ty = E $ LetE pat <$> unE x <*> unE (f $ patToExpr pat)
   where
     pat = fromUPat ty upat
 
-func :: Name -> UPat -> (E a -> E b) -> Type -> Type -> E (a -> b)
-func n0 pat f ta tb = E $ do
+func :: Bool -> Name -> UPat -> (E a -> E b) -> Type -> Type -> E (a -> b)
+func noMangle n0 pat f ta tb = E $ do
     tbl <- gets funcs
     let nm = Nm (TyFun ta tb) n
     case HMS.lookup n tbl of
@@ -268,7 +268,8 @@ func n0 pat f ta tb = E $ do
     -- BAL: remove? unE (callE nm (Defn g) :: E (a -> b))
     unE (callE nm $ Internal Public)
   where
-    n = n0 ++ "." ++ hashName (TyFun ta tb)
+    n | noMangle = n0
+      | otherwise = n0 ++ "." ++ hashName (TyFun ta tb)
 
 instr :: Type -> Name -> ([Operand] -> Instruction) -> E a
 instr t s f = callE (Nm t s) (External f)
