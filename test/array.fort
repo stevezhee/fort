@@ -13,7 +13,7 @@ greater-than-or-equals: (a, a) -> /Bool
 load: /Address a -> a
 store: (/Address a, a) -> ()
 
-index: (/Address (/Array sz a), Idx) -> /Address a ;; where a is a primitive type
+index: (/Address (/Array sz a), Idx) -> /Address a
 output: a -> ()
 
 ;; code

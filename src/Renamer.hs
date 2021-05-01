@@ -29,7 +29,10 @@ subst tbl x = case x of
   TupleE bs -> TupleE <$> mapM f bs
   SwitchE a b cs ->
     SwitchE <$> f a <*> f b <*> sequence [ (t,) <$> f e | (t, e) <- cs ]
-  CallE a bs -> CallE a <$> mapM f bs
+  CallE (nm, ct) bs -> CallE (nm{ nName = vName v }, ct) <$> mapM f bs
+    where
+      v0 = V Local (nTy nm) (nName nm)
+      v = fromMaybe v0 (HMS.lookup v0 tbl)
   LetRecE bs c -> LetRecE <$> mapM (substFunc tbl) bs <*> f c
   LetE pat a b -> do
     pat' <- freshPat pat

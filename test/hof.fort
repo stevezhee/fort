@@ -1,0 +1,36 @@
+;; higher-order functions
+;; inline (beta reduce) hofs
+;; special closure type?
+;; user support for defunctionalization?
+
+Int = /Unsigned 32
+
+;; index: (/Address (/Array sz a), Idx) -> /Address a
+;; array-size: /Address (/Array sz a) -> Int
+
+output: a -> ()
+
+foo: (Int -> Int) -> Int = \f => f 42
+
+ten: Int -> Int = \_ => 10
+
+main: () -> Int = \_ => /do
+  foo ten
+
+;; bubble-sort: ((/Address a, /Address a) -> Bool, /Address (/Array sz a)) -> ()
+
+;; for-each: (/Address (/Array sz a), Int -> ()) -> (): \(arr, f) => \(arr, f) => go 0
+;;   /where
+;;     go: Int -> () = \i => /if
+;;       i < array-size arr = /do
+;;         f i
+;;         go (i + 1)
+;;       _ = ()
+
+;; up-to: (Int, Int -> ()) = \(n, f) => go 0
+;;   /where
+;;     go: Int -> () = \i => /if
+;;       i < n = /do
+;;         f i
+;;         go (i + 1)
+;;       _ = ()

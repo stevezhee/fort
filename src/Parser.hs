@@ -126,7 +126,8 @@ grammar = mdo
              <?> "record type")
         <|> (TyVariant
              <$> (reserved "/Enum" *> blockList pConOptionalAscription)
-             <?> "variant type") <|> (TySize <$> pSize <?> "sized type")
+             <?> "variant type")
+        <|> (TySize <$> pSize <?> "sized type")
         <|> (TyTuple <$> pTuple pType) <?> "tuple type"
     pAscription <- rule $ reserved ":" *> pType <?> "type ascription"
     pVarOptionalAscription <- rule ((,) <$> pVar <*> optional pAscription)

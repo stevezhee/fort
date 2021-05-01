@@ -299,7 +299,7 @@ instance Show Var where
 
 instance HasType Var where
   typeOf = vTy
-  
+
 instance Pretty Visibility where
   pretty = pretty . show
 
@@ -317,7 +317,7 @@ data Nm = Nm { nTy :: Type, nName :: Name }
 
 instance HasType Nm where
   typeOf = nTy
-  
+
 instance Ord Nm where
   x <= y = nName x <= nName y
 

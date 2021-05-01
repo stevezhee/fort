@@ -224,7 +224,8 @@ app (E x) (E y) = E $ do
             _ -> [ b ]
     case a of
         CallE n es -> pure $ CallE n (es ++ ps)
-        AtomE e -> pure $ AtomE e -- BAL: hack to implement array_size
+        AtomE (Var f) -> pure $ CallE (Nm (vTy f) (vName f), Internal Private) ps
+        AtomE (Int Unsigned 32 _) -> pure a -- BAL: hack to implement array_size
         _ -> impossible $ "app:" ++ show a
 
 readTag :: Type -> String -> Tag

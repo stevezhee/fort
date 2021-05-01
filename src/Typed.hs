@@ -48,24 +48,30 @@ codegen file ds = do
         else putStrFlush $ file ++ "->Typed->"
 
     let (fs, st) = runState (toFuncs ds) $ initSt file
+    let sTypeds = ppFuncs ppFunc fs
+    writeFile (file ++ ".typed") $ show sTypeds
     if verbose
         then do
-            print $ ppFuncs ppFunc fs
+            print sTypeds
             putStrLn "--- renamer (RNM) --------------"
         else putStrFlush "RNM->"
 
     let (fsR, stR) = runState (rename fs) $ st
+    let sRNMs = ppFuncs ppFunc fsR
+    writeFile (file ++ ".rnm") $ show sRNMs
     if verbose
         then do
-            print $ ppFuncs ppFunc fsR
+            print sRNMs
             putStrLn "--- a-normalization (ANF) --------------"
         else putStrFlush "ANF->"
 
     let (anfs :: [[AFunc]], st1) = runState (mapM toAFuncs fsR) stR
 
+    let sANFs = ppFuncs (vcat . ("---" :) . map ppAFunc) anfs
+    writeFile (file ++ ".anf") $ show sANFs
     if verbose
         then do
-            print $ ppFuncs (vcat . ("---" :) . map ppAFunc) anfs
+            print sANFs
         --     putStrLn "--- continuation passing style (CPS) ---"
         -- else putStrFlush "CPS->"
 

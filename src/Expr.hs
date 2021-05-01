@@ -74,11 +74,6 @@ alloca = unop U.alloca
 -- array_zeros :: (Size sz, Ty a) => E (Addr (Array sz a))
 -- array_zeros = value U.alloca
 
-array_size :: (Size sz, Ty a) => E (Addr (Array sz a) -> UInt32)
-array_size = unop $ \t _ -> case t of
-  TyAddress (TyArray n _) _ _ -> value $ \_ -> U.intE Unsigned 32 n
-  _ -> impossible "array_size"
-
 noDefault :: Ty b => E a -> E b
 noDefault _ = value U.unreachable
 
@@ -217,6 +212,11 @@ pow = binop U.pow
 
 -- max :: Ty a => E ((a, a) -> a)
 -- max = binop U.max
+
+array_size :: (Size sz, Ty a) => E (Addr (Array sz a) -> UInt32)
+array_size = unop $ \t _ -> case t of
+  TyAddress (TyArray n _) _ _ -> value $ \_ -> U.intE Unsigned 32 n
+  _ -> impossible "array_size"
 
 value :: Ty a => (Type -> e a) -> e a
 value (f :: Type -> e a) = go Proxy
