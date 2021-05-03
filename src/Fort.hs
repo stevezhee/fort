@@ -254,10 +254,10 @@ isTyEnum = all ((==) Nothing . snd)
 
 ppInstance :: [Var] -> Doc ann -> Doc ann -> [Doc ann] -> Doc ann
 ppInstance vs a b cs =
-  ppConstraints "instance" (map ppVar vs) <+> a <+> b <+> vcatIndent "where" (vcat cs)
+  ppConstraints (map ppVar vs) "instance" <+> a <+> b <+> vcatIndent "where" (vcat cs)
 
-ppConstraints :: Doc ann -> [Doc ann] -> Doc ann
-ppConstraints d vs = case vs of
+ppConstraints :: [Doc ann] -> Doc ann -> Doc ann
+ppConstraints vs d = case vs of
   [] -> d
   _ -> d <+> ppTuple (map f vs) <+> "=>"
   where
@@ -306,10 +306,10 @@ ppTyDecl a = go []
             , ppInstance vs "T.Ty"
                           (ppConTy a vs)
                           [ "tyFort _ = T.tyEnum" <+> constrs ]
-            ] ++ [ vcat [ pretty (conToVarName c) <+> ":: T.E" <+> ppConTy a vs
+            ] ++ [ vcat [ pretty (conToVarName c) <+> ppConstraints (map pretty vs) "::" <+> "T.E" <+> ppConTy a vs
                         , pretty (conToVarName c) <+> "= T.enum"
                               <+> ppTuple [ stringifyName c, pretty i ]
-                        , ppUnsafeCon a (c, t)
+                        , ppUnsafeCon tc (c, t)
                         ]
                   | ((c, t), i) <- alts
                   ]
@@ -326,8 +326,8 @@ ppTyDecl a = go []
                                           | (n, mt) <- bs
                                           ]
                           ]
-            ] ++ map (ppInject (neededBitsList bs) a) alts
-            ++ map (ppUnsafeCon a) bs
+            ] ++ map (ppInject (neededBitsList bs) tc) alts
+            ++ map (ppUnsafeCon tc) bs
         where
           alts = zip bs [ 0 :: Int .. ]
 
@@ -354,33 +354,44 @@ ppTopDecl x = case x of
     OpDecl a b -> parens (ppOp a) <+> "=" <+> ppVar b
     ExprDecl a -> ppExprDecl True a
 
-ppUnsafeCon :: Con -> (Con, Maybe Type) -> Doc ann
-ppUnsafeCon a (c, Nothing) =
-    vcat [ pretty (unsafeUnConName c) <+> ":: T.Ty a => T.E a -> T.E"
-               <+> ppCon a <+> "-> T.E a" -- BAL: put type in here
-         , pretty (unsafeUnConName c) <+> "= T.const"
+ppUnsafeCon :: Type -> (Con, Maybe Type) -> Doc ann
+ppUnsafeCon ty (c, mt) = case mt of
+  Nothing ->
+    vcat [ tdLhs <+> "T.E" <+> pretty tv <+> "-> T.E"
+               <+> parens (ppType ty) <+> "-> T.E" <+> pretty tv -- BAL: put type in here
+         , lhs <+> "T.const"
          ]
-ppUnsafeCon a (c, Just t) =
-    vcat [ pretty (unsafeUnConName c) <+> ":: T.Ty a => (T.E" <+> ppType t
-               <+> "-> T.E a) -> (T.E" <+> ppCon a <+> "-> T.E a)"
-         , pretty (unsafeUnConName c) <+> "= T.unsafeCon"
+  Just t ->
+    vcat [ tdLhs <+> "(T.E" <+> ppType t
+               <+> "-> T.E" <+> pretty tv <> ") -> (T.E" <+> parens (ppType ty) <+> "-> T.E" <+> pretty tv <> ")"
+         , lhs <+> "T.unsafeUnCon"
          ]
+  where
+    tdLhs = pretty (unsafeUnConName c) <+> ppConstraints (map pretty $ tv : tyVars ty) "::"
+    lhs = pretty (unsafeUnConName c) <+> "="
+    tv = fresh (tyVars ty)
+
+fresh :: [String] -> String
+fresh vs = head $ filter (\v -> not (v `elem` vs)) [ "a'" ++ show i | i <- [0 :: Int .. ] ]
 
 valSize :: Integer
 valSize = 64 -- BAL: compute this for each variant type
 
-ppInject :: Int -> Con -> ((Con, Maybe Type), Int) -> Doc ann
-ppInject tagsz a ((c, Nothing), i) =
-    vcat [ pretty (conToVarName c) <+> ":: T.E" <+> ppType (TyCon a)
-         , pretty (conToVarName c) <+> "= T.injectTag" <+> stringifyName c
-               <+> pretty tagsz <+> pretty valSize <+> pretty i
+ppInject :: Int -> Type -> ((Con, Maybe Type), Int) -> Doc ann
+ppInject tagsz ty ((c, mt), i) = case mt of
+  Nothing ->
+    vcat [ tdLhs <+> parens (ppType ty)
+         , lhs <+> "T.injectTag" <+> rhs
          ]
-ppInject tagsz a ((c, Just t), i) =
-    vcat [ pretty (conToVarName c) <+> ":: T.E"
-               <+> parens (ppType (TyFun t (TyCon a)))
-         , pretty (conToVarName c) <+> "= T.inject" <+> stringifyName c
-               <+> pretty tagsz <+> pretty valSize <+> pretty i
+  Just t ->
+    vcat [ tdLhs <+> parens (ppType (TyFun t ty))
+         , lhs <+> "T.inject" <+> rhs
          ]
+  where
+    tdLhs = pretty (conToVarName c) <+> ppConstraints (map pretty $ tyVars ty) "::" <+> "T.E"
+    lhs = pretty (conToVarName c) <+> "="
+    rhs = stringifyName c
+               <+> pretty tagsz <+> pretty valSize <+> pretty i
 
 ppAscription :: Doc ann -> Maybe Type -> Doc ann
 ppAscription = ppAscriptionF ppType
@@ -390,7 +401,7 @@ ppAscriptionF f d mx = case mx of
     Nothing -> d
     Just x -> d <+> classes <+> "T.E" <+> parens (f x)
       where
-        classes = ppConstraints "::" $ map pretty $ tyVars x
+        classes = ppConstraints (map pretty $ tyVars x) "::"
 
 isSizeTyVar :: String -> Bool
 isSizeTyVar v = take 2 v == "sz" -- BAL: hacky way to determine that it's a Size TyVar
@@ -580,7 +591,7 @@ ppSequence = go []
     f rs d = parens ("T.seqs" <> ppListV (map ppExpr $ reverse rs) <+> parens d)
 
 unsafeUnConName :: Con -> String
-unsafeUnConName c = "unsafe_" ++ unLoc c
+unsafeUnConName c = "unsafe_uncon_" ++ unLoc c
 
 -- BAL: error if default alt not in last position
 -- BAL: char, int, and string require default alt

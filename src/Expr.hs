@@ -320,8 +320,8 @@ record xs = value $ \ta -> T.unT (T.record ta (map (second mkTFun) xs))
 array :: (Size sz, Ty a) => sz -> [E a] -> E (Array sz a)
 array sz xs = value $ \ta -> T.unT (T.array sz ta $ map mkT xs)
 
-unsafeCon :: (Ty a, Ty b, Ty c) => (E b -> E c) -> E a -> E c
-unsafeCon (f :: E b -> E c) a = T.unT (T.unsafeCon (tyFort (Proxy :: Proxy b))
+unsafeUnCon :: (Ty a, Ty b, Ty c) => (E b -> E c) -> E a -> E c
+unsafeUnCon (f :: E b -> E c) a = T.unT (T.unsafeUnCon (tyFort (Proxy :: Proxy b))
                                                    (\b -> mkT (f (T.unT b)))
                                                    (mkT a))
 

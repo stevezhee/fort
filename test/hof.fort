@@ -4,18 +4,39 @@
 ;; user support for defunctionalization?
 
 Int = /Unsigned 32
+Bool = /Bool
 
 ;; index: (/Address (/Array sz a), Idx) -> /Address a
 ;; array-size: /Address (/Array sz a) -> Int
 
 output: a -> ()
+add: (a, a) -> a
++ = add
+less-than: (a, a) -> Bool
+< = less-than
 
-foo: (Int -> Int) -> Int = \f => f 42
+;; foo: (Int -> Int) -> Int = \f => f 42
 
-ten: Int -> Int = \_ => 10
+;; ten: Int -> Int = \_ => 10
+
+repeat-n: (Int, Closure Int ()) -> () = \(n, f) => go 0
+  /where
+    go: Int -> () = \i => /if
+      i < n = /do
+        eval (f, i)
+        go (i + 1)
+      _ = ()
+
+Closure = \a => \b => /Enum
+  OutputI
+
+eval: (Closure Int (), Int) -> () = \(clo, i) => /case clo /of
+  OutputI = output i
 
 main: () -> Int = \_ => /do
-  foo ten
+  repeat-n (4, outputI)
+  ;; repeat-n (4, outputI: Closure Int ())
+  0
 
 ;; bubble-sort: ((/Address a, /Address a) -> Bool, /Address (/Array sz a)) -> ()
 

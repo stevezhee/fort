@@ -92,8 +92,8 @@ output a = seqs_ [ hOutput (tyT a) $ tuple2 a stdout
 stdout :: T Handle
 stdout = T tyHandle U.stdout
 
-unsafeCon :: Type -> (T b -> T c) -> T a -> T c
-unsafeCon tb f x = f (cast tb (extractFieldValue "val" 1 tyUInt64 x))
+unsafeUnCon :: Type -> (T b -> T c) -> T a -> T c
+unsafeUnCon tb f x = f (cast tb (extractFieldValue "val" 1 tyUInt64 x))
 
 extractFieldValue :: String -> Integer -> Type -> T a -> T b
 extractFieldValue s i tb a = T tb (U.app (U.extractFieldValue s i (tyT a) tb) $ unT a)
@@ -154,7 +154,7 @@ hOutput ty = case ty of
                 | otherwise = \_ ->
                     seqs_ [ putS s h
                           , putS " " h
-                          , hOutput t $ tuple2 (unsafeCon t id x) h
+                          , hOutput t $ tuple2 (unsafeUnCon t id x) h
                           ]
         in
             case_ tyUnit x (snd c) cs

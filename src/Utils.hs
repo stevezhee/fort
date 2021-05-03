@@ -59,8 +59,8 @@ modNameOf :: FilePath -> String
 modNameOf = canonicalizeName . takeBaseName
 
 neededBits :: (Integral n, Integral m) => n -> m
-neededBits n = if n <= 0
-               then 0
+neededBits n = if n <= 1
+               then 1 -- BAL: should be 0 but then we need to make sure and optimize it away
                else ceiling (logBase 2 (fromInteger (toInteger n) :: Double))
 
 neededBitsList :: Integral n => [a] -> n
