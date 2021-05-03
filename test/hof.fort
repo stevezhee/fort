@@ -14,10 +14,42 @@ add: (a, a) -> a
 + = add
 less-than: (a, a) -> Bool
 < = less-than
+equals: (a, a) -> Bool
+== = equals
 
 ;; foo: (Int -> Int) -> Int = \f => f 42
 
 ;; ten: Int -> Int = \_ => 10
+
+String = /String
+
+eval: (Closure Int (), Int) -> () = \(clo, i) => /case clo /of
+  Output_i = /do
+    output i
+    output "\n"
+  Msg = \s => /do
+    output i
+    output " "
+    output s
+    output "\n"
+  Output_when = \n => /do
+    /if
+      i == n = /do
+        output i
+        output "\n"
+      _ = ()
+
+  ;; When_msg = \(n, s) => /do
+  ;;   output i
+  ;;   /if
+  ;;     i == n = output s
+  ;;     _ = ()
+
+Closure = \a => \b => /Enum
+  Output_i
+  Msg: String
+  Output_when: Int
+  When_msg: (Int, String)
 
 repeat-n: (Int, Closure Int ()) -> () = \(n, f) => go 0
   /where
@@ -27,15 +59,16 @@ repeat-n: (Int, Closure Int ()) -> () = \(n, f) => go 0
         go (i + 1)
       _ = ()
 
-Closure = \a => \b => /Enum
-  OutputI
-
-eval: (Closure Int (), Int) -> () = \(clo, i) => /case clo /of
-  OutputI = output i
-
 main: () -> Int = \_ => /do
-  repeat-n (4, outputI)
-  ;; repeat-n (4, outputI: Closure Int ())
+  repeat-n (4, output-i)
+  repeat-n (3, msg "hi there!")
+  repeat-n (5, output-when 2)
+
+;;  repeat-n (5, when-msg (2, "boom!\n"))
+  output "done\n"
+
+  ;; repeat-n (4, outputI: Closure Int ()) ;; BAL: fix parser to accept this type annotation
+
   0
 
 ;; bubble-sort: ((/Address a, /Address a) -> Bool, /Address (/Array sz a)) -> ()
