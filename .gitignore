@@ -10,6 +10,9 @@ fort.cabal
 *.s
 *.out
 *.gz
+*.anf
+*.rnm
+*.typed
 *.keep
 *.ll
 *.fort.hs
