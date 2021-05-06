@@ -124,10 +124,10 @@ ppDecls fn xs = vcat $
     , "import qualified Typed as T"
     , ""
     , "main :: Prelude.IO ()"
-    , "main = T.codegen" <+> pretty (show fn)
-          <> ppListV [ "T.unE" <+> ppVar v
+    , "main = T.codegen" <+> ppIndentListV (pretty (show fn))
+          [ "T.unE" <+> ppVar v
                      | ExprDecl (ED (VarP v mt) Lam{}) <- xs, isNoMangle mt
-                     ] -- BAL: process pattern, not just variable
+                 ] -- BAL: process pattern, not just variable
     , ""
     ] ++ map ppTopDecl xs ++ map ppSize userSizes
   where
@@ -281,8 +281,8 @@ ppTyDecl a = go []
         [ "data" <+> ppConTyDecl a vs
         , ppInstance vs "T.Ty"
                       (ppConTy a vs)
-                      [ "tyFort _ = T.TyRecord"
-                            <+> ppListV [ ppTuple [ stringifyName n
+                      [ ppIndentListV "tyFort _ = T.TyRecord"
+                            [ ppTuple [ stringifyName n
                                                   , "T.tyFort" <+> ppProxy t
                                                   ]
                                         | (n, t) <- bs
@@ -318,8 +318,8 @@ ppTyDecl a = go []
             [ "data" <+> ppConTyDecl a vs
             , ppInstance vs "T.Ty"
                           (ppConTy a vs)
-                          [ "tyFort _ = T.TyVariant"
-                                <> ppListV [ ppTuple [ stringifyName n
+                          [ ppIndentListV "tyFort _ = T.TyVariant"
+                                [ ppTuple [ stringifyName n
                                                     , "T.tyFort" <+> ppProxy (fromMaybe tyUnit
                                                                                         mt)
                                                     ]
@@ -530,20 +530,20 @@ ppExpr x = case x of
                                            (vcat [ parens (ppExpr b)
                                                  , parens (ppExpr $ If xs)
                                                  ]))
-    Case a bs -> parens ("T.case_" <+> ppExpr a <+> parens (ppExpr dflt)
-                         <> ppListV [ ppTuple [ ppAltPat c, ppAltCon c e ]
+    Case a bs -> parens ("T.case_" <+> ppExpr a <+> ppIndentListV (parens (ppExpr dflt))
+                         [ ppTuple [ ppAltPat c, ppAltCon c e ]
                                     | ((c, _t), e) <- alts
                                     ])
     -- BAL: ^ put this type somewhere...
       where
         (dflt, alts) = getDefault bs
     Where a bs -> ppWhere (map (ppExprDecl False) bs) $
-        parens ("T.where_" <+> parens (ppExpr a)
-                <> ppListV (mapMaybe ppExprDeclLabelBody bs))
+        parens ("T.where_" <+> ppIndentListV (parens (ppExpr a))
+                (mapMaybe ppExprDeclLabelBody bs))
     Record [] -> ppExpr unit
-    Record bs -> parens ("T.record" <> ppListV (map ppRecordField bs))
+    Record bs -> parens (ppIndentListV "T.record" $ map ppRecordField bs)
     Array [] -> error "arrays must contain at least one element"
-    Array bs -> parens ("T.array" <+> ppSizeCon (length bs) <+> ppListV (map ppExpr bs))
+    Array bs -> parens ("T.array" <+> ppIndentListV (ppSizeCon (length bs)) (map ppExpr bs))
 
 ppRecordField :: ((Var, Maybe Type), Expr) -> Doc ann
 ppRecordField ((x, mt), e) =
@@ -588,7 +588,7 @@ ppSequence = go []
                            <+> ppLetBindLam v (Sequence bs))
         Stmt e -> go (e : rs) bs
 
-    f rs d = parens ("T.seqs" <> ppListV (map ppExpr $ reverse rs) <+> parens d)
+    f rs d = parens (ppIndentListV "T.seqs" (map ppExpr $ reverse rs) <+> parens d)
 
 unsafeUnConName :: Con -> String
 unsafeUnConName c = "unsafe_uncon_" ++ unLoc c

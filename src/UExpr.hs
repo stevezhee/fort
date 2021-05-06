@@ -103,7 +103,7 @@ fromUPat :: Type -> UPat -> Pat
 fromUPat ty upat = case (unTupleTy ty, upat) of
     ([], [ v ]) -> [ V Local tyUnit v ]
     (_, [ v ]) -> [ V Local ty v ]
-    (tys, _) -> safeZipWith "fromUPat" (V Local) tys upat
+    (tys, _) -> safeZipWith ("fromUPat:" ++ show (ty, upat)) (V Local) tys upat
 
 char :: Char -> E Char_
 char = atomE . Char
@@ -245,13 +245,6 @@ readTag x s = (s, go x)
 callE :: Nm -> CallType -> E a
 callE n x = E $ pure $ CallE (n, x) []
 
-letFunc :: Type -> Type -> Name -> UPat -> (E a -> E b) -> M Func
-letFunc tyA tyB n upat f = Func nm pat <$> unE (f $ patToExpr pat)
-  where
-    nm = Nm (TyFun tyA tyB) n
-
-    pat = fromUPat tyA upat
-
 let_ :: UPat -> E a -> (E a -> E b) -> Type -> E b
 let_ upat x f ty = E $ LetE pat <$> unE x <*> unE (f $ patToExpr pat)
   where
@@ -263,6 +256,7 @@ func noMangle n0 pat f ta tb = E $ do
     let nm = Nm (TyFun ta tb) n
     case HMS.lookup n tbl of
         Just _ -> pure ()
+        -- Nothing -> trace "func" $ do
         Nothing -> do
             x <- letFunc ta tb n pat f
             modify' $ \st -> st { funcs = HMS.insert n x $ funcs st }
@@ -271,6 +265,14 @@ func noMangle n0 pat f ta tb = E $ do
   where
     n | noMangle = n0
       | otherwise = n0 ++ "." ++ hashName (TyFun ta tb)
+
+letFunc :: Type -> Type -> Name -> UPat -> (E a -> E b) -> M Func
+letFunc tyA tyB n upat f = Func nm pat <$> unE (f $ patToExpr pat)
+  where
+    nm = Nm (TyFun tyA tyB) n
+
+    pat = fromUPat tyA upat
+    -- pat = trace "letFunc" $ fromUPat tyA upat
 
 instr :: Type -> Name -> ([Operand] -> Instruction) -> E a
 instr t s f = callE (Nm t s) (External f)

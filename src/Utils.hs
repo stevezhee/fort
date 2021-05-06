@@ -92,8 +92,8 @@ ppList :: [Doc x] -> Doc x
 ppList = brackets . commaSep
 
 ppListV :: [Doc x] -> Doc x
-ppListV [] = " []"
-ppListV xs = line <> indent 2 (vcat [ "[" <+> commaSepV xs, "]" ])
+ppListV [] = "[]"
+ppListV xs = vcat [ "[" <+> commaSepV xs, "]" ]
 
 commaSep :: [Doc x] -> Doc x
 commaSep = hcat . intersperse ", "
@@ -109,3 +109,8 @@ safeHead s xs = case xs of
 
 vcatIndent :: Doc ann -> Doc ann -> Doc ann
 vcatIndent a b = vcat [ a, indent 2 b ]
+
+ppIndentListV :: Doc ann -> [Doc ann] -> Doc ann
+ppIndentListV a bs = case bs of
+  [] -> a <+> "[]"
+  _ -> vcatIndent a $ ppListV bs

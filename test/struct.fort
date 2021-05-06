@@ -3,14 +3,15 @@ Char = /Char
 Int = /Signed 32
 Int64 = /Signed 64
 
-MyStruct = /Record
-  x: Int
-  y: Char
-  z: Int64
+;; MyStruct = /Record
+;;   x: Int
+;;   y: Char
+;;   z: Int64
   
 MyStruct2 = /Record
-  a: Int
-  b: Int64
+  aa: Int
+  ;; bbb: Int64
+  cccc: (Int, Char)
 
 ;; primitives
 
@@ -23,36 +24,44 @@ output: a -> ()
 
 ;; code
 
-get-y: /Address MyStruct -> Char = \mystr => load (y mystr)
+;; get-y: /Address MyStruct -> Char = \mystr => load (y mystr)
 
-;; set-x: (Int, /Address MyStruct) -> () = \(i, mystr) => store (x mystr) i
+;; ;; set-x: (Int, /Address MyStruct) -> () = \(i, mystr) => store (x mystr) i
 
-bar: /Address MyStruct -> () = \mystr => () ;; /set mystr
-  ;; x = 24
-  ;; y = #"a"
+;; bar: /Address MyStruct -> () = \mystr => () ;; /set mystr
+;;   ;; x = 24
+;;   ;; y = #"a"
 
-blah: /Address MyStruct2 -> () = \mystr2 => set-a(42, mystr2)
+;; blah: /Address MyStruct2 -> () = \mystr2 => set-aa(42, mystr2)
 
-qux: MyStruct = /record
-  x = 42
-  y = #"z"
-  z = 0xff
+;; qux: MyStruct = /record
+;;   x = 42
+;;   y = #"z"
+;;   z = 0xff
 
 qux2: MyStruct2 = /record
-  a = 11
-  b = 0xdeadbeef
+  aa = 11
+  ;; bbb = 0xdeadbeef
+  cccc = (55, #"c")
+
+foo: () -> () = \_ => /do
+  /let p: /Address MyStruct2 = alloca ()
+  aa p := 42
+  cccc p := (44, #"c")
+  ()
 
 main: () -> Int = \_ => /do
-  /let quxp = alloca ()
-  store (quxp, qux)
-  /let qux2p = alloca ()
-  store (qux2p, qux2)
-  output quxp
-  output qux2p
-  bar quxp
-  blah qux2p
-  output (load quxp)
-  output (get-y quxp)
+;; ;;   /let quxp = alloca ()
+;; ;;   store (quxp, qux)
+;;   /let qux2p = alloca ()
+;;   store (qux2p, qux2)
+;; ;;   output quxp
+;;   output qux2p
+;; ;;   bar quxp
+;;   ;; blah qux2p
+;; ;;   output (load quxp)
+;; ;;   output (get-y quxp)
+  foo ()
   0
   
 ;; BAL: proposed syntax

@@ -17,7 +17,7 @@ IntMultArr = /Array 2 (/Array 3 Int) ;; multi-dimensional array [2][3] of int
 
 CharIntTuple = (Char, Int) ;; order is specified
 
-CharIntRecord = /Record ;; at struct where order is unspecified
+CharIntRecord = /Record ;; a struct where order is unspecified
   char: Char
   int: Int
 

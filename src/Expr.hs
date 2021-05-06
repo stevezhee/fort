@@ -273,6 +273,9 @@ hOutput = f Proxy
       where
         ta = tyFort proxy
 
+typeof :: Ty a => E (a -> Type)
+typeof = undefined
+
 func :: (Ty a, Ty b) => Bool -> Name -> U.UPat -> (E a -> E b) -> E (a -> b)
 func noMangle n pat = unop . U.func noMangle n pat
 
@@ -290,7 +293,7 @@ unTFun2 :: (Ty a, Ty b, Ty c)
         => Name
         -> (Type -> T.T a -> T.T b -> T.T c)
         -> E ((a, b) -> c)
-unTFun2 n (f :: Type -> T.T a -> T.T b -> T.T c) = func False n [ "a", "b" ] $ \v ->
+unTFun2 n (f :: Type -> T.T a -> T.T b -> T.T c) = func False n [ "a'", "b'" ] $ \v ->
     let (a, b) = argTuple2 v in T.unT $ f tc (T.T ta a) (T.T tb b)
   where
     ta = tyFort (Proxy :: Proxy a)

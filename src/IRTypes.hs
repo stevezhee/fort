@@ -212,7 +212,7 @@ tyTuple xs = TyTuple xs
 
 unTupleTy :: Type -> [Type]
 unTupleTy x = case x of
-    TyTuple bs -> concatMap unTupleTy bs
+    TyTuple bs -> bs -- BAL: we used to do this ... concatMap unTupleTy bs ... still needed anywhere?
     _ -> [ x ]
 
 returnTy :: Type -> Type

@@ -26,6 +26,8 @@ ALL_FORT_FILES=$(wildcard $(TEST_DIR)/*.fort)
 # EXCLUDE_FILES += $(TEST_DIR)/mandelbrot.fort
 # EXCLUDE_FILES += $(TEST_DIR)/n-body.fort
 EXCLUDE_FILES += $(TEST_DIR)/hof.fort
+EXCLUDE_FILES += $(TEST_DIR)/struct.fort
+EXCLUDE_FILES += $(TEST_DIR)/tuple.fort
 
 FORT_FILES=$(filter-out $(EXCLUDE_FILES), $(ALL_FORT_FILES))
 # FORT_FILES=$(TEST_DIR)/nestedif.fort
@@ -53,7 +55,11 @@ EXES=$(addsuffix .exe, $(filter-out $(NO_MAIN), $(FORT_FILES)))
 # all: test/fannkuch-redux.fort.exe
 # all: test/poly.fort.exe
 # all: test/array.fort.exe
-all: test/hof.fort.exe
+# all: test/hof.fort.exe
+# all: test/enum.fort.exe
+# all: test/struct.fort.exe
+# all: test/array.fort.exe
+all: test/tuple.fort.exe
 # all: mandelbrot fannkuch-redux fasta n-body spectral-norm $(O_FILES) $(EXES)
 
 mandelbrot: mandelbrot.exe $(TEST_DIR)/mandelbrot.fort.exe
