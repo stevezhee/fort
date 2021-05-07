@@ -12,6 +12,9 @@ import           Text.Regex.Applicative
 import Data.Text.Prettyprint.Doc
 -- import Data.Maybe
 import Utils
+import           Data.Hashable
+import Data.Maybe
+import Data.List
 
 type Tok = RE Char String
 
@@ -61,6 +64,51 @@ data Type = TyApp Type Type
           | TyUnsigned
           | TyFloating
     deriving ( Show, Eq )
+
+instance Hashable Type where
+  hashWithSalt i = hashWithSalt i . show . pretty . canonicalizeType
+
+-- BAL: fixme - reduce TyLam/TyApps
+canonicalizeType :: Type -> Type
+canonicalizeType t0 = go t0
+  where
+    go x = case x of
+      TyApp a b    -> TyApp (go a) (go b)
+      TyTuple ts   -> TyTuple $ map go ts
+      TyFun a b    -> TyFun (go a) (go b)
+      TyRecord bs  -> TyRecord [ (v, go t) | (v, t) <- bs ]
+      TyVariant bs -> TyVariant [ (c, fmap go mt) | (c, mt) <- bs ]
+      TyLam v t    -> TyLam (rename v) $ go t
+      TyVar v      -> TyVar $ rename v
+      _ -> x
+    rename (L p s)
+      | isSizeTyVar s = case lookup s szTbl of
+          Nothing -> impossible "unknown size type variable"
+          Just s' -> L p s'
+      | otherwise = case lookup s vsTbl of
+          Nothing -> impossible "unknown type variable"
+          Just s' -> L p s'
+
+    vsTbl = zip tvs ("a" : [ "a'" ++ show i | i <- [ 0 :: Int .. ] ])
+    szTbl = zip szs ("sz" : [ "sz'" ++ show i | i <- [ 0 :: Int .. ] ])
+    (szs, tvs) = partition isSizeTyVar $ tyVars t0
+
+isSizeTyVar :: String -> Bool
+isSizeTyVar v = take 2 v == "sz" -- BAL: hacky way to determine that it's a Size TyVar
+
+-- BAL: fixme - reduce TyLam/TyApps
+tyVars :: Type -> [String]
+tyVars = nub . map unLoc . go
+  where
+    go x = case x of
+      TyApp a b    -> go a ++ go b
+      TyTuple ts   -> concatMap go ts
+      TyFun a b    -> go a ++ go b
+      TyRecord bs  -> concatMap go $ map snd bs
+      TyVariant bs -> concatMap go $ catMaybes $ map snd bs
+      TyLam v t -> v : go t
+      TyVar v -> [v]
+      _ -> []
 
 instance Pretty Type where
   pretty x = case x of

@@ -25,6 +25,7 @@ import           Text.Earley               hiding ( satisfy )
 
 import           Utils
 import Control.Monad
+import qualified Data.HashMap.Strict        as HMS
 
 parseAndCodeGen :: FilePath -> IO ()
 parseAndCodeGen fn = do
@@ -112,6 +113,7 @@ ppDecls fn xs = vcat $
     , "{-# LANGUAGE ScopedTypeVariables #-}"
     , "{-# LANGUAGE RankNTypes #-}"
     , "{-# LANGUAGE NoMonomorphismRestriction #-}"
+    , "{-# LANGUAGE FlexibleInstances #-}"
     , ""
     , "{-# OPTIONS_GHC -fno-warn-missing-signatures #-}"
     , "{-# OPTIONS_GHC -fno-warn-unused-imports #-}"
@@ -126,14 +128,82 @@ ppDecls fn xs = vcat $
     , "main :: Prelude.IO ()"
     , "main = T.codegen" <+> ppIndentListV (pretty (show fn))
           [ "T.unE" <+> ppVar v
-                     | ExprDecl (ED (VarP v mt) Lam{}) <- xs, isNoMangle mt
-                 ] -- BAL: process pattern, not just variable
+                     | ED (VarP v mt) Lam{} <- eDs, isNoMangle mt ] -- BAL: process pattern, not just variable
     , ""
-    ] ++ map ppTopDecl xs ++ map ppSize userSizes
+    , ppOverloadClass $ HMS.toList overDs
+    ]
+    ++ map ppSize userSizes
+    ++ map ppTyDecl tys
+    ++ map ppOpDecl ops
+    ++ map ppPrimDecl prims
+    ++ map (ppExprDecl True) eDs
+    ++ map ppOverloadInstance (HMS.toList overEds)
   where
     userTypes = concatMap declTypes xs
 
     userSizes = sort $ nub $ concatMap typeSizes userTypes
+
+    (tys, ops, overDs, prims, overEds, eDs) = partitionDecls xs
+
+ppOverloadClass :: [(String, Type)] -> Doc ann
+ppOverloadClass xs = vcatIndent "class Overloaded a where" $ vcat $ map f xs
+  where
+    f (v, t) = pretty v <+> "::" <+> "T.E" <+> parens (ppType $ canonicalizeType t)
+
+ppOverloadInstance :: (Type, [(Var, Expr)]) -> Doc ann
+ppOverloadInstance (t, ds) =
+  ppInstance (map pretty $ tyVars t) "Overloaded" (ppType t) $ map ppOverloadExpr ds
+
+ppOpDecl (a, b) = parens (ppOp a) <+> "=" <+> ppVar b
+ppPrimDecl (v, t) = vcat [ ppAscription (ppVar v) $ Just t
+                         , ppVar v <+> "=" <+> "T." <> pretty (show (ppVar v))
+                         ]
+
+partitionDecls :: [Decl] -> ([(Con, Type)], [(Op, Var)], HMS.HashMap String Type, [(Var, Type)], HMS.HashMap Type [(Var, Expr)], [ExprDecl])
+partitionDecls xs0 = go [] [] mempty [] mempty [] xs0
+  where
+    go bs cs ds es fs gs xs = case xs of
+      [] -> (bs, cs, ds, es, fs, gs)
+      y : ys -> case y of
+        TyDecl c t -> go ((c, t) : bs) cs ds es fs gs ys
+        OpDecl o v -> go bs ((o,v) : cs) ds es fs gs ys
+        PrimDecl v t
+          | isOverload v -> go bs cs (HMS.insert (unLoc v) t ds) es fs gs ys
+          | otherwise    -> go bs cs ds ((v,t) : es) fs gs ys
+        ExprDecl ed@(ED p e) -> case p of
+          VarP v (Just t) | Just ty <- HMS.lookup (unLoc v) overloads -> go bs cs ds es (HMS.insertWith (++) (instanceMatch ty t) [(v, e)] fs) gs ys
+          _ -> go bs cs ds es fs (ed : gs) ys
+    vs = [ unLoc v | ExprDecl (ED (VarP v (Just _)) _) <- xs0 ]
+    overloads = HMS.fromList [ (unLoc v, t) | PrimDecl v t <- xs0, unLoc v `elem` vs ]
+    isOverload v = unLoc v `HMS.member` overloads
+
+instanceMatch :: Type -> Type -> Type
+instanceMatch classTy instTy = case nub $ go (canonicalizeType classTy) (canonicalizeType instTy) of
+  [t] -> t
+  _ -> error "multiple instance type patterns"
+  where
+    go cl inst = case (cl, inst) of
+      (TyVar a, TyVar b)
+        | unLoc a == unLoc b -> []
+        | otherwise -> error "unable to match user instance type variables"
+      (TyVar a, _) -> [inst]
+      (TyApp a b, TyApp c d) -> go a c ++ go b d
+      (TyFun a b, TyFun c d) -> go a c ++ go b d
+    -- (TyRecord [(Var, Type)], TyRecord [(Var, Type)]) ->
+    -- (TyVariant [(Con, Maybe Type)], TyVariant [(Con, Maybe Type)]) ->
+      (TyTuple bs, TyTuple cs) -> concatMap (uncurry go) $ safeZip "instanceMatch" bs cs
+      (TyLam a b, TyLam c d) | unLoc a == unLoc c -> go b d
+      (TyCon a, TyCon b) | unLoc a == unLoc b -> []
+      (TySize a, TySize b) | unLoc a == unLoc b -> []
+      (TyAddress, TyAddress) -> []
+      (TyArray, TyArray) -> []
+      (TySigned, TySigned) -> []
+      (TyChar, TyChar) -> []
+      (TyBool, TyBool) -> []
+      (TyString, TyString) -> []
+      (TyUnsigned, TyUnsigned) -> []
+      (TyFloating, TyFloating) -> []
+      _ -> error "unable to match user instance"
 
 isNoMangle :: Maybe Type -> Bool
 isNoMangle = maybe True isMonomorphic
@@ -252,18 +322,21 @@ conToVarName = canonicalizeName . lowercase . unLoc
 isTyEnum :: [(Con, Maybe Type)] -> Bool
 isTyEnum = all ((==) Nothing . snd)
 
-ppInstance :: [Var] -> Doc ann -> Doc ann -> [Doc ann] -> Doc ann
+ppInstance :: [Doc ann] -> Doc ann -> Doc ann -> [Doc ann] -> Doc ann
 ppInstance vs a b cs =
-  ppConstraints (map ppVar vs) "instance" <+> a <+> b <+> vcatIndent "where" (vcat cs)
+  ppConstraints ["T.Ty", "Overloaded"] vs "instance" <+> a <+> parens b <+> vcatIndent "where" (vcat cs)
 
-ppConstraints :: [Doc ann] -> Doc ann -> Doc ann
-ppConstraints vs d = case vs of
+ppConstraints :: [String] -> [Doc ann] -> Doc ann -> Doc ann
+ppConstraints cs vs d = case vs of
   [] -> d
-  _ -> d <+> ppTuple (map f vs) <+> "=>"
+  _ -> d <+> ppTuple (concatMap f vs) <+> "=>"
   where
     f v
-        | isSizeTyVar (show v) = "T.Size" <+> v
-        | otherwise = "T.Ty" <+> v
+        | isSizeTyVar (show v) = ["T.Size" <+> v]
+        | otherwise = [ pretty c <+> v | c <- cs ]
+
+ppConstraints_ :: [Doc ann] -> Doc ann -> Doc ann
+ppConstraints_ = ppConstraints ["T.Ty"]
 
 tyAddress :: Type -> Type
 tyAddress t = TyApp TyAddress $ TyTuple [t]
@@ -272,14 +345,14 @@ tyCon :: Con -> [Var] -> Type
 tyCon x vs = foldl' TyApp (TyCon x) $ map TyVar vs
 
 -- BAL: check that no free variables exist in type
-ppTyDecl :: Con -> Type -> Doc ann
-ppTyDecl a = go []
+ppTyDecl :: (Con, Type) -> Doc ann
+ppTyDecl (a, t0) = go [] t0
   where
     go vsr x = case x of
       TyLam v t -> go (v : vsr) t
       TyRecord bs -> vcat $
         [ "data" <+> ppConTyDecl a vs
-        , ppInstance vs "T.Ty"
+        , ppInstance (map ppVar vs) "T.Ty"
                       (ppConTy a vs)
                       [ ppIndentListV "tyFort _ = T.TyRecord"
                             [ ppTuple [ stringifyName n
@@ -303,10 +376,10 @@ ppTyDecl a = go []
       TyVariant bs
         | isTyEnum bs -> vcat $
             [ "data" <+> ppConTyDecl a vs
-            , ppInstance vs "T.Ty"
+            , ppInstance (map ppVar vs) "T.Ty"
                           (ppConTy a vs)
                           [ "tyFort _ = T.tyEnum" <+> constrs ]
-            ] ++ [ vcat [ pretty (conToVarName c) <+> ppConstraints (map pretty vs) "::" <+> "T.E" <+> ppConTy a vs
+            ] ++ [ vcat [ pretty (conToVarName c) <+> ppConstraints_ (map pretty vs) "::" <+> "T.E" <+> ppConTy a vs
                         , pretty (conToVarName c) <+> "= T.enum"
                               <+> ppTuple [ stringifyName c, pretty i ]
                         , ppUnsafeCon tc (c, t)
@@ -316,7 +389,7 @@ ppTyDecl a = go []
 
         | otherwise -> vcat $
             [ "data" <+> ppConTyDecl a vs
-            , ppInstance vs "T.Ty"
+            , ppInstance (map ppVar vs) "T.Ty"
                           (ppConTy a vs)
                           [ ppIndentListV "tyFort _ = T.TyVariant"
                                 [ ppTuple [ stringifyName n
@@ -345,14 +418,8 @@ ppConTy x vs = case vs of
   [] -> ppCon x
   _ -> parens $ ppConTyDecl x vs
 
-ppTopDecl :: Decl -> Doc ann
-ppTopDecl x = case x of
-    TyDecl a t -> ppTyDecl a t
-    PrimDecl a b -> vcat [ ppAscription (ppVar a) $ Just b
-                         , ppVar a <+> "=" <+> "T." <> pretty (show (ppVar a))
-                         ]
-    OpDecl a b -> parens (ppOp a) <+> "=" <+> ppVar b
-    ExprDecl a -> ppExprDecl True a
+ppOverloadDecl :: (Var, Type) -> Doc ann
+ppOverloadDecl (v, t) = indent 2 $ ppAscription (ppVar v) $ Just t
 
 ppUnsafeCon :: Type -> (Con, Maybe Type) -> Doc ann
 ppUnsafeCon ty (c, mt) = case mt of
@@ -367,7 +434,7 @@ ppUnsafeCon ty (c, mt) = case mt of
          , lhs <+> "T.unsafeUnCon"
          ]
   where
-    tdLhs = pretty (unsafeUnConName c) <+> ppConstraints (map pretty $ tv : tyVars ty) "::"
+    tdLhs = pretty (unsafeUnConName c) <+> ppConstraints_ (map pretty $ tv : tyVars ty) "::"
     lhs = pretty (unsafeUnConName c) <+> "="
     tv = fresh (tyVars ty)
 
@@ -388,45 +455,17 @@ ppInject tagsz ty ((c, mt), i) = case mt of
          , lhs <+> "T.inject" <+> rhs
          ]
   where
-    tdLhs = pretty (conToVarName c) <+> ppConstraints (map pretty $ tyVars ty) "::" <+> "T.E"
+    tdLhs = pretty (conToVarName c) <+> ppConstraints_ (map pretty $ tyVars ty) "::" <+> "T.E"
     lhs = pretty (conToVarName c) <+> "="
     rhs = stringifyName c
                <+> pretty tagsz <+> pretty valSize <+> pretty i
 
 ppAscription :: Doc ann -> Maybe Type -> Doc ann
-ppAscription = ppAscriptionF ppType
-
-ppAscriptionF :: (Type -> Doc ann) -> Doc ann -> Maybe Type -> Doc ann
-ppAscriptionF f d mx = case mx of
-    Nothing -> d
-    Just x -> d <+> classes <+> "T.E" <+> parens (f x)
-      where
-        classes = ppConstraints (map pretty $ tyVars x) "::"
-
-isSizeTyVar :: String -> Bool
-isSizeTyVar v = take 2 v == "sz" -- BAL: hacky way to determine that it's a Size TyVar
-
-tyVars :: Type -> [String]
-tyVars = sort . nub . go
-  where
-    go x = case x of
-        TyVar v -> [ unLoc v ]
-        TyApp a b -> go a ++ go b
-        TyLam v a -> filter (unLoc v /=) (go a)
-        TyFun a b -> go a ++ go b
-        TyRecord bs -> concatMap (go . snd) bs
-        TyVariant bs -> concatMap go $ mapMaybe snd bs
-        TyTuple bs -> concatMap go bs
-        TyCon{} -> []
-        TySize{} -> []
-        TyAddress -> []
-        TyArray -> []
-        TySigned -> []
-        TyUnsigned -> []
-        TyBool -> []
-        TyChar -> []
-        TyString -> []
-        TyFloating -> []
+ppAscription d mx = case mx of
+      Nothing -> d
+      Just x -> d <+> classes <+> "T.E" <+> parens (ppType x)
+        where
+          classes = ppConstraints_ (map pretty $ tyVars x) "::"
 
 stringifyName :: L String -> Doc ann
 stringifyName = pretty . show . canonicalizeName . show . ppToken
@@ -437,18 +476,25 @@ ppWhere ys x = parens $ vcat [ vcatIndent "let" (vcat ys), "in", x ]
 ppLetIn :: Doc ann -> Doc ann -> Doc ann -> Doc ann
 ppLetIn x y z = vcatIndent "let" (x <+> "=" <+> y <+> vcatIndent "in" z)
 
+ppOverloadExpr :: (Var, Expr) -> Doc ann
+ppOverloadExpr (v, x) = case x of
+  Lam pat e -> indent 2 $ ppVar v <+> ppLamRHS False v pat e
+  _ -> error $ "not currently handling non-lambda overloads:" ++ show v
+
+ppLamRHS mono v pat e =
+  "=" <+> "T.func" <+> "Prelude." <> pretty mono <+> n <+> stringifyPat pat <+> ppLetBindLam pat e
+  where
+    n = stringifyName v
+
 ppExprDecl :: Bool -> ExprDecl -> Doc ann
 ppExprDecl isTopLevel (ED (VarP v mt) e) = case e of
     Lam a b
-        | isTopLevel -> lhs <+> "=" <+> "T.func" <+> rhs
+        | isTopLevel -> lhs <+> ppLamRHS (isNoMangle mt) v a b
         | otherwise -> lhs <+> "=" <+> "T.callLocal" <+> stringifyName v
-      where
-        rhs = "Prelude." <> pretty (isNoMangle mt) <+> n <+> stringifyPat a <+> ppLetBindLam a b
-        n = stringifyName v
-
     _ -> lhs <+> "=" <+> ppExpr e
   where
     lhs = ppAscriptionLines (ppVar v) mt
+
 ppExprDecl _ _ = impossible "ppExprDecl"
 
 ppAscriptionLines :: Doc ann -> Maybe Type -> Doc ann
@@ -619,4 +665,3 @@ ppPrim x = case x of
     IntL a -> parens ("T.int" <+> parens (pretty (readIntLit (unLoc a))))
     CharL a -> parens ("T.char" <+> pretty (show (unLoc a)))
     FloatL a -> parens ("T.floating" <+> parens (pretty (read (unLoc a) :: Double)))
-
